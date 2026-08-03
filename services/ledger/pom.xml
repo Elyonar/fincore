@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.elyonar</groupId>
+        <artifactId>fincore</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
+        <relativePath>../../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>ledger</artifactId>
+    <name>fincore :: ledger</name>
+    <description>
+        Ledger Service — the crown jewel (PRD §4.1). Owns the chart of accounts, postings,
+        balances, idempotency registry, and invariant checks. Double-entry, immutable,
+        idempotent. Never contains fee logic, product rules, external calls, or orchestration.
+    </description>
+
+    <!--
+        Dependencies are intentionally minimal while the service is a skeleton.
+        Web/JDBC/Flyway/PostgreSQL arrive with the first implementation commit,
+        after the design in docs/design.md is agreed.
+    -->
+    <dependencies>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+
+        <!--
+            Actuator gives the container a real readiness/liveness signal, so
+            compose and any future orchestrator wait for "actually serving"
+            rather than "process started". Domain endpoints arrive with the
+            implementation (services/ledger/docs/api.md).
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-devtools</artifactId>
+            <scope>runtime</scope>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-docker-compose</artifactId>
+            <scope>runtime</scope>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!--
+            ArchUnit turns the AGENTS.md hard rules into failing builds instead
+            of review comments. A contributor (human or AI) cannot argue with a
+            red test; they can argue with a paragraph.
+        -->
+        <dependency>
+            <groupId>com.tngtech.archunit</groupId>
+            <artifactId>archunit-junit5</artifactId>
+            <!-- 1.4.x or newer: earlier ASM cannot read Java 25 bytecode (major 69)
+                 and silently imports zero classes, so every rule passes vacuously. -->
+            <version>1.4.1</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+
+</project>

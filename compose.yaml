@@ -1,0 +1,62 @@
+# Local development stack.
+#
+#   docker compose up --build      # database + ledger, both containerised
+#   docker compose up -d postgres  # database only, for running the app from an IDE
+#
+# Spring Boot's docker-compose support starts the `postgres` service
+# automatically when the app runs on a dev machine rather than in a container,
+# which is why the database is also useful on its own.
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: fincore
+      POSTGRES_PASSWORD: fincore
+      POSTGRES_DB: ledger
+    ports:
+      # Deliberately not 5432. Nearly every developer machine already has
+      # something on the default port, and a clash here fails the whole stack
+      # for a reason that has nothing to do with fincore. The host port only
+      # matters when running the app from an IDE — the ledger container reaches
+      # the database over the compose network as `postgres:5432` either way.
+      #   FINCORE_POSTGRES_PORT=5432 docker compose up   # if you want the usual one
+      - "${FINCORE_POSTGRES_PORT:-55432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # `pg_isready` on its own reports true during init, while the server is
+      # briefly up on a temporary socket. Naming the user and database makes the
+      # check mean "ready for *this* application".
+      test: ["CMD-SHELL", "pg_isready -U fincore -d ledger"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  ledger:
+    build:
+      # Root context: the Dockerfile builds through the Maven reactor, so it
+      # needs the parent pom and the wrapper.
+      context: .
+      dockerfile: services/ledger/Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/ledger
+      SPRING_DATASOURCE_USERNAME: fincore
+      SPRING_DATASOURCE_PASSWORD: fincore
+      # A container is not a dev machine; it must never start its own database
+      # sidecar.
+      SPRING_DOCKER_COMPOSE_ENABLED: "false"
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/actuator/health/readiness | grep -q '\"status\":\"UP\"'"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+volumes:
+  pgdata:

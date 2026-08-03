@@ -1,0 +1,13 @@
+# <type>(<scope>): <subject>   [<=72 chars, imperative: "add", not "added"]
+#
+# types:  feat fix test docs refactor perf build ci chore revert
+# scopes: ledger libs adr docs repo deps   (one scope per service as they arrive)
+#
+# ---- body: WHY, not what (diff shows what). Wrap at 72. ----------------
+
+
+# ---- footer ------------------------------------------------------------
+# BREAKING CHANGE: <description>          (and add ! after scope in header)
+# Refs: #<issue>   Closes: #<issue>   ADR: <number>
+#
+# Full convention: docs/conventions/commits.md

@@ -1,0 +1,94 @@
+name: CI
+
+on:
+  push:
+    # Integration branches are built on every push, not only via PR: a merge
+    # commit can break a branch even when each PR into it was green.
+    branches:
+      - main
+      - 'feature/**'
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    # Every ledger suite runs against real PostgreSQL — never an in-memory
+    # substitute. The locking, trigger, constraint and RLS behaviour under
+    # test *is* PostgreSQL's (services/ledger/docs/testing.md).
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: fincore
+          POSTGRES_PASSWORD: fincore
+          POSTGRES_DB: ledger
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U fincore -d ledger"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    env:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/ledger
+      SPRING_DATASOURCE_USERNAME: fincore
+      SPRING_DATASOURCE_PASSWORD: fincore
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Java 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+
+      - name: Build & test
+        run: ./mvnw --batch-mode verify
+
+  # An AGREED design is a contract. If a PR edits one without recording the
+  # amendment, the convention in docs/conventions/design-changes.md is being
+  # skipped — so the build says so, rather than a reviewer having to notice.
+  design-changelog:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Amended design docs require a CHANGELOG entry
+        run: |
+          set -euo pipefail
+          base="origin/${{ github.base_ref }}"
+          changed="$(git diff --name-only "$base"...HEAD)"
+          status=0
+
+          services="$(printf '%s\n' "$changed" \
+            | awk -F/ '/^services\/[^/]+\/docs\/.*\.md$/ { print $2 }' | sort -u)"
+
+          for svc in $services; do
+            design="services/$svc/docs/design.md"
+
+            # Only AGREED designs are under amendment control; DRAFT ones move freely.
+            grep -qs '^\*\*Status:\*\* AGREED' "$design" || continue
+
+            # Did anything other than the changelog itself change?
+            contract_changed="$(printf '%s\n' "$changed" \
+              | grep "^services/$svc/docs/" | grep -v '/CHANGELOG\.md$' || true)"
+            [ -n "$contract_changed" ] || continue
+
+            if ! printf '%s\n' "$changed" | grep -qx "services/$svc/docs/CHANGELOG.md"; then
+              echo "::error::'$svc' has an AGREED design and this PR changes it, but"
+              echo "::error::services/$svc/docs/CHANGELOG.md was not updated."
+              echo "::error::See docs/conventions/design-changes.md — every amendment needs an"
+              echo "::error::entry and a version bump in the status headers."
+              printf '  changed: %s\n' $contract_changed
+              status=1
+            fi
+          done
+
+          exit $status

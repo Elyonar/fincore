@@ -1,0 +1,32 @@
+spring:
+  application:
+    name: ledger
+
+server:
+  port: ${LEDGER_PORT:8080}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        # Deliberately narrow. The ledger's operational surface grows by
+        # decision, not by default — an actuator that exposes env, beans or
+        # heapdump on an internal network is a disclosure waiting to happen.
+        include: health,info
+  endpoint:
+    health:
+      # Readiness and liveness are what an orchestrator restarts or routes on;
+      # a single aggregate "UP" cannot distinguish "starting" from "serving".
+      probes:
+        enabled: true
+      show-details: when-authorized
+  health:
+    livenessstate:
+      enabled: true
+    readinessstate:
+      enabled: true
+
+info:
+  app:
+    name: ledger
+    description: Double-entry posting engine — the single source of monetary truth

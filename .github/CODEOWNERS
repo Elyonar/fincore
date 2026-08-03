@@ -1,0 +1,24 @@
+# Review is required on anything that defines correctness rather than merely
+# implements it: the agreed designs, the platform decisions, the guardrails,
+# and every line of money-touching code.
+
+*                                   @nondefyde
+
+# Agreed service designs — changes here are contract amendments.
+/services/*/docs/                   @nondefyde
+
+# Platform law.
+/docs/adr/                          @nondefyde
+/docs/prd.md                        @nondefyde
+/docs/conventions/                  @nondefyde
+
+# The guardrails themselves. A PR that weakens a rule should be as visible as
+# a PR that breaks one.
+/AGENTS.md                          @nondefyde
+/.github/workflows/                 @nondefyde
+/.github/CODEOWNERS                 @nondefyde
+/.cursor/                           @nondefyde
+/.github/copilot-instructions.md    @nondefyde
+
+# The ledger. Every kobo the platform moves ends up here.
+/services/ledger/                   @nondefyde
