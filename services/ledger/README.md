@@ -85,6 +85,26 @@ inert while every catalog check still reported it enabled. `db/init/` creates
 the role locally; CI creates it in a workflow step; production provisions it
 with a real secret.
 
+## Events
+
+The relay publishes to whichever backbone `ledger.events.broker` names — the
+choice is a deployment setting, not a code dependency ([ADR 0005](../../docs/adr/0005-kafka-event-backbone.md)).
+
+| Value | Behaviour |
+|---|---|
+| `kafka` *(default in compose)* | One topic per event type, e.g. `fincore.ledger.posting.completed`, keyed on `aggregateId` |
+| `rabbit` | Topic exchange `fincore.ledger`, routing key = event type, `aggregateId` and `outboxId` as headers |
+| `log` *(default with no config)* | **Delivers nothing.** A development adapter; the startup banner warns when it is active |
+
+```bash
+docker compose up                                        # Kafka
+FINCORE_EVENTS_BROKER=rabbit docker compose --profile rabbit up   # RabbitMQ
+```
+
+Delivery is at-least-once and **consumers must deduplicate on `outboxId`**.
+Ordering is per aggregate, never global — react to an event by fetching current
+state through the read API, never by replaying a sequence.
+
 **Swagger UI** is at [`/docs`](http://localhost:8080/docs); the raw document is at
 `/v3/api-docs` (that `v3` is the *OpenAPI specification* version — this API is
 `/v1`). `/swagger-ui/index.html` still works, because tooling expects it.
@@ -137,7 +157,7 @@ be discovered.
 | Property-based tests | **Not implemented.** `docs/testing.md` marks the suite PLANNED |
 | Failure injection, migration equivalence, restore drills | **Not implemented** — marked PLANNED |
 | Hot-account throughput benchmark | **Not implemented**, so no TPS floor gates anything |
-| Event delivery | Events reach a broker only when one is configured; the default adapter logs |
+| Event delivery | Working. Kafka by default, RabbitMQ supported, `log` adapter delivers nothing (see below) |
 | Authentication | Tenant arrives in a header. **This is not authentication** — Identity does not exist yet |
 | Caller authorization | `api.md` names allowed callers; the ledger does not enforce them |
 | Performance / RPO targets | Documented, **never measured**. No benchmark, soak or DR evidence |

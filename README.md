@@ -66,6 +66,7 @@ services get a row here when they land.
 | [0002](docs/adr/0002-maven-monorepo.md) | Maven multi-module monorepo |
 | [0003](docs/adr/0003-agpl-cla-open-from-day-one.md) | AGPL-3.0 + CLA, open from day one |
 | [0004](docs/adr/0004-ledger-first.md) | Build the ledger first |
+| [0005](docs/adr/0005-kafka-event-backbone.md) | Broker-agnostic event backbone, Kafka recommended |
 
 ## Repository layout
 
