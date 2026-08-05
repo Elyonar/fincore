@@ -95,6 +95,16 @@
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
         </dependency>
+        <!--
+            Spring Boot 4 split test autoconfiguration by technology in the same way it split
+            runtime autoconfiguration: @AutoConfigureMockMvc lives here, not in
+            spring-boot-test-autoconfigure.
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-webmvc-test</artifactId>
+            <scope>test</scope>
+        </dependency>
 
         <!--
             ArchUnit turns the AGENTS.md hard rules into failing builds instead

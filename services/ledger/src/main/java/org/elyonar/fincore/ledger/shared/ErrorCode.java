@@ -70,7 +70,13 @@ public enum ErrorCode {
      * Compensating an already-reversed transaction — the same double credit as
      * {@link #HAS_COMPENSATIONS}, with the operations in the other order.
      */
-    TARGET_REVERSED;
+    TARGET_REVERSED,
+
+    /** Closure attempted with a nonzero balance or active holds. */
+    CLOSE_BLOCKED,
+
+    /** A sweep that does not exactly zero a closed account, or lacks a suspense counterparty. */
+    SWEEP_INVALID;
 
     /** The stable string clients match on; never derived from the enum's position. */
     public String code() {
