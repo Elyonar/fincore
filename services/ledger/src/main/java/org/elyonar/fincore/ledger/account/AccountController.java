@@ -103,8 +103,21 @@ public class AccountController {
             HttpServletRequest http,
             @PathVariable UUID id,
             @RequestParam @Schema(example = "2026-08-01") String from,
-            @RequestParam @Schema(example = "2026-08-31") String to) {
-        var s = statements.forPeriod(tenants.resolve(http), id, LocalDate.parse(from), LocalDate.parse(to));
+            @RequestParam @Schema(example = "2026-08-31") String to,
+            @RequestParam(required = false, defaultValue = "500")
+                    @Schema(description = "Lines per page; capped at 1000", example = "500")
+                    Integer limit,
+            @RequestParam(required = false)
+                    @Schema(description = "From a previous page's nextCursor. Walks this period only.")
+                    String after) {
+        var s =
+                statements.forPeriod(
+                        tenants.resolve(http),
+                        id,
+                        LocalDate.parse(from),
+                        LocalDate.parse(to),
+                        limit == null ? StatementService.DEFAULT_PAGE_SIZE : limit,
+                        after);
         return new StatementResponse(
                 s.accountId().toString(),
                 s.currency(),
@@ -113,6 +126,7 @@ public class AccountController {
                 Money.toWire(s.openingMinor()),
                 Money.toWire(s.closingMinor()),
                 s.isFinal() ? "FINAL" : "INTERIM",
+                s.nextCursor(),
                 s.lines().stream()
                         .map(
                                 l ->
@@ -213,6 +227,11 @@ public class AccountController {
             String openingMinor,
             String closingMinor,
             @Schema(allowableValues = {"FINAL", "INTERIM"}) String status,
+            @Schema(
+                            description =
+                                    "Pass as `after` for the next page. Null when this is the last page."
+                                        + " opening and closing describe the whole period on every page.")
+                    String nextCursor,
             List<StatementLine> lines) {}
 
     public record StatementLine(

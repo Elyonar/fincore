@@ -1,6 +1,6 @@
 # Ledger — API Surface (v1)
 
-**Status:** AGREED v1.2 (2026-08-05) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
+**Status:** AGREED v1.3 (2026-08-05) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
 
 REST/JSON. OpenAPI spec will be generated from code once implementation
 lands; this document is the agreed contract shape.
@@ -61,8 +61,21 @@ SWIFT MT940) rather than as a cursor over live data:
   earlier value date. It never edits a statement already issued — which is
   the entire reason cutoffs exist.
 
-This is also why the endpoint needs no pinned cursor: period close does the
+- **Lines are paged; the period is not.** A busy account's yearly statement is
+  not a response you want to build in memory, so lines come back in pages of at
+  most 1000 (default 500), with `nextCursor` set while more remain. `opening`,
+  `closing` and the period bounds describe the **whole period** and are
+  identical on every page — they are the document's header, not a running
+  total — so `opening + Σ movements across all pages = closing`.
+
+This is also why the endpoint needs no *pinned* cursor: period close does the
 work a snapshot would otherwise have to.
+
+**Paging a document is not the same thing as a change feed**, and conflating the
+two is the mistake this section exists to prevent. A page cursor walks the lines
+of one bounded period, ordered by `(value_date, id)`, and is spent when that walk
+ends. A change-feed cursor is *durable across time* — "give me everything since
+last night" — and that is what is forbidden below.
 
 It is correspondingly **forbidden to use this endpoint as an incremental
 change feed** (holding a durable cursor and polling for "entries since id
