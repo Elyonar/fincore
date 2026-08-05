@@ -9,7 +9,6 @@ import java.util.UUID;
 import org.elyonar.fincore.ledger.shared.ErrorCode;
 import org.elyonar.fincore.ledger.shared.LedgerException;
 import org.elyonar.fincore.ledger.tenant.TenantScope;
-import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
@@ -60,23 +59,31 @@ public class PostingService {
         // 4. Register the transaction. The unique index — not application code — arbitrates the
         //    race: a concurrent duplicate blocks on it, then loses and replays the winner.
         UUID transactionId = UUID.randomUUID();
-        try {
-            jdbc.update(
-                    """
-                    INSERT INTO ledger_transactions
-                        (id, tenant_id, idempotency_key, request_fingerprint, initiated_by, executed_by)
-                    VALUES (?,?,?,?,?,?)
-                    """,
-                    transactionId,
-                    command.tenantId(),
-                    command.idempotencyKey(),
-                    fingerprint,
-                    command.initiatedBy(),
-                    command.executedBy());
-        } catch (DuplicateKeyException raced) {
+        int registered =
+                jdbc.update(
+                        """
+                        INSERT INTO ledger_transactions
+                            (id, tenant_id, idempotency_key, request_fingerprint, initiated_by, executed_by)
+                        VALUES (?,?,?,?,?,?)
+                        ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
+                        """,
+                        transactionId,
+                        command.tenantId(),
+                        command.idempotencyKey(),
+                        fingerprint,
+                        command.initiatedBy(),
+                        command.executedBy());
+
+        if (registered == 0) {
+            // Lost the race. ON CONFLICT rather than catching the violation is deliberate: a
+            // raised constraint error aborts the PostgreSQL transaction, so the "re-read the
+            // winner" query that makes replay possible would itself fail with 25P02. DO NOTHING
+            // still blocks on the conflicting row until the winner commits, so the arbitration is
+            // unchanged — only the failure mode is survivable.
             var winner = findByKey(command.tenantId(), command.idempotencyKey());
             if (winner == null) {
-                throw raced; // a different unique constraint; do not mask it
+                throw new IllegalStateException(
+                        "idempotency key conflicted but no winner is visible; this should be unreachable");
             }
             return replayOrReject(winner, fingerprint);
         }
