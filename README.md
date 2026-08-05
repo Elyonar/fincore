@@ -50,7 +50,7 @@ to break it — [the test suite is the point](services/ledger/docs/testing.md).
 
 | Service | What it does | Status | Docs |
 |---|---|---|---|
-| **Ledger** | Double-entry posting engine — the single source of monetary truth. Accounts, entries, balances, holds. | ✅ Design AGREED v1.3 · implemented (pre-1.0) | [README](services/ledger/README.md) · [design](services/ledger/docs/design.md) · [data model](services/ledger/docs/data-model.md) · [architecture](services/ledger/docs/architecture.md) · [API](services/ledger/docs/api.md) · [posting algorithm](services/ledger/docs/posting-algorithm.md) · [testing](services/ledger/docs/testing.md) |
+| **Ledger** | Double-entry posting engine — the single source of monetary truth. Accounts, entries, balances, holds. | ✅ Design AGREED v1.3.1 · implemented (pre-1.0) | [README](services/ledger/README.md) · [design](services/ledger/docs/design.md) · [data model](services/ledger/docs/data-model.md) · [architecture](services/ledger/docs/architecture.md) · [API](services/ledger/docs/api.md) · [posting algorithm](services/ledger/docs/posting-algorithm.md) · [testing](services/ledger/docs/testing.md) |
 | Transaction Orchestration | The only writer to the Ledger; owns sagas and workflow. | Planned | — |
 | Identity | Auth, tenants, roles, maker-checker. | Planned | — |
 | Product · Lending · Customer · Compliance | Domain services around the ledger. | Planned | — |

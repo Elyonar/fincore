@@ -107,7 +107,7 @@ CI: `.github/workflows/ci.yml` — every push/PR runs `./mvnw verify`.
 says where things stand; the changelog says what changed and when. If the two
 ever disagree, the changelog is right and this section is stale.
 
-- `services/ledger` — **design AGREED v1.3; implemented and merged to main.**
+- `services/ledger` — **design AGREED v1.3.1; implemented and merged to main.**
   All sixteen documented endpoints exist, 203 tests pass on CI against real
   PostgreSQL. Do not re-implement the schema, posting engine, holds, reversal,
   outbox, value dating, statements or invariants: they are done. Read
