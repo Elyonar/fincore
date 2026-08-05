@@ -1,6 +1,6 @@
 # Ledger — Design Index & Decision Log
 
-**Status:** AGREED v1.0 (2026-08-04) — implementation may begin.
+**Status:** AGREED v1.1 (2026-08-05) — implementation underway.
 Amendments follow [`CHANGELOG.md`](CHANGELOG.md) and the
 [design-change convention](../../../docs/conventions/design-changes.md).
 **Source:** platform PRD §4.1 (ledger), §3 (constitution), §5 (communication

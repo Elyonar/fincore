@@ -8,6 +8,34 @@ entry first.
 
 ---
 
+## [1.1.0] — 2026-08-05 · MINOR
+
+**Row-level security requires a constrained role and FORCE; both are now stated.**
+
+- **Docs:** `architecture.md`
+- **Why:** the v1.0 design described RLS as the tenant-isolation backstop and
+  specified the `SET LOCAL` context discipline, but said nothing about the
+  privileges of the connecting role. Implementation showed that omission was
+  fatal rather than incidental: PostgreSQL exempts a table's owner from its own
+  policies unless the table is `FORCE`d, and exempts a SUPERUSER or `BYPASSRLS`
+  role unconditionally. With the service connecting as the bootstrap superuser,
+  every policy was inert while `pg_class.relrowsecurity` still reported enabled
+  — a guarantee that failed silently and survived inspection.
+- **Impact:** backward compatible as a contract; operationally required.
+  Deployments must provision `ledger_app` (NOSUPERUSER, NOBYPASSRLS, DML only)
+  and run migrations as the owner.
+- **Supersedes:** nothing. This closes a gap rather than reversing a decision;
+  the `SET LOCAL` rule from v1.0 stands unchanged and is now stated as the
+  *second* of two requirements rather than the only one.
+- **Tests:** `TenantIsolationTest` (rows hidden across tenants, no-context reads
+  return nothing, cross-tenant insert refused, shared `group_ref` does not sum,
+  pooled connections do not inherit context); `SchemaPresenceTest` guards that
+  RLS is FORCEd and that the connecting role is neither superuser nor
+  BYPASSRLS.
+- **Migration:** `V2__force_row_level_security.sql`, `V3__application_role.sql`
+
+---
+
 ## [1.0.0] — 2026-08-04 · AGREED baseline
 
 **Initial agreed design.** Implementation may begin.

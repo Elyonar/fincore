@@ -16,9 +16,9 @@ nothing, consumes no events) while everything depends on it — and it is the
 project's trust artifact: a public test suite that provably conserves money.
 ([ADR 0004](../../docs/adr/0004-ledger-first.md))
 
-**Status: design AGREED v1.0 (2026-08-04) — implementation open.** The
-skeleton compiles; domain code lands next, starting with the schema and its
-presence tests. Changes to the agreed design go through
+**Status: design AGREED v1.1 — implementation underway.** The schema and its
+presence, enforcement and tenant-isolation suites have landed; the posting
+engine is next. Changes to the agreed design go through
 [`docs/CHANGELOG.md`](docs/CHANGELOG.md), never a silent doc edit.
 
 ---
@@ -29,13 +29,13 @@ Read in this order for full context; jump directly if you know what you need.
 
 | You want to know… | Read | Status |
 |---|---|---|
-| The design at a glance + the decision log | [`docs/design.md`](docs/design.md) | AGREED v1.0 |
-| Tables, relationships, ER diagram, schema-enforced rules, decided edge cases | [`docs/data-model.md`](docs/data-model.md) | AGREED v1.0 |
-| Boundaries, traffic, the outbox/relay contract, DR posture | [`docs/architecture.md`](docs/architecture.md) | AGREED v1.0 |
-| The endpoint surface, error catalog, and contract properties | [`docs/api.md`](docs/api.md) | AGREED v1.0 |
-| How postings/reversals/holds execute: the two-tier lock protocol, hot accounts | [`docs/posting-algorithm.md`](docs/posting-algorithm.md) | AGREED v1.0 |
-| The six invariants, the exposure split, and the test suites gating merges | [`docs/testing.md`](docs/testing.md) | AGREED v1.0 |
-| Every amendment since the design was agreed | [`docs/CHANGELOG.md`](docs/CHANGELOG.md) | v1.0 |
+| The design at a glance + the decision log | [`docs/design.md`](docs/design.md) | AGREED v1.1 |
+| Tables, relationships, ER diagram, schema-enforced rules, decided edge cases | [`docs/data-model.md`](docs/data-model.md) | AGREED v1.1 |
+| Boundaries, traffic, the outbox/relay contract, DR posture | [`docs/architecture.md`](docs/architecture.md) | AGREED v1.1 |
+| The endpoint surface, error catalog, and contract properties | [`docs/api.md`](docs/api.md) | AGREED v1.1 |
+| How postings/reversals/holds execute: the two-tier lock protocol, hot accounts | [`docs/posting-algorithm.md`](docs/posting-algorithm.md) | AGREED v1.1 |
+| The six invariants, the exposure split, and the test suites gating merges | [`docs/testing.md`](docs/testing.md) | AGREED v1.1 |
+| Every amendment since the design was agreed | [`docs/CHANGELOG.md`](docs/CHANGELOG.md) | v1.1 |
 | Platform-wide hard rules (no floats, append-only, one writer…) | [`AGENTS.md`](../../AGENTS.md) | Standing |
 | Why Java 25 / monorepo / AGPL / ledger-first | [`docs/adr/`](../../docs/adr/) (root) | Accepted |
 | Contribution process & CLA | [`CONTRIBUTING.md`](../../.github/CONTRIBUTING.md) | Standing |
