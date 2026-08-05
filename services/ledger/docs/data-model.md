@@ -1,8 +1,8 @@
 # Ledger — Data Model
 
-**Status:** AGREED v1.1.1 (2026-08-05) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
+**Status:** AGREED v1.2 (2026-08-05) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
 
-Nine tables. Amounts are integer minor units (`BIGINT`), currency on every
+Eleven tables. Amounts are integer minor units (`BIGINT`), currency on every
 entry and account, `tenant_id` on **every** row — including holds and outbox.
 
 **Glossary — `available`:** everywhere these docs say available, it means
@@ -250,6 +250,20 @@ operable:** `accounts.opened_at`/`closed_at`, `ledger_transactions.posted_at`,
 `accounting_periods.closed_at`, `outbox_events.created_at`. The outbox one is
 load-bearing rather than decorative — architecture.md alerts on
 oldest-unpublished *age*, which cannot be computed without it.
+
+**Verification tables.** `balance_anchors` holds one immutable, proven checkpoint per account
+per day; `invariant_runs` records each verification pass with its findings. An anchor keys on an
+**entry-id upper bound** rather than a date, and that bound is finalized only at an MVCC quiesce
+horizon — every write transaction older than the capture snapshot has completed. Without that,
+an entry could commit *below* a bound after it was proven, leaving the anchor quietly wrong
+forever. Anchors are trigger-protected against update and delete for the same reason: every
+incremental check since has trusted them.
+
+`invariant_runs` separates **violations** from **authorized exposures**. A violation is a bug and
+pages; an exposure is the routine, explained consequence of a reversal bypassing the
+negative-balance guard, and is tracked and aged instead. Keeping them apart is what lets "zero
+violations" stay both achievable and meaningful — an alarm that fires routinely is an alarm people
+learn to ignore.
 
 **Physical order vs business order (decided).** Entry `id` is *physical*
 insertion order — the order invariant anchors and change feeds care about.

@@ -36,7 +36,9 @@ class SchemaPresenceTest extends LedgerPostgresTest {
                 "ledger_transactions",
                 "entries",
                 "holds",
-                "outbox_events"
+                "outbox_events",
+                "balance_anchors",
+                "invariant_runs"
             })
     void table_exists(String table) {
         assertThat(exists("SELECT 1 FROM information_schema.tables "
@@ -46,7 +48,7 @@ class SchemaPresenceTest extends LedgerPostgresTest {
     }
 
     @Test
-    void exactly_nine_tables() {
+    void exactly_eleven_tables() {
         List<String> tables =
                 jdbc.queryForList(
                         "SELECT table_name FROM information_schema.tables "
@@ -54,9 +56,9 @@ class SchemaPresenceTest extends LedgerPostgresTest {
                                 + "AND table_name <> 'flyway_schema_history' ORDER BY table_name",
                         String.class);
         assertThat(tables)
-                .as("data-model.md says nine tables; an unlisted table is either an undocumented "
+                .as("data-model.md says eleven tables; an unlisted table is either an undocumented "
                         + "design change or a leftover")
-                .hasSize(9);
+                .hasSize(11);
     }
 
     @ParameterizedTest(name = "trigger {0} exists")

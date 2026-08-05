@@ -10,6 +10,8 @@ import org.elyonar.fincore.ledger.account.AccountService;
 import org.elyonar.fincore.ledger.account.OpenAccountCommand;
 import org.elyonar.fincore.ledger.account.StatementService;
 import org.elyonar.fincore.ledger.hold.HoldReleaseOutcome;
+import org.elyonar.fincore.ledger.invariant.InvariantReport;
+import org.elyonar.fincore.ledger.invariant.InvariantService;
 import org.elyonar.fincore.ledger.hold.HoldService;
 import org.elyonar.fincore.ledger.hold.HoldView;
 import org.elyonar.fincore.ledger.hold.PlaceHoldCommand;
@@ -50,6 +52,7 @@ public class LedgerApi {
     private final ReversalService reversals;
     private final HoldService holds;
     private final PeriodService periods;
+    private final InvariantService invariants;
     private final TenantResolver tenants;
 
     public LedgerApi(
@@ -59,6 +62,7 @@ public class LedgerApi {
             ReversalService reversals,
             HoldService holds,
             PeriodService periods,
+            InvariantService invariants,
             TenantResolver tenants) {
         this.accounts = accounts;
         this.statements = statements;
@@ -66,6 +70,7 @@ public class LedgerApi {
         this.reversals = reversals;
         this.holds = holds;
         this.periods = periods;
+        this.invariants = invariants;
         this.tenants = tenants;
     }
 
@@ -287,6 +292,45 @@ public class LedgerApi {
         LocalDate periodEnd = LocalDate.parse(end);
         periods.close(tenants.resolve(http), periodEnd, required(body, "closedBy"));
         return Map.of("periodEnd", periodEnd.toString(), "status", "CLOSED");
+    }
+
+    // -------------------------------------------------------------- invariants
+
+    @GetMapping("/invariants")
+    public Map<String, Object> latestInvariantReport(HttpServletRequest http) {
+        // Fetches only. An endpoint that could trigger a full-history scan on demand would be a
+        // denial-of-service lever pointed at the ledger's own database.
+        InvariantReport report = invariants.latest(tenants.resolve(http));
+        if (report == null) {
+            return Map.of("status", "NO_RUN_YET");
+        }
+        return Map.of(
+                "runId", Long.toString(report.runId()),
+                "startedAt", report.startedAt().toString(),
+                "completedAt", report.completedAt() == null ? "" : report.completedAt().toString(),
+                "scope", report.scope(),
+                "status", report.clean() ? "CLEAN" : "VIOLATIONS");
+    }
+
+    @PostMapping("/invariants/run")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    public Map<String, Object> runInvariants(HttpServletRequest http) {
+        InvariantReport report = invariants.verify(tenants.resolve(http));
+        return Map.of(
+                "runId", Long.toString(report.runId()),
+                "violations", report.violations(),
+                "exposures", report.exposures(),
+                "status", report.clean() ? "CLEAN" : "VIOLATIONS",
+                "findings",
+                        report.findings().stream()
+                                .map(
+                                        f ->
+                                                Map.<String, Object>of(
+                                                        "kind", f.kind().name(),
+                                                        "invariant", f.invariant(),
+                                                        "subject", f.subject(),
+                                                        "detail", f.detail()))
+                                .toList());
     }
 
     // ------------------------------------------------------------------ helpers

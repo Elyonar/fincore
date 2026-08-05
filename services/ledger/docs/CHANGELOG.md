@@ -8,6 +8,29 @@ entry first.
 
 ---
 
+## [1.2.0] — 2026-08-05 · MINOR
+
+**Two verification tables added: `balance_anchors` and `invariant_runs`.**
+
+- **Docs:** `data-model.md` (nine tables → eleven)
+- **Why:** incremental invariant verification needs somewhere to keep its
+  proven checkpoints and its run history. The design described both mechanisms
+  in `testing.md` but never gave them a home in the data model, so the schema
+  and the documented table count had diverged the moment they were built.
+- **Impact:** additive. No existing table, constraint or contract changes; no
+  caller is affected.
+- **Supersedes:** nothing.
+- **Tests:** `SchemaPresenceTest` table count and presence checks;
+  `QuiesceHorizonTest` proves the bound never advances past an in-flight
+  writer, which is the property the anchors rest on.
+- **Migration:** `V5__invariants.sql`
+
+*Found by the guardrail rather than by review: the schema-presence suite
+asserts the documented table count, so adding a table without amending the
+design failed the build.*
+
+---
+
 ## [1.1.1] — 2026-08-05 · PATCH
 
 **Persistence approach recorded: plain SQL over JDBC, no ORM.**
