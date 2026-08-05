@@ -25,10 +25,12 @@ public class InvariantService {
 
     private final TenantScope tenantScope;
     private final JdbcTemplate jdbc;
+    private final AnchorService anchors;
 
-    public InvariantService(TenantScope tenantScope, JdbcTemplate jdbc) {
+    public InvariantService(TenantScope tenantScope, JdbcTemplate jdbc, AnchorService anchors) {
         this.tenantScope = tenantScope;
         this.jdbc = jdbc;
+        this.anchors = anchors;
     }
 
     public InvariantReport verify(UUID tenantId) {
@@ -44,6 +46,10 @@ public class InvariantService {
                             all.addAll(noUnexplainedNegatives(tenantId));
                             all.addAll(reversalsAreExactAndExclusive(tenantId));
                             all.addAll(terminalStatesAreTerminal(tenantId));
+                            // Anchored accounts get the cheap check as well: it is the one that
+                            // will still be affordable in year seven, so it must be exercised
+                            // from the first day rather than switched on once history is large.
+                            all.addAll(anchors.verifyIncrementally(tenantId));
                             return all;
                         });
 
