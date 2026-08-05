@@ -17,7 +17,8 @@ public record PostTransactionCommand(
         String description,
         List<EntryLine> entries,
         UUID consumeHoldId,
-        UUID relatesToTransactionId) {
+        UUID relatesToTransactionId,
+        String backdateReason) {
 
     public PostTransactionCommand {
         entries = entries == null ? List.of() : List.copyOf(entries);
@@ -32,7 +33,29 @@ public record PostTransactionCommand(
             String description,
             List<EntryLine> entries,
             UUID consumeHoldId) {
-        this(tenantId, idempotencyKey, initiatedBy, executedBy, description, entries, consumeHoldId, null);
+        this(tenantId, idempotencyKey, initiatedBy, executedBy, description, entries, consumeHoldId, null, null);
+    }
+
+    /** A compensation, linked to the transaction it partially corrects. */
+    public PostTransactionCommand(
+            UUID tenantId,
+            String idempotencyKey,
+            String initiatedBy,
+            String executedBy,
+            String description,
+            List<EntryLine> entries,
+            UUID consumeHoldId,
+            UUID relatesToTransactionId) {
+        this(
+                tenantId,
+                idempotencyKey,
+                initiatedBy,
+                executedBy,
+                description,
+                entries,
+                consumeHoldId,
+                relatesToTransactionId,
+                null);
     }
 
     /** A posting that consumes no hold — the common case. */
@@ -43,6 +66,6 @@ public record PostTransactionCommand(
             String executedBy,
             String description,
             List<EntryLine> entries) {
-        this(tenantId, idempotencyKey, initiatedBy, executedBy, description, entries, null, null);
+        this(tenantId, idempotencyKey, initiatedBy, executedBy, description, entries, null, null, null);
     }
 }

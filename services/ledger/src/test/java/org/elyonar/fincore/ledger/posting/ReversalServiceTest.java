@@ -105,7 +105,10 @@ class ReversalServiceTest extends LedgerPostgresTest {
                                         tenant, "tx-backdated", "user:ada", "svc:test", "backdated credit",
                                         List.of(
                                                 new EntryLine(settlement, DEBIT, 500_00, "NGN", backdated),
-                                                new EntryLine(customer, CREDIT, 500_00, "NGN", backdated))))
+                                                new EntryLine(customer, CREDIT, 500_00, "NGN", backdated)),
+                                        null,
+                                        null,
+                                        "late settlement file"))
                         .transactionId();
 
         UUID reversal = reversals.reverse(reversalOf(original, "rev-1")).transactionId();

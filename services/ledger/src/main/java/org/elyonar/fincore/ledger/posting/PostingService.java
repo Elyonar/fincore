@@ -6,10 +6,13 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import org.elyonar.fincore.ledger.period.PeriodService;
 import org.elyonar.fincore.ledger.outbox.LedgerEvent;
 import org.elyonar.fincore.ledger.outbox.OutboxWriter;
 import org.elyonar.fincore.ledger.shared.ErrorCode;
 import org.elyonar.fincore.ledger.shared.LedgerException;
+import org.elyonar.fincore.ledger.tenant.TenantConfig;
+import org.elyonar.fincore.ledger.tenant.TenantConfigService;
 import org.elyonar.fincore.ledger.tenant.TenantScope;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -33,11 +36,20 @@ public class PostingService {
     private final TenantScope tenantScope;
     private final JdbcTemplate jdbc;
     private final OutboxWriter outbox;
+    private final TenantConfigService tenantConfig;
+    private final PeriodService periods;
 
-    public PostingService(TenantScope tenantScope, JdbcTemplate jdbc, OutboxWriter outbox) {
+    public PostingService(
+            TenantScope tenantScope,
+            JdbcTemplate jdbc,
+            OutboxWriter outbox,
+            TenantConfigService tenantConfig,
+            PeriodService periods) {
         this.tenantScope = tenantScope;
         this.jdbc = jdbc;
         this.outbox = outbox;
+        this.tenantConfig = tenantConfig;
+        this.periods = periods;
     }
 
     public PostingResult post(PostTransactionCommand command) {
@@ -53,12 +65,14 @@ public class PostingService {
             return replayOrReject(existing, fingerprint);
         }
 
-        validateShape(command);
+        TenantConfig config = tenantConfig.currentFor(command.tenantId());
+        validateShape(command, config);
 
         // 3. Value dates. Unsupplied means "today, in the tenant's zone" — resolved only now,
         //    after the fingerprint was taken over the request as received.
-        LocalDate businessDate = LocalDate.now();
+        LocalDate businessDate = config.businessDate();
         List<EntryLine> entries = resolveValueDates(command.entries(), businessDate);
+        validateValueDates(command, entries, config, businessDate);
 
         // 4. Register the transaction. The unique index — not application code — arbitrates the
         //    race: a concurrent duplicate blocks on it, then loses and replays the winner.
@@ -68,8 +82,8 @@ public class PostingService {
                         """
                         INSERT INTO ledger_transactions
                             (id, tenant_id, idempotency_key, request_fingerprint, initiated_by,
-                             executed_by, relates_to_transaction_id)
-                        VALUES (?,?,?,?,?,?,?)
+                             executed_by, relates_to_transaction_id, backdate_reason)
+                        VALUES (?,?,?,?,?,?,?,?)
                         ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
                         """,
                         transactionId,
@@ -78,7 +92,8 @@ public class PostingService {
                         fingerprint,
                         command.initiatedBy(),
                         command.executedBy(),
-                        command.relatesToTransactionId());
+                        command.relatesToTransactionId(),
+                        command.backdateReason());
 
         if (registered == 0) {
             // Lost the race. ON CONFLICT rather than catching the violation is deliberate: a
@@ -176,14 +191,15 @@ public class PostingService {
         return PostingResult.replay(existing.id());
     }
 
-    private void validateShape(PostTransactionCommand command) {
+    private void validateShape(PostTransactionCommand command, TenantConfig config) {
         List<EntryLine> entries = command.entries();
         if (entries.size() < 2) {
             throw new LedgerException(ErrorCode.UNBALANCED, "a transaction needs at least two entries");
         }
-        if (entries.size() > MAX_ENTRIES) {
+        int cap = Math.min(config.maxEntriesPerTransaction(), MAX_ENTRIES);
+        if (entries.size() > cap) {
             throw new LedgerException(
-                    ErrorCode.LIMIT_EXCEEDED, "a transaction may carry at most " + MAX_ENTRIES + " entries");
+                    ErrorCode.LIMIT_EXCEEDED, "a transaction may carry at most " + cap + " entries");
         }
         if (command.idempotencyKey() == null || command.idempotencyKey().length() > 200) {
             throw new LedgerException(ErrorCode.LIMIT_EXCEEDED, "idempotency key must be 1..200 characters");
@@ -230,6 +246,47 @@ public class PostingService {
                                 ErrorCode.UNBALANCED, "debits and credits differ in " + currency);
                     }
                 });
+    }
+
+    /**
+     * Value dating is bounded and governed, because an unbounded one is a way to rewrite history.
+     *
+     * <p>Future dates are refused outright: a ledger records what happened, not what is expected
+     * to. Backdating is allowed within a tenant window and only with a stated reason, and never
+     * into a closed accounting period — that last rule is what keeps a signed-off statement
+     * reproducible forever.
+     */
+    private void validateValueDates(
+            PostTransactionCommand command, List<EntryLine> entries, TenantConfig config, LocalDate businessDate) {
+        LocalDate earliest = config.earliestAllowedValueDate();
+        boolean anyBackdated = false;
+
+        for (EntryLine entry : entries) {
+            LocalDate valueDate = entry.valueDate();
+            if (valueDate.isAfter(businessDate)) {
+                throw new LedgerException(
+                        ErrorCode.VALUE_DATE_INVALID, "value date " + valueDate + " is in the future");
+            }
+            if (valueDate.isBefore(businessDate)) {
+                anyBackdated = true;
+                if (valueDate.isBefore(earliest)) {
+                    throw new LedgerException(
+                            ErrorCode.VALUE_DATE_INVALID,
+                            "value date " + valueDate + " is older than the tenant's backdate window");
+                }
+                if (periods.isClosed(command.tenantId(), valueDate)) {
+                    throw new LedgerException(
+                            ErrorCode.VALUE_DATE_INVALID,
+                            "value date " + valueDate + " falls in a closed accounting period");
+                }
+            }
+        }
+
+        if (anyBackdated && (command.backdateReason() == null || command.backdateReason().isBlank())) {
+            // Backdating is legitimate and routine; doing it unexplained is not.
+            throw new LedgerException(
+                    ErrorCode.VALUE_DATE_INVALID, "backdated postings require a stated reason");
+        }
     }
 
     private static List<EntryLine> resolveValueDates(List<EntryLine> entries, LocalDate businessDate) {
