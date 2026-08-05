@@ -8,6 +8,33 @@ entry first.
 
 ---
 
+## [1.3.1] — 2026-08-05 · PATCH
+
+**Test suites marked IMPLEMENTED / PARTIAL / PLANNED.**
+
+- **Docs:** `testing.md`
+- **Why:** the document asserted that every suite listed gates merges, while
+  property-based tests, failure injection, migration equivalence, restore drills
+  and the hot-account throughput benchmark did not exist at all. That is worse
+  than the missing tests themselves: a specification a reviewer or an agent
+  reads as fact, describing verification that never runs. An AI agent is
+  especially exposed, because it treats a detailed authoritative document as
+  established unless told to verify it.
+- **Impact:** no behavioural change and no contract change. What altered is the
+  document's honesty about which suites exist. Only IMPLEMENTED suites gate
+  merges; moving a marker now requires the tests to exist.
+- **Supersedes:** nothing. Every suite listed is still intended.
+- **Tests:** none required — this withdraws claims rather than making them.
+  `AGENTS.md` hard rule 7 was amended in the same change, since it required a
+  property-based suite green before merge and no such suite can run.
+- **Migration:** none.
+
+*Caught by the `design-changelog` CI job on its first ever execution: the job
+only runs on pull requests, and it failed this one for amending an AGREED design
+without recording it. The guardrail worked on the author who wrote it.*
+
+---
+
 ## [1.3.0] — 2026-08-05 · MINOR
 
 **Statement lines are paged; `GET /v1/transactions/{id}` is confirmed part of

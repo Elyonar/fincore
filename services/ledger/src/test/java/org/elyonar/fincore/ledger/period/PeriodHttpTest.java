@@ -49,15 +49,49 @@ class PeriodHttpTest extends LedgerHttpTest {
     }
 
     @Test
-    @DisplayName("invariants run on demand and report clean on a healthy ledger")
-    void invariants_run_and_report() throws Exception {
+    @DisplayName("a requested run is queued, not executed inline")
+    void invariant_run_is_queued() throws Exception {
+        // 202 means accepted-for-later. Running the scan inline would make this endpoint a
+        // denial-of-service lever pointed at the ledger's own database.
         mvc.perform(as(post("/v1/invariants/run")))
                 .andExpect(status().isAccepted())
-                .andExpect(jsonPath("$.status").value("CLEAN"))
-                .andExpect(jsonPath("$.violations").value(0));
+                .andExpect(jsonPath("$.status").value("QUEUED"))
+                .andExpect(jsonPath("$.runId").isNotEmpty());
+    }
 
-        mvc.perform(as(get("/v1/invariants")))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("CLEAN"));
+    @Test
+    @DisplayName("a second request within the cooldown is refused rather than queued again")
+    void invariant_runs_are_rate_limited() throws Exception {
+        mvc.perform(as(post("/v1/invariants/run"))).andExpect(status().isAccepted());
+
+        // Either the first run is still in flight (returns the same id) or the cooldown refuses
+        // it. What must never happen is a second scan starting.
+        mvc.perform(as(post("/v1/invariants/run")))
+                .andExpect(
+                        result -> {
+                            int code = result.getResponse().getStatus();
+                            if (code != 202 && code != 429) {
+                                throw new AssertionError("expected 202 (same run) or 429 (cooldown), got " + code);
+                            }
+                        });
+    }
+
+    @Test
+    @DisplayName("the completed report is fetched, and a run in flight is not reported CLEAN")
+    void completed_report_is_fetchable() throws Exception {
+        mvc.perform(as(post("/v1/invariants/run"))).andExpect(status().isAccepted());
+
+        // The runner is asynchronous, so poll rather than assume it has finished.
+        String status = "RUNNING";
+        for (int i = 0; i < 40 && "RUNNING".equals(status); i++) {
+            var body = mvc.perform(as(get("/v1/invariants"))).andReturn().getResponse().getContentAsString();
+            status = body.replaceAll(".*\"status\":\"([A-Z_]+)\".*", "$1");
+            if ("RUNNING".equals(status)) {
+                Thread.sleep(100);
+            }
+        }
+        org.assertj.core.api.Assertions.assertThat(status)
+                .as("a healthy ledger completes clean; RUNNING would mean the poll timed out")
+                .isEqualTo("CLEAN");
     }
 }

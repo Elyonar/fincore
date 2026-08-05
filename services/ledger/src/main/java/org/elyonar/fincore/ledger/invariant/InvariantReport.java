@@ -20,4 +20,9 @@ public record InvariantReport(
     public boolean clean() {
         return violations() == 0;
     }
+
+    /** A run with no completion time has not finished; it is neither clean nor dirty yet. */
+    public boolean finished() {
+        return completedAt != null;
+    }
 }

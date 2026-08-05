@@ -5,7 +5,9 @@ it is banking software, and the bar is correctness first.
 
 ## Before you write code
 
-1. **Read the design doc** for the service you're touching (`docs/design/`).
+1. **Read the design doc** for the service you're touching
+   (`services/<name>/docs/design.md`), and its `docs/CHANGELOG.md` for anything
+   amended since.
    Behaviour that contradicts an agreed design needs a design discussion first,
    not a PR.
 2. **Significant decisions get an ADR** (`docs/adr/`). Small fixes don't.

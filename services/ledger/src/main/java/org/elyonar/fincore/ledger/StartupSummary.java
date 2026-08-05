@@ -65,6 +65,7 @@ public class StartupSummary {
         log.info("  │  PID        {}", ProcessHandle.current().pid());
         log.info("  ├─────────────────────────────────────────────────────────────────");
         describeDatabase();
+        describeEventBackbone();
         describeScheduledWork();
         log.info("  └─────────────────────────────────────────────────────────────────");
         log.info("");
@@ -100,6 +101,23 @@ public class StartupSummary {
         } catch (Exception e) {
             log.warn("  │  Database   could not be described: {}", e.getMessage());
         }
+    }
+
+    private void describeEventBackbone() {
+        String broker = environment.getProperty("ledger.events.broker", "log");
+        if ("log".equals(broker)) {
+            // Loud on purpose. A deployment on the logging adapter emits nothing at all, and that
+            // is invisible from outside — no error, no backlog, just silence downstream.
+            log.warn("  │  Events     LOG ADAPTER — nothing is delivered to any broker");
+        } else {
+            log.info("  │  Events     {} ({})", broker, brokerTarget(broker));
+        }
+    }
+
+    private String brokerTarget(String broker) {
+        return "kafka".equals(broker)
+                ? environment.getProperty("spring.kafka.bootstrap-servers", "unset")
+                : environment.getProperty("spring.rabbitmq.host", "unset");
     }
 
     private void describeScheduledWork() {

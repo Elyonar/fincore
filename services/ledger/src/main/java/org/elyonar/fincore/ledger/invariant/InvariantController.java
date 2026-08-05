@@ -45,7 +45,9 @@ public class InvariantController {
                 report.startedAt().toString(),
                 report.completedAt() == null ? null : report.completedAt().toString(),
                 report.scope(),
-                report.clean() ? "CLEAN" : "VIOLATIONS",
+                // A run with no completion time is still in flight; reporting it CLEAN would be a
+                // lie of omission at exactly the moment someone is checking.
+                report.completedAt() == null ? "RUNNING" : (report.clean() ? "CLEAN" : "VIOLATIONS"),
                 report.violations(),
                 report.exposures(),
                 List.of());
@@ -56,24 +58,29 @@ public class InvariantController {
     @Operation(
             summary = "Run verification now",
             description =
-                    "Returns findings split into **violations** and **authorized exposures**. A violation"
+                    "Queues a run and returns 202 immediately; poll `GET /v1/invariants` for the"
+                        + " result. Full verification is expensive, so a request within the cooldown"
+                        + " returns 429 and a run already in flight returns that one rather than"
+                        + " starting a second.\n\n"
+                        + "Findings split into **violations** and **authorized exposures**. A violation"
                         + " is always a bug and should page. An exposure is the routine, explained"
                         + " consequence of a reversal bypassing the negative-balance guard — tracked and"
-                        + " aged, never alarmed on. Keeping them apart is what lets 'zero violations' stay"
-                        + " both achievable and meaningful.")
+                        + " aged, never alarmed on. Keeping them apart is what lets 'zero violations'"
+                        + " stay both achievable and meaningful.")
     public ReportResponse run(HttpServletRequest http) {
-        InvariantReport report = invariants.verify(tenants.resolve(http));
+        // 202 means queued, and now genuinely is: this returns as soon as the run is registered.
+        // Running the scan inline would have made the endpoint a denial-of-service lever pointed
+        // at the ledger's own database — the thing the contract said it must not be.
+        InvariantReport queued = invariants.requestRun(tenants.resolve(http));
         return new ReportResponse(
-                Long.toString(report.runId()),
-                report.startedAt().toString(),
-                report.completedAt().toString(),
-                report.scope(),
-                report.clean() ? "CLEAN" : "VIOLATIONS",
-                report.violations(),
-                report.exposures(),
-                report.findings().stream()
-                        .map(f -> new FindingResponse(f.kind().name(), f.invariant(), f.subject(), f.detail()))
-                        .toList());
+                Long.toString(queued.runId()),
+                queued.startedAt().toString(),
+                null,
+                queued.scope(),
+                "QUEUED",
+                0,
+                0,
+                List.of());
     }
 
     public record ReportResponse(
@@ -81,7 +88,8 @@ public class InvariantController {
             String startedAt,
             String completedAt,
             String scope,
-            @Schema(allowableValues = {"CLEAN", "VIOLATIONS", "NO_RUN_YET"}) String status,
+            @Schema(allowableValues = {"CLEAN", "VIOLATIONS", "QUEUED", "RUNNING", "NO_RUN_YET"})
+                    String status,
             long violations,
             long exposures,
             List<FindingResponse> findings) {}

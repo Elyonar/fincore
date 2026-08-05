@@ -36,6 +36,55 @@ services:
       retries: 10
       start_period: 10s
 
+  # Event backbone (ADR 0005). KRaft mode, so no ZooKeeper: one container.
+  # Single broker with replication factor 1 — a development topology, not a
+  # production one.
+  kafka:
+    image: apache/kafka:3.9.0
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:29092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      CLUSTER_ID: fincore-dev-cluster-0001
+    ports:
+      # 29092 for tools on the host; the ledger reaches it as kafka:9092.
+      - "${FINCORE_KAFKA_PORT:-29092}:29092"
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 30s
+
+  # Alternative backbone. Opt-in, so `docker compose up` stays lean:
+  #   docker compose --profile rabbit up
+  # then set ledger.events.broker=rabbit.
+  rabbitmq:
+    image: rabbitmq:4-management
+    profiles: ["rabbit"]
+    environment:
+      RABBITMQ_DEFAULT_USER: fincore
+      RABBITMQ_DEFAULT_PASS: fincore
+    ports:
+      - "${FINCORE_RABBIT_PORT:-5672}:5672"
+      - "${FINCORE_RABBIT_UI_PORT:-15672}:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 20s
+
   ledger:
     build:
       # Root context: the Dockerfile builds through the Maven reactor, so it
@@ -44,6 +93,8 @@ services:
       dockerfile: services/ledger/Dockerfile
     depends_on:
       postgres:
+        condition: service_healthy
+      kafka:
         condition: service_healthy
     environment:
       # The service connects as the restricted role; Flyway migrates as the
@@ -56,6 +107,18 @@ services:
       # A container is not a dev machine; it must never start its own database
       # sidecar.
       SPRING_DOCKER_COMPOSE_ENABLED: "false"
+      # Which backbone the relay publishes to: kafka | rabbit | log.
+      # 'log' is the development adapter and delivers nothing; the startup
+      # summary says so plainly rather than letting it pass for delivery.
+      LEDGER_EVENTS_BROKER: ${FINCORE_EVENTS_BROKER:-kafka}
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_USERNAME: fincore
+      SPRING_RABBITMQ_PASSWORD: fincore
+      # Without confirms, a discarded message still reports success and the relay
+      # marks it published. Correlated confirms make acknowledgement mean delivery.
+      SPRING_RABBITMQ_PUBLISHER_CONFIRM_TYPE: correlated
+      SPRING_RABBITMQ_PUBLISHER_RETURNS: "true"
     ports:
       - "8080:8080"
     healthcheck:

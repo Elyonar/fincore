@@ -1,6 +1,6 @@
 # Ledger — Invariants & Test Strategy
 
-**Status:** AGREED v1.3 (2026-08-05) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
+**Status:** AGREED v1.3.1 (2026-08-05) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
 
 The test suite is the product's argument for correctness — public, runnable
 by anyone. If you want to contribute: **try to break the ledger and encode
@@ -79,16 +79,26 @@ fetches the latest completed report; `POST /v1/invariants/run` queues a run
   concurrent long-running writers *first*, as a standalone exercise, rather
   than discovered to be subtly wrong underneath three features at once.
 
-## The suites (all gate merges — no green, no merge)
+## The suites
 
-**Invariant suite.** All six checks after every test scenario.
+Each suite is marked **IMPLEMENTED**, **PARTIAL** or **PLANNED**. Only
+IMPLEMENTED suites gate merges today.
 
-**Property-based tests.** Random operation sequences — postings, reversals,
+This document previously asserted that every suite below gates merges, while
+several did not exist. That is a worse failure than the missing tests: a
+specification an agent or a reviewer reads as fact, describing verification that
+never runs. The markers exist so the gap is visible rather than assumed away,
+and they are part of the contract — moving one to IMPLEMENTED requires the tests
+to exist.
+
+**Invariant suite.** *(IMPLEMENTED)* All six checks after every test scenario.
+
+**Property-based tests.** *(PLANNED — no jqwik/QuickTheories dependency exists; randomized UUIDs in fixtures are not property-based testing)* Random operation sequences — postings, reversals,
 holds, releases, captures, expiries, closures, **compensation+reversal mixes
 in both orders**, closed-account sweeps, wash attempts — must preserve every
 invariant; shrinking on failure.
 
-**Lifecycle scenarios (each a named test):**
+**Lifecycle scenarios (each a named test).** *(IMPLEMENTED)*
 trapped-funds drill **in both directions** (positive residue: reverse into
 closed → debit-sweep to suspense; negative residue: erroneous-credit dispute
 path — credit in error → withdraw → close → reverse → closed account
@@ -105,7 +115,7 @@ skipped); sharded-group behaviour (guard per-shard only on unguarded
 accounts; group balance sums correctly **and serializes as a decimal string
 beyond 2^53**).
 
-**Contract-precision suite.** Fingerprint canonicalization —
+**Contract-precision suite.** *(IMPLEMENTED)* Fingerprint canonicalization —
 same economic payload with different `description`/`initiatedBy` replays
 (no 409); **omitted `valueDate` replays across the tenant's midnight boundary**
 (the fingerprint is taken over the request as received, so a mandated same-key
@@ -119,7 +129,7 @@ fields are decimal strings, request parsing accepts numbers ≤ 10^15 and
 strings, rejects floats. Currency exponent: NGN(2)/JPY(0) render and
 validate from the `currencies` table, never from hardcoded assumptions.
 
-**Statement suite.** Opening + Σ movements = closing, for every period and
+**Statement suite.** *(IMPLEMENTED)* Opening + Σ movements = closing, for every period and
 currency. A statement over a **closed** period is byte-identical when
 re-requested after further postings have landed elsewhere — the immutability
 that period close buys. A statement over the **open** period is labelled
@@ -128,14 +138,14 @@ interim. A backdated posting arriving after its period closed appears on the
 `bookedAt`, and does not alter the already-issued statement. Both dates are
 present on every line, and `bookedAt >= valueDate` for backdated entries.
 
-**Schema & migration suite.** schema-presence tests assert every
+**Schema & migration suite.** *(PARTIAL — schema-presence and enforcement are implemented; stepwise-vs-fresh migration equivalence and expand/migrate/contract rehearsal are PLANNED)* schema-presence tests assert every
 trigger, partial unique index, composite FK, CHECK, and RLS policy exists
 *and fires* (a migration that silently drops the append-only trigger fails
 CI, not an audit); stepwise (V1→…→Vn) and fresh-install (empty→Vn)
 migrations converge to byte-identical schemas; expand→migrate→contract
 rehearsed on a copy for any change touching hot tables.
 
-**Concurrency suite.** N threads hammering shared accounts; plus targeted
+**Concurrency suite.** *(PARTIAL — races and the zero-deadlock proof are implemented; the single-hot-account TPS benchmark is PLANNED, so no throughput floor gates anything today)* N threads hammering shared accounts; plus targeted
 races: double-reversal of one transaction (one winner, loser gets
 `ALREADY_REVERSED` + winner id); capture racing expiry sweep (exactly one
 wins; money conserved either way); duplicate posting racing (blocked-insert
@@ -143,24 +153,24 @@ arbitration); duplicate hold placement; close racing an in-flight posting.
 **Single-hot-account benchmark with an explicit TPS floor** on reference
 hardware — if the floor fails, fan-in sharding is applied before launch.
 
-**Idempotency suite.** Same key + same payload replayed serially and racing;
+**Idempotency suite.** *(IMPLEMENTED)* Same key + same payload replayed serially and racing;
 same key + **different payload** → 409 (serial and racing); failed-then-
 retried semantics (registry binds committed only); holds and account creation
 idempotency; key-length and fingerprint-canonicalization cases.
 
-**Bounds & abuse suite.** 101 entries; amount = cap, cap+1, 2^53-adjacent
+**Bounds & abuse suite.** *(IMPLEMENTED)* 101 entries; amount = cap, cap+1, 2^53-adjacent
 values with strict-long JSON parsing; zero and negative amounts; wash
 transactions; oversized keys; future value dates; backdating beyond window /
 without reason / into a closed period; hold TTL absent, past, beyond max.
 
-**Immutability suite.** Raw-SQL UPDATE/DELETE against entries **and** against
+**Immutability suite.** *(IMPLEMENTED)* Raw-SQL UPDATE/DELETE against entries **and** against
 account identity columns (currency/type/tenant_id) must be rejected by
 triggers — tamper-evidence must not depend on application code. Also:
 `currencies.minor_unit_exponent` must be immutable once referenced — the one
 value that would silently reinterpret every stored amount in every tenant
 while leaving all six invariants green.
 
-**Tenant-isolation suite.** Cross-tenant probes for every mutating endpoint:
+**Tenant-isolation suite.** *(PARTIAL — RLS enforcement, pooled-connection bleed, shared group_ref and posting into another tenant's account are implemented; probes for reversing another tenant's transaction, releasing its hold and reading its statement are PLANNED)* Cross-tenant probes for every mutating endpoint:
 reverse another tenant's transaction, release/consume another tenant's hold,
 post to another tenant's account, read another tenant's statement — all must
 fail as not-found; composite-FK violation tests at the schema level; RLS
@@ -178,12 +188,12 @@ where isolation is *not* carried by a foreign key:
   the failure is silent, survives code review, and defeats RLS in exactly
   the scenario RLS is there to cover.
 
-**Failure injection.** Kill the DB connection at each step boundary;
+**Failure injection.** *(PLANNED — none of the connection-kill, duplicate-delivery or relay-crash cases below are implemented)* Kill the DB connection at each step boundary;
 duplicate deliveries; relay crash between publish and mark-published
 (at-least-once + consumer dedupe verified); the outbox commit-order case
 (late-committing low id must still publish — watermark bugs caught by test).
 
-**Restore drill (scheduled, not merge-gating).** Quarterly: restore from
+**Restore drill (scheduled, not merge-gating).** *(PLANNED — no automation exists)* Quarterly: restore from
 replica, verify epoch fencing, replay Orchestration's window, prove
 invariants on the restored state. RPO = 0 for acknowledged commits is a
 stated guarantee — drills are how it stays true.

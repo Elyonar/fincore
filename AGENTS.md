@@ -44,7 +44,7 @@ across service boundaries.
   DRAFT until marked AGREED; no domain code lands while DRAFT.
 - **Once AGREED, a design is versioned and changes only by amendment.** Every
   design doc in the service carries the same version
-  (`AGREED v1.0 (date) — amendments via CHANGELOG.md`), and every change to
+  (`AGREED vX.Y (date) — amendments via CHANGELOG.md`), and every change to
   the contract is recorded in `services/<name>/docs/CHANGELOG.md`. Full rules
   and entry format: [`docs/conventions/design-changes.md`](docs/conventions/design-changes.md).
   In short: design lands before code in its own PR; code that contradicts an
@@ -80,8 +80,11 @@ not, that gap is a bug in the guardrails.
    events only.
 6. Multi-tenancy: `tenant_id` scoping on every query.
 7. AI advises, humans decide. No change to ledger or orchestration code merges
-   without the invariant, property-based, and concurrency suites green, and
-   money-touching changes ship with the tests that prove them. This applies to
+   without the invariant and concurrency suites green, and money-touching
+   changes ship with the tests that prove them. (This rule previously also
+   required a property-based suite. None exists yet — see `testing.md` — and a
+   rule naming a suite that cannot run is a rule nobody can satisfy, so it is
+   stated as PLANNED there rather than pretended to here.) This applies to
    **every** contributor — nothing reveals whether a diff was AI-generated, so
    a rule that only bound AI authors would bind no one, while implying
    hand-written ledger code needs less proof. It does not.
@@ -100,15 +103,27 @@ CI: `.github/workflows/ci.yml` — every push/PR runs `./mvnw verify`.
 
 ## Current state
 
-- `services/ledger` — **design AGREED v1.0 (2026-08-04); implementation open.**
-  Build in this order, because it front-loads the riskiest claims:
-  `V1__initial_schema.sql` + schema-presence tests → posting happy path and
-  idempotency → the concurrency suite (the two-tier lock protocol and the
-  zero-deadlock claim are the most likely thing to be wrong, and the cheapest
-  to falsify early) → holds, reversal, compensation → outbox and relay →
-  invariants and anchors last. The MVCC quiesce horizon is spiked standalone
-  before anchors or the relay depend on it.
-- Any change to the ledger contract now goes through
-  `services/ledger/docs/CHANGELOG.md` — never a silent doc edit.
+**Canonical status lives in `services/<name>/docs/CHANGELOG.md`.** This section
+says where things stand; the changelog says what changed and when. If the two
+ever disagree, the changelog is right and this section is stale.
+
+- `services/ledger` — **design AGREED v1.3.1; implemented and merged to main.**
+  All sixteen documented endpoints exist, 203 tests pass on CI against real
+  PostgreSQL. Do not re-implement the schema, posting engine, holds, reversal,
+  outbox, value dating, statements or invariants: they are done. Read
+  `services/ledger/docs/CHANGELOG.md` before assuming anything about state.
+
+  Known gaps, all tracked in `services/ledger/docs/testing.md` with explicit
+  status markers — these are the honest edges, not hidden work:
+  - property-based tests: **PLANNED**, though platform rules cite them as
+    merge-gating. That rule currently overstates reality.
+  - failure injection, migration-equivalence, hot-account benchmark and restore
+    drills: **PLANNED**
+  - events reach a logging adapter, not a broker: no broker is chosen yet, and
+    the choice needs an ADR
+  - tenant identity arrives in a header until Identity exists; it is not
+    authentication
+  - no performance, soak or disaster-recovery evidence exists
+
 - `libs/` — intentionally empty; extract a lib only when a second consumer
   exists.
