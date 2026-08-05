@@ -61,7 +61,7 @@ New deep-dive topics get their own file under `docs/` and a row in this table
 # whole stack in Docker — database + service
 docker compose up --build
 curl http://localhost:8080/actuator/health/readiness   # {"status":"UP"}
-open  http://localhost:8080/swagger-ui/index.html      # interactive API
+open  http://localhost:8080/docs                       # interactive API
 
 # database only, running the service from an IDE
 docker compose up -d postgres
@@ -84,7 +84,9 @@ inert while every catalog check still reported it enabled. `db/init/` creates
 the role locally; CI creates it in a workflow step; production provisions it
 with a real secret.
 
-**Swagger UI** is at `/swagger-ui/index.html`, the raw document at `/v3/api-docs`.
+**Swagger UI** is at [`/docs`](http://localhost:8080/docs); the raw document is at
+`/v3/api-docs` (that `v3` is the *OpenAPI specification* version — this API is
+`/v1`). `/swagger-ui/index.html` still works, because tooling expects it.
 It is generated from the code, so it cannot describe an endpoint the service
 does not serve — `docs/api.md` stays the agreed *design*, this is its executable
 reflection. Every call needs an `X-Tenant-Id` header; the UI offers a field for

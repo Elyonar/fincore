@@ -5,6 +5,21 @@ spring:
 server:
   port: ${LEDGER_PORT:8080}
 
+springdoc:
+  swagger-ui:
+    # /docs is the path people guess and remember. springdoc's own
+    # /swagger-ui/index.html keeps working, because tooling expects it.
+    path: /docs
+    # Endpoints in the order this service's own documentation introduces them,
+    # rather than alphabetically.
+    tags-sorter: alpha
+    operations-sorter: method
+    display-request-duration: true
+  api-docs:
+    # "v3" is the OpenAPI *specification* version, not this API's version — the
+    # API is /v1. Naming the file plainly avoids implying otherwise.
+    path: /v3/api-docs
+
 management:
   endpoints:
     web:
