@@ -11,7 +11,9 @@
  * directory.
  *
  * <p>The slices mirror the vocabulary of the agreed design, so a package name is always
- * traceable to a section of {@code docs/}:
+ * traceable to a section of {@code docs/}. Each slice owns its HTTP surface too — its controller
+ * and request/response records live beside the service they call, so a change to holds touches
+ * one directory:
  *
  * <ul>
  *   <li>{@code account}   — accounts and their balances; opening, closing, the balance row that
@@ -23,9 +25,12 @@
  *   <li>{@code outbox}    — the transactional outbox and its relay contract
  *   <li>{@code invariant} — the six invariants, daily anchors, and the exposure report
  *   <li>{@code tenant}    — tenant configuration and the {@code SET LOCAL} request context
- *   <li>{@code currency}  — currency reference data and minor-unit exponents
- *   <li>{@code shared}    — money and identifier types, error catalog; depended on by slices,
- *       depending on none of them
+ *   <li>{@code shared}    — the error catalog and the exception carrying it; depended on by
+ *       slices, depending on none of them
+ *   <li>{@code api}       — HTTP vocabulary shared by every slice's controller: tenant
+ *       resolution, the error body and its status mapping, and monetary serialization. Not a
+ *       layer: each slice owns its own controller and DTOs, and this holds only what would
+ *       otherwise be duplicated in all of them
  * </ul>
  *
  * <h2>Rules that hold across every slice</h2>

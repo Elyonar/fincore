@@ -58,6 +58,18 @@
             <scope>runtime</scope>
         </dependency>
 
+        <!--
+            OpenAPI is generated from the code rather than hand-written, so the
+            published contract cannot drift from what the service actually
+            serves. api.md remains the agreed *design*; this is its executable
+            reflection.
+        -->
+        <dependency>
+            <groupId>org.springdoc</groupId>
+            <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+            <version>3.1.0</version>
+        </dependency>
+
         <dependency>
             <groupId>org.flywaydb</groupId>
             <artifactId>flyway-core</artifactId>
