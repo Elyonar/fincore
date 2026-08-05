@@ -147,6 +147,43 @@ class SchemaPresenceTest extends LedgerPostgresTest {
                 .isTrue();
     }
 
+    @ParameterizedTest(name = "RLS is FORCED on {0}")
+    @ValueSource(
+            strings = {
+                "accounts",
+                "balances",
+                "ledger_transactions",
+                "entries",
+                "holds",
+                "accounting_periods",
+                "tenant_config",
+                "outbox_events"
+            })
+    void row_level_security_is_forced(String table) {
+        // Enabling RLS exempts the table owner unless it is also FORCEd. V1 shipped
+        // enabled-but-not-forced policies, and every presence check passed while the
+        // owner still saw every tenant's rows.
+        assertThat(exists(
+                        "SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace "
+                                + "WHERE n.nspname='public' AND c.relname=? AND c.relforcerowsecurity",
+                        table))
+                .as("RLS on %s is enabled but not FORCED, so the owner bypasses it", table)
+                .isTrue();
+    }
+
+    @Test
+    void the_service_connects_as_a_role_rls_can_constrain() {
+        // No FORCE flag helps against a superuser or a BYPASSRLS role — PostgreSQL skips
+        // policies for them outright. This asserts the runtime identity itself, because
+        // it is the one property that makes every policy above meaningful.
+        assertThat(jdbc.queryForObject(
+                        "SELECT rolsuper OR rolbypassrls FROM pg_roles WHERE rolname = current_user",
+                        Boolean.class))
+                .as("the ledger must not connect as a superuser or a BYPASSRLS role; "
+                        + "migrations run as the owner, traffic runs as ledger_app")
+                .isFalse();
+    }
+
     private boolean exists(String sql, Object... args) {
         Integer found = jdbc.query(sql, rs -> rs.next() ? 1 : 0, args);
         return found != null && found == 1;

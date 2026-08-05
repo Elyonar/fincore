@@ -75,6 +75,14 @@ Requires Java 25 and Docker. The database publishes on host port **55432**, not
 5432 — a clash with an unrelated local Postgres should never be able to fail
 this stack. Override with `FINCORE_POSTGRES_PORT` if you want the usual port.
 
+**Two database roles, deliberately.** Migrations run as the owner (`fincore`);
+the service and the test suite connect as `ledger_app`, which is neither a
+superuser nor `BYPASSRLS`. PostgreSQL skips row-level security entirely for
+those, so connecting as the owner would leave every tenant-isolation policy
+inert while every catalog check still reported it enabled. `db/init/` creates
+the role locally; CI creates it in a workflow step; production provisions it
+with a real secret.
+
 Domain endpoints appear as implementation lands; today the service serves only
 its actuator health probes, and the actuator surface is deliberately limited to
 `health` and `info`.
