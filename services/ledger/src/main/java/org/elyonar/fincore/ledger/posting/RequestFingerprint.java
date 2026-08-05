@@ -48,6 +48,8 @@ public final class RequestFingerprint {
                         + "|"
                         + (command.consumeHoldId() == null ? "" : command.consumeHoldId())
                         + "|"
+                        + (command.relatesToTransactionId() == null ? "" : command.relatesToTransactionId())
+                        + "|"
                         + command.entries().stream()
                                 .sorted(CANONICAL_ORDER)
                                 .map(RequestFingerprint::canonicalise)

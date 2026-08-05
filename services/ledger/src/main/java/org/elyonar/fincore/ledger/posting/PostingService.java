@@ -63,8 +63,9 @@ public class PostingService {
                 jdbc.update(
                         """
                         INSERT INTO ledger_transactions
-                            (id, tenant_id, idempotency_key, request_fingerprint, initiated_by, executed_by)
-                        VALUES (?,?,?,?,?,?)
+                            (id, tenant_id, idempotency_key, request_fingerprint, initiated_by,
+                             executed_by, relates_to_transaction_id)
+                        VALUES (?,?,?,?,?,?,?)
                         ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
                         """,
                         transactionId,
@@ -72,7 +73,8 @@ public class PostingService {
                         command.idempotencyKey(),
                         fingerprint,
                         command.initiatedBy(),
-                        command.executedBy());
+                        command.executedBy(),
+                        command.relatesToTransactionId());
 
         if (registered == 0) {
             // Lost the race. ON CONFLICT rather than catching the violation is deliberate: a
@@ -88,9 +90,29 @@ public class PostingService {
             return replayOrReject(winner, fingerprint);
         }
 
+        // 5. Tier-1 lock: the compensation target, before any balance row. Reversal takes the
+        //    same lock in the same order, which is what makes the exclusion between them both
+        //    race-safe and deadlock-free — two operations that need a transaction row and balance
+        //    rows must never acquire the two classes in opposite orders.
+        if (command.relatesToTransactionId() != null) {
+            lockTransaction(command.tenantId(), command.relatesToTransactionId());
+            String targetStatus =
+                    jdbc.queryForObject(
+                            "SELECT status FROM ledger_transactions WHERE tenant_id = ? AND id = ?",
+                            String.class,
+                            command.tenantId(),
+                            command.relatesToTransactionId());
+            if ("REVERSED".equals(targetStatus)) {
+                // Compensating an undone transaction is the same double credit as reversing a
+                // compensated one, with the operations swapped.
+                throw new LedgerException(
+                        ErrorCode.TARGET_REVERSED,
+                        "cannot compensate transaction " + command.relatesToTransactionId() + ": it is reversed");
+            }
+        }
+
         // 6. Tier-2 locks, in sorted account order. One global ordering is what makes deadlock
-        //    impossible rather than unlikely. (Tier 1 — target transaction rows — arrives with
-        //    reversal and compensation.)
+        //    impossible rather than unlikely.
         Map<UUID, Long> deltaByAccount = netDeltas(entries);
         List<UUID> lockOrder = deltaByAccount.keySet().stream().sorted(Comparator.naturalOrder()).toList();
         for (UUID accountId : lockOrder) {
@@ -267,6 +289,19 @@ public class PostingService {
                 heldAmount,
                 tenantId,
                 heldAccount);
+    }
+
+    /** Tier-1 lock. Always taken before any balance row, by every operation that needs both. */
+    private void lockTransaction(UUID tenantId, UUID transactionId) {
+        Integer locked =
+                jdbc.query(
+                        "SELECT 1 FROM ledger_transactions WHERE tenant_id = ? AND id = ? FOR UPDATE",
+                        rs -> rs.next() ? 1 : 0,
+                        tenantId,
+                        transactionId);
+        if (locked == null || locked == 0) {
+            throw new LedgerException(ErrorCode.ACCOUNT_NOT_FOUND, "unknown transaction " + transactionId);
+        }
     }
 
     private void lockBalance(UUID tenantId, UUID accountId) {

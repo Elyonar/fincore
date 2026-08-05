@@ -46,7 +46,31 @@ public enum ErrorCode {
     HOLD_NOT_ACTIVE,
 
     /** The debit against the held account exceeds the amount reserved. */
-    HOLD_EXCEEDED;
+    HOLD_EXCEEDED,
+
+    /**
+     * The target is already reversed. The response carries the winning reversal's id so a saga
+     * converges on it instead of retry-looping against a state that will never change.
+     */
+    ALREADY_REVERSED,
+
+    /**
+     * The target is itself a reversal. Reversing a reversal silently resurrects money movement
+     * while every status still reads terminal; the correct correction is a fresh transaction.
+     */
+    REVERSAL_OF_REVERSAL,
+
+    /**
+     * The target carries compensations, so a plain full reversal would double-credit on top of a
+     * partial refund already given.
+     */
+    HAS_COMPENSATIONS,
+
+    /**
+     * Compensating an already-reversed transaction — the same double credit as
+     * {@link #HAS_COMPENSATIONS}, with the operations in the other order.
+     */
+    TARGET_REVERSED;
 
     /** The stable string clients match on; never derived from the enum's position. */
     public String code() {

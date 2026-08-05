@@ -48,6 +48,7 @@ class PostingConcurrencyTest extends LedgerPostgresTest {
     private static final int POSTINGS_PER_THREAD = 15;
 
     @Autowired PostingService posting;
+    @Autowired ReversalService reversals;
     @Autowired DataSource dataSource;
 
     private UUID tenant;
@@ -312,5 +313,68 @@ class PostingConcurrencyTest extends LedgerPostgresTest {
                                 + db.count("SELECT current_minor FROM balances WHERE account_id = ?", b))
                 .as("the pair nets to zero: every debit had its credit")
                 .isZero();
+    }
+
+    @Test
+    @DisplayName("reversal racing compensation on the same original never deadlocks")
+    void reversal_and_compensation_do_not_deadlock() throws Exception {
+        // The two-tier protocol exists for exactly this pair. Both operations need the original
+        // transaction row *and* balance rows; if one took balances first and the other took the
+        // transaction row first, they would deadlock under load — intermittently, at a rate that
+        // rises with traffic and reads as flakiness. Both take tier 1 before tier 2, so the cycle
+        // cannot form. Exclusion is asserted elsewhere; what is asserted here is zero aborts.
+        AtomicInteger deadlocks = new AtomicInteger();
+        AtomicInteger excluded = new AtomicInteger();
+
+        List<UUID> originals = new ArrayList<>();
+        for (int i = 0; i < 12; i++) {
+            originals.add(
+                    posting.post(transfer("orig-" + i, funding, customers.get(i % customers.size()), 50_00))
+                            .transactionId());
+        }
+
+        stampede(
+                12,
+                thread ->
+                        () -> {
+                            UUID original = originals.get(thread);
+                            UUID account = customers.get(thread % customers.size());
+                            try {
+                                if (thread % 2 == 0) {
+                                    reversals.reverse(
+                                            new ReverseTransactionCommand(
+                                                    tenant, original, "rev-" + thread, "user:ops", "svc:test"));
+                                } else {
+                                    posting.post(
+                                            new PostTransactionCommand(
+                                                    tenant, "comp-" + thread, "u", "s", "partial",
+                                                    List.of(
+                                                            new EntryLine(account, DEBIT, 10_00, "NGN", null),
+                                                            new EntryLine(funding, CREDIT, 10_00, "NGN", null)),
+                                                    null,
+                                                    original));
+                                }
+                            } catch (RuntimeException e) {
+                                if (isDeadlock(e)) {
+                                    deadlocks.incrementAndGet();
+                                } else if (e instanceof LedgerException le
+                                        && (le.errorCode() == ErrorCode.TARGET_REVERSED
+                                                || le.errorCode() == ErrorCode.HAS_COMPENSATIONS
+                                                || le.errorCode() == ErrorCode.ALREADY_REVERSED)) {
+                                    excluded.incrementAndGet();
+                                } else {
+                                    throw e;
+                                }
+                            }
+                            return null;
+                        });
+
+        assertThat(deadlocks.get())
+                .as("tier 1 before tier 2, everywhere: the reversal/compensation pair cannot deadlock")
+                .isZero();
+
+        long sumOfBalances =
+                db.count("SELECT COALESCE(SUM(current_minor),0) FROM balances WHERE tenant_id = ?", tenant);
+        assertThat(sumOfBalances).as("money stays conserved through the whole race").isZero();
     }
 }

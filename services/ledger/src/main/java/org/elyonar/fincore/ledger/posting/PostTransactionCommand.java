@@ -16,10 +16,23 @@ public record PostTransactionCommand(
         String executedBy,
         String description,
         List<EntryLine> entries,
-        UUID consumeHoldId) {
+        UUID consumeHoldId,
+        UUID relatesToTransactionId) {
 
     public PostTransactionCommand {
         entries = entries == null ? List.of() : List.copyOf(entries);
+    }
+
+    /** A posting that consumes a hold but compensates nothing. */
+    public PostTransactionCommand(
+            UUID tenantId,
+            String idempotencyKey,
+            String initiatedBy,
+            String executedBy,
+            String description,
+            List<EntryLine> entries,
+            UUID consumeHoldId) {
+        this(tenantId, idempotencyKey, initiatedBy, executedBy, description, entries, consumeHoldId, null);
     }
 
     /** A posting that consumes no hold — the common case. */
@@ -30,6 +43,6 @@ public record PostTransactionCommand(
             String executedBy,
             String description,
             List<EntryLine> entries) {
-        this(tenantId, idempotencyKey, initiatedBy, executedBy, description, entries, null);
+        this(tenantId, idempotencyKey, initiatedBy, executedBy, description, entries, null, null);
     }
 }
