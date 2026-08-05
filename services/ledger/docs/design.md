@@ -1,6 +1,6 @@
 # Ledger — Design Index & Decision Log
 
-**Status:** AGREED v1.1 (2026-08-05) — implementation underway.
+**Status:** AGREED v1.1.1 (2026-08-05) — implementation underway.
 Amendments follow [`CHANGELOG.md`](CHANGELOG.md) and the
 [design-change convention](../../../docs/conventions/design-changes.md).
 **Source:** platform PRD §4.1 (ledger), §3 (constitution), §5 (communication
@@ -101,6 +101,21 @@ be rejected as key reuse.
 Entry amounts are capped below 2^53, but balances and group sums are uncapped
 aggregates; one uniform rule means no JSON consumer ever silently loses
 precision.
+
+**Persistence → plain SQL over JDBC; no ORM in this service.** The posting
+algorithm is written in terms of things an ORM takes away: `SELECT … FOR UPDATE`
+in a stated lock order, `ON CONFLICT` as the idempotency arbiter, and
+`set_config(..., true)` for the tenant session. An ORM decides statement order
+at flush time, which is incompatible with a deadlock argument that rests on
+acquiring balance rows in sorted account order; its identity map can serve a
+pre-lock copy of a row that was just locked; its idiom is optimistic versioning
+where this design deliberately chose pessimistic locks to avoid retry storms on
+hot accounts; and its dirty-checking fights append-only triggers rather than
+cooperating with them. There is also an audit argument: a reader can follow
+`PostingService` and see every statement that moves money.
+
+This is a decision about *this* service, not a platform rule. CRUD-shaped
+services elsewhere may reasonably choose JPA; nothing in `AGENTS.md` forbids it.
 
 **Schema migrations → append-only Flyway with schema-presence tests.** The
 schema's correctness lives in triggers, partial unique indexes, composite FKs,

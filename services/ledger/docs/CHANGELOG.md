@@ -8,6 +8,25 @@ entry first.
 
 ---
 
+## [1.1.1] — 2026-08-05 · PATCH
+
+**Persistence approach recorded: plain SQL over JDBC, no ORM.**
+
+- **Docs:** `design.md`
+- **Why:** the choice was visible only in a `pom.xml` comment and a
+  `package-info.java`, so it was absent from the place a contributor looks for
+  rationale and would be re-litigated on every review. Nothing about the
+  contract changes; this states a constraint that was already true and already
+  implemented.
+- **Impact:** clarification, no behavioural change. Scoped to the ledger — other
+  services may reasonably choose an ORM.
+- **Supersedes:** nothing.
+- **Tests:** none required; no behaviour changes. The constraint is already
+  observable in `PostingService`, and the ArchUnit suite continues to enforce
+  the rules that motivated it.
+
+---
+
 ## [1.1.0] — 2026-08-05 · MINOR
 
 **Row-level security requires a constrained role and FORCE; both are now stated.**

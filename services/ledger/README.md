@@ -29,13 +29,13 @@ Read in this order for full context; jump directly if you know what you need.
 
 | You want to know… | Read | Status |
 |---|---|---|
-| The design at a glance + the decision log | [`docs/design.md`](docs/design.md) | AGREED v1.1 |
-| Tables, relationships, ER diagram, schema-enforced rules, decided edge cases | [`docs/data-model.md`](docs/data-model.md) | AGREED v1.1 |
-| Boundaries, traffic, the outbox/relay contract, DR posture | [`docs/architecture.md`](docs/architecture.md) | AGREED v1.1 |
-| The endpoint surface, error catalog, and contract properties | [`docs/api.md`](docs/api.md) | AGREED v1.1 |
-| How postings/reversals/holds execute: the two-tier lock protocol, hot accounts | [`docs/posting-algorithm.md`](docs/posting-algorithm.md) | AGREED v1.1 |
-| The six invariants, the exposure split, and the test suites gating merges | [`docs/testing.md`](docs/testing.md) | AGREED v1.1 |
-| Every amendment since the design was agreed | [`docs/CHANGELOG.md`](docs/CHANGELOG.md) | v1.1 |
+| The design at a glance + the decision log | [`docs/design.md`](docs/design.md) | AGREED v1.1.1 |
+| Tables, relationships, ER diagram, schema-enforced rules, decided edge cases | [`docs/data-model.md`](docs/data-model.md) | AGREED v1.1.1 |
+| Boundaries, traffic, the outbox/relay contract, DR posture | [`docs/architecture.md`](docs/architecture.md) | AGREED v1.1.1 |
+| The endpoint surface, error catalog, and contract properties | [`docs/api.md`](docs/api.md) | AGREED v1.1.1 |
+| How postings/reversals/holds execute: the two-tier lock protocol, hot accounts | [`docs/posting-algorithm.md`](docs/posting-algorithm.md) | AGREED v1.1.1 |
+| The six invariants, the exposure split, and the test suites gating merges | [`docs/testing.md`](docs/testing.md) | AGREED v1.1.1 |
+| Every amendment since the design was agreed | [`docs/CHANGELOG.md`](docs/CHANGELOG.md) | v1.1.1 |
 | Platform-wide hard rules (no floats, append-only, one writer…) | [`AGENTS.md`](../../AGENTS.md) | Standing |
 | Why Java 25 / monorepo / AGPL / ledger-first | [`docs/adr/`](../../docs/adr/) (root) | Accepted |
 | Contribution process & CLA | [`CONTRIBUTING.md`](../../.github/CONTRIBUTING.md) | Standing |

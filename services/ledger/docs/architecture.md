@@ -1,6 +1,6 @@
 # Ledger — Architecture & Boundaries
 
-**Status:** AGREED v1.1 (2026-08-05) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
+**Status:** AGREED v1.1.1 (2026-08-05) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
 
 ## The shape
 
