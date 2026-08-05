@@ -15,9 +15,21 @@ public record PostTransactionCommand(
         String initiatedBy,
         String executedBy,
         String description,
-        List<EntryLine> entries) {
+        List<EntryLine> entries,
+        UUID consumeHoldId) {
 
     public PostTransactionCommand {
         entries = entries == null ? List.of() : List.copyOf(entries);
+    }
+
+    /** A posting that consumes no hold — the common case. */
+    public PostTransactionCommand(
+            UUID tenantId,
+            String idempotencyKey,
+            String initiatedBy,
+            String executedBy,
+            String description,
+            List<EntryLine> entries) {
+        this(tenantId, idempotencyKey, initiatedBy, executedBy, description, entries, null);
     }
 }

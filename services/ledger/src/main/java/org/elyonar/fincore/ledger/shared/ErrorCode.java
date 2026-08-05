@@ -37,7 +37,16 @@ public enum ErrorCode {
     IDEMPOTENCY_KEY_REUSED,
 
     /** Future date, outside the backdate window, missing reason, or a closed period. */
-    VALUE_DATE_INVALID;
+    VALUE_DATE_INVALID,
+
+    /**
+     * Capture attempted against a hold that is RELEASED, EXPIRED or already CONSUMED. Terminal
+     * for that hold: the reservation is gone and re-authorisation is the only honest recovery.
+     */
+    HOLD_NOT_ACTIVE,
+
+    /** The debit against the held account exceeds the amount reserved. */
+    HOLD_EXCEEDED;
 
     /** The stable string clients match on; never derived from the enum's position. */
     public String code() {

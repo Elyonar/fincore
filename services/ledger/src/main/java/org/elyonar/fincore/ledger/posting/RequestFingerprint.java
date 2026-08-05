@@ -46,6 +46,8 @@ public final class RequestFingerprint {
         String canonical =
                 command.tenantId()
                         + "|"
+                        + (command.consumeHoldId() == null ? "" : command.consumeHoldId())
+                        + "|"
                         + command.entries().stream()
                                 .sorted(CANONICAL_ORDER)
                                 .map(RequestFingerprint::canonicalise)

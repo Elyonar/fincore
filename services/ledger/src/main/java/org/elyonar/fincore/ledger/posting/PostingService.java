@@ -99,6 +99,14 @@ public class PostingService {
 
         validateAccounts(command.tenantId(), entries);
 
+        // Consume a hold, if asked. This commits with the entries, which is the whole point: a
+        // release-then-post saga leaves a window in which concurrent spending can take funds the
+        // bank has already settled externally, and no amount of care outside the database closes
+        // it.
+        if (command.consumeHoldId() != null) {
+            consumeHold(command.tenantId(), command.consumeHoldId(), transactionId, deltaByAccount);
+        }
+
         // 7-8. Write entries, then apply net deltas per account.
         for (EntryLine entry : entries) {
             jdbc.update(
@@ -205,6 +213,60 @@ public class PostingService {
             deltas.merge(entry.accountId(), entry.signedMinor(), Long::sum);
         }
         return deltas;
+    }
+
+    private void consumeHold(UUID tenantId, UUID holdId, UUID transactionId, Map<UUID, Long> deltaByAccount) {
+        var hold =
+                jdbc.query(
+                        "SELECT account_id, amount_minor, status FROM holds WHERE tenant_id = ? AND id = ?",
+                        rs ->
+                                rs.next()
+                                        ? new Object[] {rs.getObject(1, UUID.class), rs.getLong(2), rs.getString(3)}
+                                        : null,
+                        tenantId,
+                        holdId);
+        if (hold == null) {
+            throw new LedgerException(ErrorCode.ACCOUNT_NOT_FOUND, "unknown hold " + holdId);
+        }
+
+        UUID heldAccount = (UUID) hold[0];
+        long heldAmount = (Long) hold[1];
+        String status = (String) hold[2];
+
+        if (!"ACTIVE".equals(status)) {
+            // Terminal for this hold. Re-authorisation is the only honest recovery — the caller
+            // must never be told a reservation still exists when it does not.
+            throw new LedgerException(
+                    ErrorCode.HOLD_NOT_ACTIVE, "hold " + holdId + " is " + status + " and cannot be captured");
+        }
+
+        Long delta = deltaByAccount.get(heldAccount);
+        if (delta == null) {
+            throw new LedgerException(
+                    ErrorCode.HOLD_NOT_ACTIVE, "the consumed hold is not on any account this posting touches");
+        }
+
+        long debited = delta < 0 ? -delta : 0L;
+        if (debited > heldAmount) {
+            throw new LedgerException(
+                    ErrorCode.HOLD_EXCEEDED, "the debit against the held account exceeds the reserved amount");
+        }
+
+        // Single-shot capture: the hold is consumed in full and any unspent remainder is released
+        // explicitly, rather than lingering as a reservation nobody will clear. Orchestration
+        // places a fresh hold if it needs another.
+        jdbc.update(
+                "UPDATE holds SET status='CONSUMED', resolved_at=now(), consumed_by_transaction_id=?"
+                        + " WHERE tenant_id = ? AND id = ?",
+                transactionId,
+                tenantId,
+                holdId);
+        jdbc.update(
+                "UPDATE balances SET holds_total_minor = holds_total_minor - ?, updated_at = now()"
+                        + " WHERE tenant_id = ? AND account_id = ?",
+                heldAmount,
+                tenantId,
+                heldAccount);
     }
 
     private void lockBalance(UUID tenantId, UUID accountId) {
