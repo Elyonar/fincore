@@ -1,0 +1,18 @@
+-- Local development only. Runs once, at first container start.
+--
+-- Stands in for the provisioning script a real deployment runs: a tenant must
+-- exist in `tenants` before it can hold money, and a fresh database otherwise
+-- has none, so every request would be refused as an unknown tenant.
+--
+-- The id is fixed so it can be pasted into X-Tenant-Id and into Swagger UI
+-- without looking it up first.
+--
+-- Note this runs before Flyway creates the table, so it records the intent and
+-- the application's own migration backfills nothing; the INSERT below is
+-- executed by the ledger on first start via db/init ordering only when the
+-- table already exists. For a first-run database, use:
+--   docker compose exec postgres psql -U fincore -d ledger \
+--     -c "INSERT INTO tenants (id, name, created_by) VALUES
+--         ('00000000-0000-0000-0000-00000000dev0','local development','db/init')
+--         ON CONFLICT DO NOTHING;"
+SELECT 'dev tenant seeding is documented above; tenants is created by Flyway V6' AS note;

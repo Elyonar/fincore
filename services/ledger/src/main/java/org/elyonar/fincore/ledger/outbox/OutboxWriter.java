@@ -22,20 +22,29 @@ import org.springframework.stereotype.Component;
  * <p>Monetary values are serialized as decimal strings, matching the read API. Balances are
  * uncapped sums that can exceed 2^53, and a consumer parsing events must not disagree with a
  * consumer parsing responses.
+ *
+ * <p>Every payload carries {@code ledgerEpoch} for the restore protocol, and {@code outboxId}
+ * reaches consumers as the message id or header so they can deduplicate.
  */
 @Component
 public class OutboxWriter {
 
     private final JdbcTemplate jdbc;
+    private final LedgerEpoch epoch;
 
-    public OutboxWriter(JdbcTemplate jdbc) {
+    public OutboxWriter(JdbcTemplate jdbc, LedgerEpoch epoch) {
         this.jdbc = jdbc;
+        this.epoch = epoch;
     }
 
     public void write(UUID tenantId, LedgerEvent event, UUID aggregateId, Map<String, Object> payload) {
         Map<String, Object> body = new LinkedHashMap<>(payload);
         body.put("tenantId", tenantId.toString());
         body.put("aggregateId", aggregateId.toString());
+        // The restore generation. A consumer discards anything from an epoch newer than the one it
+        // was told to trust — without it, a post-restore replay is indistinguishable from ordinary
+        // at-least-once redelivery.
+        body.put("ledgerEpoch", epoch.value());
 
         jdbc.update(
                 "INSERT INTO outbox_events (tenant_id, event_type, aggregate_id, payload)"

@@ -80,11 +80,10 @@ not, that gap is a bug in the guardrails.
    events only.
 6. Multi-tenancy: `tenant_id` scoping on every query.
 7. AI advises, humans decide. No change to ledger or orchestration code merges
-   without the invariant and concurrency suites green, and money-touching
-   changes ship with the tests that prove them. (This rule previously also
-   required a property-based suite. None exists yet — see `testing.md` — and a
-   rule naming a suite that cannot run is a rule nobody can satisfy, so it is
-   stated as PLANNED there rather than pretended to here.) This applies to
+   without the invariant, property-based, concurrency and failure-injection
+   suites green, and money-touching changes ship with the tests that prove them.
+   All four exist and run; `testing.md` marks every suite IMPLEMENTED, PARTIAL
+   or DEFERRED, and a rule may only name a suite that can actually run. This applies to
    **every** contributor — nothing reveals whether a diff was AI-generated, so
    a rule that only bound AI authors would bind no one, while implying
    hand-written ledger code needs less proof. It does not.
@@ -107,7 +106,7 @@ CI: `.github/workflows/ci.yml` — every push/PR runs `./mvnw verify`.
 says where things stand; the changelog says what changed and when. If the two
 ever disagree, the changelog is right and this section is stale.
 
-- `services/ledger` — **design AGREED v1.3.1; implemented and merged to main.**
+- `services/ledger` — **design AGREED v1.4; implemented and merged to main.**
   All sixteen documented endpoints exist, 203 tests pass on CI against real
   PostgreSQL. Do not re-implement the schema, posting engine, holds, reversal,
   outbox, value dating, statements or invariants: they are done. Read
@@ -115,14 +114,18 @@ ever disagree, the changelog is right and this section is stale.
 
   Known gaps, all tracked in `services/ledger/docs/testing.md` with explicit
   status markers — these are the honest edges, not hidden work:
-  - property-based tests: **PLANNED**, though platform rules cite them as
-    merge-gating. That rule currently overstates reality.
-  - failure injection, migration-equivalence, hot-account benchmark and restore
-    drills: **PLANNED**
-  - events reach a logging adapter, not a broker: no broker is chosen yet, and
-    the choice needs an ADR
-  - tenant identity arrives in a header until Identity exists; it is not
-    authentication
+  - property-based (jqwik), failure-injection, invariant and concurrency suites
+    are all green, so ADR 0004's precondition for starting a second service is
+    **met** — see that ADR's precondition status section
+  - events are delivered for real: Kafka by default, RabbitMQ supported,
+    selected by `ledger.events.broker` (ADR 0005). The `log` adapter delivers
+    nothing and the startup banner says so
+  - tenant identity arrives in a header until Identity exists; it is **not
+    authentication**, and the ledger does not enforce the caller roles `api.md`
+    names
+  - deferred with reasons in `services/ledger/docs/testing.md`: hot-account
+    throughput benchmark, migration equivalence, expand/migrate/contract
+    rehearsal, restore drills, and two cross-tenant probes
   - no performance, soak or disaster-recovery evidence exists
 
 - `libs/` — intentionally empty; extract a lib only when a second consumer

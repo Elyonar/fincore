@@ -143,6 +143,21 @@ public class InvariantService {
                                 runId));
     }
 
+    /**
+     * A full-history proof, recorded with scope FULL.
+     *
+     * <p>{@code testing.md} calls for this weekly and <strong>against a read replica, never the
+     * primary</strong> — summing seven years of entries on the box serving postings is how a
+     * verification job becomes an outage. Routing it to a replica is a datasource concern of the
+     * deployment; what belongs here is that a full proof is a distinct, recorded thing rather than
+     * an incremental one relabelled.
+     */
+    public InvariantReport verifyFull(UUID tenantId) {
+        Instant startedAt = Instant.now();
+        List<Finding> findings = collectFindings(tenantId);
+        return persist(new InvariantReport(null, tenantId, startedAt, Instant.now(), "FULL", findings));
+    }
+
     /** Runs verification inline and records it. Used by the scheduler and by tests. */
     public InvariantReport verify(UUID tenantId) {
         Instant startedAt = Instant.now();

@@ -8,6 +8,45 @@ entry first.
 
 ---
 
+## [1.4.0] — 2026-08-05 · MINOR
+
+**Tenant registry and ledger epoch — two things the design specified and the
+implementation never had.**
+
+- **Docs:** `data-model.md` (eleven tables → thirteen)
+- **Why:** both were written as design and silently absent, which is worse than
+  a gap the docs admit — they read as done.
+  - `design.md` recorded "tenant provisioning → versioned seed script" and
+    `data-model.md` said `tenant_config` is "seeded by the provisioning script".
+    No script existed, and `TenantConfigService` falls back to platform defaults
+    when no row matches, so **any UUID in the header was a valid tenant** with a
+    working ledger of its own. Every isolation test passed, because isolation
+    between tenants was never what was broken.
+  - `architecture.md` specifies a restore protocol in which every published
+    event carries a ledger epoch. The field did not exist anywhere — not in the
+    schema, not in a payload. It is a *consumer-side* contract, so the first
+    service to consume events would have been written against something absent.
+- **Impact:** additive for callers. Operationally required: a tenant must now be
+  provisioned before it can transact, and `db/init/20-dev-tenant.sql` seeds one
+  for local development. Event payloads gain `ledgerEpoch`.
+- **Decision recorded with it:** `tenants` is a **local projection**, not a join
+  and not a subscription. The ledger makes no synchronous outbound calls, so it
+  cannot ask Identity mid-posting whether a tenant is real without putting
+  another service's availability in the money path. It keeps an id, a name and a
+  status — nothing about the customer — and provisioning writes it, which keeps
+  "events consumed: NONE, EVER" exactly true. A tenant feed would make accepting
+  money depend on a message having arrived; a missed one would leave a real bank
+  silently unable to post.
+- **Supersedes:** nothing.
+- **Tests:** `TenantRegistryTest` — unknown and suspended tenants refused, over
+  HTTP as 404, and indistinguishable from any other not-found so the endpoint is
+  not an enumeration oracle. Epoch presence asserted in the outbox suite.
+- **Migration:** `V6__tenant_registry_and_epoch.sql`, which backfills `tenants`
+  from existing accounts and config so the new foreign keys can be trusted
+  rather than merely declared.
+
+---
+
 ## [1.3.1] — 2026-08-05 · PATCH
 
 **Test suites marked IMPLEMENTED / PARTIAL / PLANNED.**

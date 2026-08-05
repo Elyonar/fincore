@@ -1,8 +1,8 @@
 # Ledger — Data Model
 
-**Status:** AGREED v1.3.1 (2026-08-05) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
+**Status:** AGREED v1.4 (2026-08-05) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
 
-Eleven tables. Amounts are integer minor units (`BIGINT`), currency on every
+Thirteen tables. Amounts are integer minor units (`BIGINT`), currency on every
 entry and account, `tenant_id` on **every** row — including holds and outbox.
 
 **Glossary — `available`:** everywhere these docs say available, it means
@@ -250,6 +250,35 @@ operable:** `accounts.opened_at`/`closed_at`, `ledger_transactions.posted_at`,
 `accounting_periods.closed_at`, `outbox_events.created_at`. The outbox one is
 load-bearing rather than decorative — architecture.md alerts on
 oldest-unpublished *age*, which cannot be computed without it.
+
+**Tenant registry.** `tenants` is the table a tenant must appear in before it can hold money.
+Row-level security isolates tenants from each other; it has nothing to say about whether a tenant
+is *real*, and until this existed any well-formed UUID in a request header produced a working,
+empty ledger with platform defaults. `accounts` and `tenant_config` now carry a foreign key to it.
+Deliberately not row-level secured — a request has to be able to ask "is this tenant real?" before
+it has a tenant context to be scoped by — and it holds a name and a status, no money and no PII.
+
+**It is a local projection, not a join.** The ledger makes no synchronous outbound calls, so it
+cannot ask Identity "is this tenant real?" while a posting is in flight: that would put another
+service's availability directly in the money path, which is the coupling this service exists
+without. Instead it keeps the smallest possible local copy of the answer — an id, a name, a status.
+Nothing about the customer, their KYC tier, their products or their contact details. If the ledger
+would need to know *why* a tenant exists, it does not belong here.
+
+**Populated by provisioning, not by consuming events.** Tenant lifecycle is rare, deliberate and
+attributed: a bank is onboarded, or suspended, by an operator running a versioned script — the same
+path that seeds `tenant_config`. That keeps "events consumed: NONE, EVER" exactly true. Subscribing
+to a tenant feed would make the ledger's ability to accept money depend on a message arriving, and
+a missed message would mean a real bank silently unable to transact. A provisioning step that fails
+is visible immediately to the person running it.
+
+**Ledger epoch.** `ledger_epoch` is a single enforced row carrying the restore generation, stamped
+onto every published event as `ledgerEpoch`. A restore from backup rewinds the outbox: ids
+consumers have already seen become available again, and the events written under them may describe
+different money. Without a generation marker a consumer cannot tell a genuine at-least-once
+redelivery from a post-restore replay of a different history — both look like an outbox id it has
+seen before. `advance_ledger_epoch(reason)` is the only way to change it, and the reason is not
+optional.
 
 **Verification tables.** `balance_anchors` holds one immutable, proven checkpoint per account
 per day; `invariant_runs` records each verification pass with its findings. An anchor keys on an

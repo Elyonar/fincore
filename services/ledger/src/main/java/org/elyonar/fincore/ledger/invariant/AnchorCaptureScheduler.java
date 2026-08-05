@@ -21,9 +21,11 @@ public class AnchorCaptureScheduler {
     private static final Logger log = LoggerFactory.getLogger(AnchorCaptureScheduler.class);
 
     private final AnchorService anchors;
+    private final InvariantService invariants;
 
-    public AnchorCaptureScheduler(AnchorService anchors) {
+    public AnchorCaptureScheduler(AnchorService anchors, InvariantService invariants) {
         this.anchors = anchors;
+        this.invariants = invariants;
     }
 
     /** Early morning, after the business day has settled in the tenant's zone. */
@@ -37,6 +39,37 @@ public class AnchorCaptureScheduler {
             } catch (RuntimeException e) {
                 // One tenant's failure must not stop the others being anchored.
                 log.error("anchor capture failed for tenant {}", tenantId, e);
+            }
+        }
+    }
+
+    /**
+     * The weekly full-history proof.
+     *
+     * <p>The hourly check verifies anchor-plus-delta, which is only as trustworthy as the anchors.
+     * This one re-derives everything from the entries themselves, so an anchor that was wrong when
+     * written cannot hide behind checks that keep trusting it.
+     *
+     * <p>Scheduled for a quiet hour. Pointing it at a read replica is a deployment concern
+     * (`ledger.invariants.full-datasource`), and until one is configured it runs against the
+     * primary — which is acceptable at current volumes and explicitly not acceptable at seven
+     * years of history. That threshold is recorded in testing.md rather than left to be
+     * discovered.
+     */
+    @Scheduled(cron = "${ledger.invariants.full-cron:0 45 3 * * SUN}")
+    public void verifyFully() {
+        for (UUID tenantId : anchors.tenantsWithAccounts()) {
+            try {
+                var report = invariants.verifyFull(tenantId);
+                if (!report.clean()) {
+                    log.error("full verification found {} violations for tenant {}",
+                            report.violations(), tenantId);
+                } else {
+                    log.info("full verification clean for tenant {} ({} authorized exposures)",
+                            tenantId, report.exposures());
+                }
+            } catch (RuntimeException e) {
+                log.error("full verification failed for tenant {}", tenantId, e);
             }
         }
     }
