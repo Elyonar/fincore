@@ -13,6 +13,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  * <p>Design: docs/design.md — agreed before any domain code lands here.
  */
 @SpringBootApplication
+@org.springframework.scheduling.annotation.EnableScheduling
 public class LedgerApplication {
 
     public static void main(String[] args) {

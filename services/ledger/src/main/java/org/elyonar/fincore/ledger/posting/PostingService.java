@@ -6,6 +6,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import org.elyonar.fincore.ledger.outbox.LedgerEvent;
+import org.elyonar.fincore.ledger.outbox.OutboxWriter;
 import org.elyonar.fincore.ledger.shared.ErrorCode;
 import org.elyonar.fincore.ledger.shared.LedgerException;
 import org.elyonar.fincore.ledger.tenant.TenantScope;
@@ -30,10 +32,12 @@ public class PostingService {
 
     private final TenantScope tenantScope;
     private final JdbcTemplate jdbc;
+    private final OutboxWriter outbox;
 
-    public PostingService(TenantScope tenantScope, JdbcTemplate jdbc) {
+    public PostingService(TenantScope tenantScope, JdbcTemplate jdbc, OutboxWriter outbox) {
         this.tenantScope = tenantScope;
         this.jdbc = jdbc;
+        this.outbox = outbox;
     }
 
     public PostingResult post(PostTransactionCommand command) {
@@ -148,6 +152,16 @@ public class PostingService {
         for (UUID accountId : lockOrder) {
             applyDelta(command.tenantId(), accountId, deltaByAccount.get(accountId));
         }
+
+        // 9. The event, in this same transaction: it exists if and only if the posting committed.
+        outbox.write(
+                command.tenantId(),
+                LedgerEvent.POSTING_COMPLETED,
+                transactionId,
+                Map.of(
+                        "transactionId", transactionId.toString(),
+                        "idempotencyKey", command.idempotencyKey(),
+                        "entryCount", entries.size()));
 
         return PostingResult.posted(transactionId);
     }
@@ -289,6 +303,19 @@ public class PostingService {
                 heldAmount,
                 tenantId,
                 heldAccount);
+
+        // Both amounts, so a consumer can see that the remainder was released rather than
+        // silently vanishing.
+        outbox.write(
+                tenantId,
+                LedgerEvent.HOLD_RELEASED,
+                holdId,
+                Map.of(
+                        "holdId", holdId.toString(),
+                        "reason", "consumed",
+                        "capturedMinor", debited,
+                        "releasedRemainderMinor", heldAmount - debited,
+                        "transactionId", transactionId.toString()));
     }
 
     /** Tier-1 lock. Always taken before any balance row, by every operation that needs both. */

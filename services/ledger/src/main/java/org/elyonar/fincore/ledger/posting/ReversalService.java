@@ -7,6 +7,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.Map;
+import org.elyonar.fincore.ledger.outbox.LedgerEvent;
+import org.elyonar.fincore.ledger.outbox.OutboxWriter;
 import org.elyonar.fincore.ledger.shared.ErrorCode;
 import org.elyonar.fincore.ledger.shared.LedgerException;
 import org.elyonar.fincore.ledger.tenant.TenantScope;
@@ -32,10 +35,12 @@ public class ReversalService {
 
     private final TenantScope tenantScope;
     private final JdbcTemplate jdbc;
+    private final OutboxWriter outbox;
 
-    public ReversalService(TenantScope tenantScope, JdbcTemplate jdbc) {
+    public ReversalService(TenantScope tenantScope, JdbcTemplate jdbc, OutboxWriter outbox) {
         this.tenantScope = tenantScope;
         this.jdbc = jdbc;
+        this.outbox = outbox;
     }
 
     public PostingResult reverse(ReverseTransactionCommand command) {
@@ -185,6 +190,14 @@ public class ReversalService {
                 "UPDATE ledger_transactions SET status='REVERSED' WHERE tenant_id = ? AND id = ?",
                 command.tenantId(),
                 command.originalTransactionId());
+
+        outbox.write(
+                command.tenantId(),
+                LedgerEvent.POSTING_REVERSED,
+                reversalId,
+                Map.of(
+                        "reversalTransactionId", reversalId.toString(),
+                        "originalTransactionId", command.originalTransactionId().toString()));
 
         return PostingResult.posted(reversalId);
     }

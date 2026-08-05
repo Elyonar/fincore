@@ -1,6 +1,9 @@
 package org.elyonar.fincore.ledger.hold;
 
 import java.util.UUID;
+import java.util.Map;
+import org.elyonar.fincore.ledger.outbox.LedgerEvent;
+import org.elyonar.fincore.ledger.outbox.OutboxWriter;
 import org.elyonar.fincore.ledger.shared.ErrorCode;
 import org.elyonar.fincore.ledger.shared.LedgerException;
 import org.elyonar.fincore.ledger.tenant.TenantScope;
@@ -20,10 +23,12 @@ public class HoldService {
 
     private final TenantScope tenantScope;
     private final JdbcTemplate jdbc;
+    private final OutboxWriter outbox;
 
-    public HoldService(TenantScope tenantScope, JdbcTemplate jdbc) {
+    public HoldService(TenantScope tenantScope, JdbcTemplate jdbc, OutboxWriter outbox) {
         this.tenantScope = tenantScope;
         this.jdbc = jdbc;
+        this.outbox = outbox;
     }
 
     public UUID place(PlaceHoldCommand command) {
@@ -124,6 +129,17 @@ public class HoldService {
                 command.tenantId(),
                 command.accountId());
 
+        outbox.write(
+                command.tenantId(),
+                LedgerEvent.HOLD_PLACED,
+                holdId,
+                Map.of(
+                        "holdId", holdId.toString(),
+                        "accountId", command.accountId().toString(),
+                        "amountMinor", command.amountMinor(),
+                        "currency", command.currency(),
+                        "expiresAt", command.expiresAt().toString()));
+
         return holdId;
     }
 
@@ -204,6 +220,15 @@ public class HoldService {
                 amount,
                 tenantId,
                 accountId);
+
+        outbox.write(
+                tenantId,
+                LedgerEvent.HOLD_RELEASED,
+                holdId,
+                Map.of(
+                        "holdId", holdId.toString(),
+                        "reason", "released",
+                        "releasedRemainderMinor", amount));
 
         return HoldReleaseOutcome.RELEASED_NOW;
     }
