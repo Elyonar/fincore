@@ -32,12 +32,27 @@ jobs:
           --health-retries=5
 
     env:
+      # Traffic as the restricted role, migrations as the owner — the same
+      # separation the service uses in compose and in production.
       SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/ledger
-      SPRING_DATASOURCE_USERNAME: fincore
-      SPRING_DATASOURCE_PASSWORD: fincore
+      SPRING_DATASOURCE_USERNAME: ledger_app
+      SPRING_DATASOURCE_PASSWORD: ledger_app
+      SPRING_FLYWAY_USER: fincore
+      SPRING_FLYWAY_PASSWORD: fincore
 
     steps:
       - uses: actions/checkout@v4
+
+      # RLS cannot constrain a superuser, so the suite connects as a restricted
+      # role. Locally this role comes from db/init; service containers cannot
+      # mount init scripts, so CI creates it here.
+      - name: Create the restricted application role
+        env:
+          PGPASSWORD: fincore
+        run: |
+          psql -h localhost -U fincore -d ledger -v ON_ERROR_STOP=1 -c \
+            "CREATE ROLE ledger_app LOGIN PASSWORD 'ledger_app' \
+             NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;"
 
       - name: Set up Java 25
         uses: actions/setup-java@v4

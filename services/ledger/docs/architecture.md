@@ -1,6 +1,6 @@
 # Ledger — Architecture & Boundaries
 
-**Status:** AGREED v1.0 (2026-08-04) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
+**Status:** AGREED v1.2 (2026-08-05) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
 
 ## The shape
 
@@ -32,7 +32,22 @@ including reversing another tenant's transaction or releasing another
 tenant's hold), and PostgreSQL row-level security as backstop. Connections
 without a tenant context can read nothing.
 
-**The RLS discipline is explicit, and pooling-safe — `SET LOCAL`, never
+**RLS only constrains a role it is allowed to constrain — this comes first.**
+PostgreSQL skips policies entirely for a SUPERUSER or a `BYPASSRLS` role, and
+exempts a table's own owner unless the table is additionally marked `FORCE ROW
+LEVEL SECURITY`. Either exemption makes every policy inert while the catalog
+still reports RLS as enabled, so the failure is invisible to inspection. Two
+requirements, both load-bearing:
+
+- every tenant-scoped table is `FORCE ROW LEVEL SECURITY`;
+- the service connects as `ledger_app` — `NOSUPERUSER`, `NOBYPASSRLS`, DML
+  privileges only — while migrations run as the owner. DDL and traffic are
+  different jobs and must not share an identity.
+
+Both are asserted by the schema-presence suite, because "RLS is enabled" is not
+the same claim as "RLS is enforced".
+
+**The RLS discipline is also pooling-safe — `SET LOCAL`, never
 session `SET`.** The tenant context variable is set from the validated token
 as `SET LOCAL app.tenant_id` **inside the request's transaction**, so it
 reverts automatically on commit or rollback. Connections are pooled and

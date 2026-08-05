@@ -8,6 +8,76 @@ entry first.
 
 ---
 
+## [1.2.0] — 2026-08-05 · MINOR
+
+**Two verification tables added: `balance_anchors` and `invariant_runs`.**
+
+- **Docs:** `data-model.md` (nine tables → eleven)
+- **Why:** incremental invariant verification needs somewhere to keep its
+  proven checkpoints and its run history. The design described both mechanisms
+  in `testing.md` but never gave them a home in the data model, so the schema
+  and the documented table count had diverged the moment they were built.
+- **Impact:** additive. No existing table, constraint or contract changes; no
+  caller is affected.
+- **Supersedes:** nothing.
+- **Tests:** `SchemaPresenceTest` table count and presence checks;
+  `QuiesceHorizonTest` proves the bound never advances past an in-flight
+  writer, which is the property the anchors rest on.
+- **Migration:** `V5__invariants.sql`
+
+*Found by the guardrail rather than by review: the schema-presence suite
+asserts the documented table count, so adding a table without amending the
+design failed the build.*
+
+---
+
+## [1.1.1] — 2026-08-05 · PATCH
+
+**Persistence approach recorded: plain SQL over JDBC, no ORM.**
+
+- **Docs:** `design.md`
+- **Why:** the choice was visible only in a `pom.xml` comment and a
+  `package-info.java`, so it was absent from the place a contributor looks for
+  rationale and would be re-litigated on every review. Nothing about the
+  contract changes; this states a constraint that was already true and already
+  implemented.
+- **Impact:** clarification, no behavioural change. Scoped to the ledger — other
+  services may reasonably choose an ORM.
+- **Supersedes:** nothing.
+- **Tests:** none required; no behaviour changes. The constraint is already
+  observable in `PostingService`, and the ArchUnit suite continues to enforce
+  the rules that motivated it.
+
+---
+
+## [1.1.0] — 2026-08-05 · MINOR
+
+**Row-level security requires a constrained role and FORCE; both are now stated.**
+
+- **Docs:** `architecture.md`
+- **Why:** the v1.0 design described RLS as the tenant-isolation backstop and
+  specified the `SET LOCAL` context discipline, but said nothing about the
+  privileges of the connecting role. Implementation showed that omission was
+  fatal rather than incidental: PostgreSQL exempts a table's owner from its own
+  policies unless the table is `FORCE`d, and exempts a SUPERUSER or `BYPASSRLS`
+  role unconditionally. With the service connecting as the bootstrap superuser,
+  every policy was inert while `pg_class.relrowsecurity` still reported enabled
+  — a guarantee that failed silently and survived inspection.
+- **Impact:** backward compatible as a contract; operationally required.
+  Deployments must provision `ledger_app` (NOSUPERUSER, NOBYPASSRLS, DML only)
+  and run migrations as the owner.
+- **Supersedes:** nothing. This closes a gap rather than reversing a decision;
+  the `SET LOCAL` rule from v1.0 stands unchanged and is now stated as the
+  *second* of two requirements rather than the only one.
+- **Tests:** `TenantIsolationTest` (rows hidden across tenants, no-context reads
+  return nothing, cross-tenant insert refused, shared `group_ref` does not sum,
+  pooled connections do not inherit context); `SchemaPresenceTest` guards that
+  RLS is FORCEd and that the connecting role is neither superuser nor
+  BYPASSRLS.
+- **Migration:** `V2__force_row_level_security.sql`, `V3__application_role.sql`
+
+---
+
 ## [1.0.0] — 2026-08-04 · AGREED baseline
 
 **Initial agreed design.** Implementation may begin.

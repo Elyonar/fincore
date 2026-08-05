@@ -23,6 +23,9 @@ services:
       - "${FINCORE_POSTGRES_PORT:-55432}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+      # Creates the non-superuser runtime role. RLS cannot constrain a superuser,
+      # so the service must not connect as one.
+      - ./db/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       # `pg_isready` on its own reports true during init, while the server is
       # briefly up on a temporary socket. Naming the user and database makes the
@@ -43,9 +46,13 @@ services:
       postgres:
         condition: service_healthy
     environment:
+      # The service connects as the restricted role; Flyway migrates as the
+      # owner. Separation of duties: DDL and traffic are different jobs.
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/ledger
-      SPRING_DATASOURCE_USERNAME: fincore
-      SPRING_DATASOURCE_PASSWORD: fincore
+      SPRING_DATASOURCE_USERNAME: ledger_app
+      SPRING_DATASOURCE_PASSWORD: ledger_app
+      SPRING_FLYWAY_USER: fincore
+      SPRING_FLYWAY_PASSWORD: fincore
       # A container is not a dev machine; it must never start its own database
       # sidecar.
       SPRING_DOCKER_COMPOSE_ENABLED: "false"

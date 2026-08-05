@@ -19,9 +19,10 @@
     </description>
 
     <!--
-        Dependencies are intentionally minimal while the service is a skeleton.
-        Web/JDBC/Flyway/PostgreSQL arrive with the first implementation commit,
-        after the design in docs/design.md is agreed.
+        Kept deliberately small. architecture.md treats this dependency list as an
+        architectural control: there is no HTTP client and no messaging consumer
+        here, and a reviewer can confirm that by reading this file. ArchUnit
+        enforces the same rule against the code.
     -->
     <dependencies>
         <dependency>
@@ -40,6 +41,43 @@
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
 
+        <!--
+            JDBC, not JPA. The posting algorithm is written in terms of
+            SELECT ... FOR UPDATE in a stated lock order, deterministic
+            statement ordering, and unique-index conflicts as the idempotency
+            arbiter. An ORM's flush ordering and identity map would obscure
+            exactly the behaviour the design depends on being explicit.
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-jdbc</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-database-postgresql</artifactId>
+        </dependency>
+        <!--
+            Spring Boot 4 split autoconfiguration out of spring-boot-autoconfigure
+            into per-technology modules. Without this, flyway-core sits on the
+            classpath and simply never runs — the application starts happily
+            against an unmigrated database, which is a far worse failure than a
+            missing dependency error.
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-flyway</artifactId>
+        </dependency>
+
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-devtools</artifactId>
@@ -55,6 +93,16 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!--
+            Spring Boot 4 split test autoconfiguration by technology in the same way it split
+            runtime autoconfiguration: @AutoConfigureMockMvc lives here, not in
+            spring-boot-test-autoconfigure.
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-webmvc-test</artifactId>
             <scope>test</scope>
         </dependency>
 

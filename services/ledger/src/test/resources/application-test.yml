@@ -1,0 +1,27 @@
+# Test profile.
+#
+# The database is supplied, not started by the tests: `docker compose up -d postgres`
+# locally, or the CI service container.
+#
+# Two roles, deliberately. Flyway migrates as the owner; everything else connects
+# as ledger_app, which is neither superuser nor BYPASSRLS — so the row-level
+# security tests are testing something. Connecting as the owner would make every
+# policy inert and every isolation test pass for the wrong reason.
+spring:
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:55432/ledger}
+    username: ${SPRING_DATASOURCE_USERNAME:ledger_app}
+    password: ${SPRING_DATASOURCE_PASSWORD:ledger_app}
+  flyway:
+    enabled: true
+    user: ${SPRING_FLYWAY_USER:fincore}
+    password: ${SPRING_FLYWAY_PASSWORD:fincore}
+  docker-compose:
+    enabled: false
+
+logging:
+  level:
+    org.flywaydb: INFO
+ledger.outbox.relay.enabled: false
+ledger.holds.expiry.enabled: false
+ledger.invariants.enabled: false
