@@ -61,6 +61,7 @@ New deep-dive topics get their own file under `docs/` and a row in this table
 # whole stack in Docker — database + service
 docker compose up --build
 curl http://localhost:8080/actuator/health/readiness   # {"status":"UP"}
+open  http://localhost:8080/docs                       # interactive API
 
 # database only, running the service from an IDE
 docker compose up -d postgres
@@ -83,9 +84,15 @@ inert while every catalog check still reported it enabled. `db/init/` creates
 the role locally; CI creates it in a workflow step; production provisions it
 with a real secret.
 
-Domain endpoints appear as implementation lands; today the service serves only
-its actuator health probes, and the actuator surface is deliberately limited to
-`health` and `info`.
+**Swagger UI** is at [`/docs`](http://localhost:8080/docs); the raw document is at
+`/v3/api-docs` (that `v3` is the *OpenAPI specification* version — this API is
+`/v1`). `/swagger-ui/index.html` still works, because tooling expects it.
+It is generated from the code, so it cannot describe an endpoint the service
+does not serve — `docs/api.md` stays the agreed *design*, this is its executable
+reflection. Every call needs an `X-Tenant-Id` header; the UI offers a field for
+it.
+
+The actuator surface is deliberately limited to `health` and `info`.
 
 The image is a `jlink`-trimmed runtime on Alpine — **168 MB** carrying 25 JDK
 modules rather than a stock JRE's full set. Adding a dependency that needs a

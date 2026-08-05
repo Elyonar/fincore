@@ -8,6 +8,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.ErrorResponseException;
+import org.springframework.web.servlet.NoHandlerFoundException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
@@ -77,6 +80,33 @@ public class ApiExceptionHandler {
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<ApiError> malformed(IllegalArgumentException e) {
         return ResponseEntity.badRequest().body(ApiError.of("BAD_REQUEST", e.getMessage()));
+    }
+
+    /**
+     * Spring's own web failures keep their own status.
+     *
+     * <p>A missing route, an unreadable body or a wrong method is a 4xx that Spring has already
+     * classified correctly. Letting these reach the catch-all below turned every mistyped URL into
+     * a 500 carrying {@code retryableWithSameKey: true} — which tells Orchestration the outcome is
+     * unknown and it must retry. A typo must never be able to say that about a payment.
+     */
+    @ExceptionHandler({NoResourceFoundException.class, NoHandlerFoundException.class})
+    public ResponseEntity<ApiError> unknownRoute(Exception e) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(new ApiError("NOT_FOUND", "no such endpoint", false, null));
+    }
+
+    /** Malformed JSON, wrong method, missing parameter — Spring has already classified these. */
+    @ExceptionHandler(ErrorResponseException.class)
+    public ResponseEntity<ApiError> springWebFailure(ErrorResponseException e) {
+        HttpStatus status = HttpStatus.valueOf(e.getStatusCode().value());
+        return ResponseEntity.status(status)
+                .body(
+                        new ApiError(
+                                status == HttpStatus.NOT_FOUND ? "NOT_FOUND" : "BAD_REQUEST",
+                                e.getBody().getDetail() == null ? status.getReasonPhrase() : e.getBody().getDetail(),
+                                false,
+                                null));
     }
 
     /**
