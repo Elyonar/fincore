@@ -13,6 +13,7 @@ import org.elyonar.fincore.ledger.api.TenantResolver;
 import org.elyonar.fincore.ledger.shared.ErrorCode;
 import org.elyonar.fincore.ledger.shared.LedgerException;
 import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -29,13 +30,52 @@ public class TransactionController {
 
     private final PostingService postings;
     private final ReversalService reversals;
+    private final TransactionReadService transactions;
     private final TenantResolver tenants;
 
     public TransactionController(
-            PostingService postings, ReversalService reversals, TenantResolver tenants) {
+            PostingService postings,
+            ReversalService reversals,
+            TransactionReadService transactions,
+            TenantResolver tenants) {
         this.postings = postings;
         this.reversals = reversals;
+        this.transactions = transactions;
         this.tenants = tenants;
+    }
+
+    @GetMapping("/transactions/{id}")
+    @Operation(
+            summary = "Read a transaction and its entries",
+            description =
+                    "How a caller confirms what actually posted — for reconciliation, for showing a"
+                        + " teller the result, and for settling a dispute against the record rather than"
+                        + " against someone's memory of it. Another tenant's transaction is a 404,"
+                        + " indistinguishable from one that does not exist.")
+    public TransactionResponse get(HttpServletRequest http, @PathVariable UUID id) {
+        var t = transactions.find(tenants.resolve(http), id);
+        return new TransactionResponse(
+                t.id().toString(),
+                t.idempotencyKey(),
+                t.status(),
+                t.initiatedBy(),
+                t.executedBy(),
+                t.reversesTransactionId() == null ? null : t.reversesTransactionId().toString(),
+                t.relatesToTransactionId() == null ? null : t.relatesToTransactionId().toString(),
+                t.backdateReason(),
+                t.postedAt().toString(),
+                t.entries().stream()
+                        .map(
+                                e ->
+                                        new EntryResponse(
+                                                Long.toString(e.entryId()),
+                                                e.accountId().toString(),
+                                                e.direction(),
+                                                Money.toWire(e.amountMinor()),
+                                                e.currency(),
+                                                e.valueDate().toString(),
+                                                e.bookedAt().toString()))
+                        .toList());
     }
 
     @PostMapping("/transactions")
@@ -156,4 +196,28 @@ public class TransactionController {
 
     public record ReverseResponse(
             String reversalTransactionId, String originalTransactionId, boolean replayed) {}
+
+    @Schema(description = "A transaction and the entries it wrote")
+    public record TransactionResponse(
+            String transactionId,
+            String idempotencyKey,
+            @Schema(allowableValues = {"POSTED", "REVERSED"}) String status,
+            String initiatedBy,
+            String executedBy,
+            @Schema(description = "Set when this transaction is itself a reversal")
+                    String reversesTransactionId,
+            @Schema(description = "Set when this transaction compensates another")
+                    String relatesToTransactionId,
+            String backdateReason,
+            String postedAt,
+            List<EntryResponse> entries) {}
+
+    public record EntryResponse(
+            String entryId,
+            String accountId,
+            String direction,
+            String amountMinor,
+            String currency,
+            @Schema(description = "When it counts") String valueDate,
+            @Schema(description = "When the ledger recorded it") String bookedAt) {}
 }

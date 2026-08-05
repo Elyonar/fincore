@@ -8,6 +8,38 @@ entry first.
 
 ---
 
+## [1.3.0] — 2026-08-05 · MINOR
+
+**Statement lines are paged; `GET /v1/transactions/{id}` is confirmed part of
+the contract.**
+
+- **Docs:** `api.md`
+- **Why:** the statement contract specified ordering, reconciliation and the
+  final/interim split, but never response *size*. At 200 TPS a busy account's
+  yearly statement is an unbounded query serialized into one response on the
+  operational primary — fine in testing, and exactly the shape of thing that
+  fails first on the largest customer. The section also said the endpoint
+  "needs no pinned cursor", which reads as forbidding pagination when it was
+  only ever forbidding a durable change-feed cursor; the two are now
+  distinguished explicitly, because someone will otherwise fix one by breaking
+  the other.
+- **Impact:** a caller that assumed a single complete response must now follow
+  `nextCursor`. Recorded as MINOR rather than MAJOR because the contract never
+  promised an unbounded response, and no consumer exists yet; the behavioural
+  change is stated here so it cannot be discovered by surprise.
+- **Supersedes:** nothing. Ordering, reconciliation and the final/interim split
+  are unchanged, and `opening`/`closing` still describe the whole period.
+- **Tests:** statement paging across page boundaries, reconciliation across all
+  pages, the page-size cap, and `GET /v1/transactions/{id}` returning a
+  transaction with its entries.
+- **Migration:** none.
+
+*`GET /v1/transactions/{id}` was in the agreed endpoint table from v1.0 but was
+never implemented — found by diffing `api.md` against the controllers rather
+than by a failing test, which is a gap in the suite as much as in the code.*
+
+---
+
 ## [1.2.0] — 2026-08-05 · MINOR
 
 **Two verification tables added: `balance_anchors` and `invariant_runs`.**

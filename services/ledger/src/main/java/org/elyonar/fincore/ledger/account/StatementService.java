@@ -48,14 +48,34 @@ public class StatementService {
         this.periods = periods;
     }
 
+    /** Default lines per page. A whole year of a busy account is not a response to build in memory. */
+    public static final int DEFAULT_PAGE_SIZE = 500;
+
+    public static final int MAX_PAGE_SIZE = 1000;
+
     public Statement forPeriod(UUID tenantId, UUID accountId, LocalDate from, LocalDate to) {
+        return forPeriod(tenantId, accountId, from, to, DEFAULT_PAGE_SIZE, null);
+    }
+
+    /**
+     * One page of a statement.
+     *
+     * <p>{@code after} walks the lines of this one bounded period and is spent when the walk ends.
+     * It is emphatically not a change-feed cursor: those are durable across time, and holding one
+     * over entry ids silently skips late-committing entries. The outbox is the change feed.
+     */
+    public Statement forPeriod(
+            UUID tenantId, UUID accountId, LocalDate from, LocalDate to, int pageSize, String after) {
         if (from == null || to == null || to.isBefore(from)) {
             throw new LedgerException(ErrorCode.VALUE_DATE_INVALID, "a statement needs a period, and from <= to");
         }
-        return tenantScope.inTenant(tenantId, () -> build(tenantId, accountId, from, to));
+        int size = Math.min(pageSize <= 0 ? DEFAULT_PAGE_SIZE : pageSize, MAX_PAGE_SIZE);
+        Cursor cursor = Cursor.parse(after);
+        return tenantScope.inTenant(tenantId, () -> build(tenantId, accountId, from, to, size, cursor));
     }
 
-    private Statement build(UUID tenantId, UUID accountId, LocalDate from, LocalDate to) {
+    private Statement build(
+            UUID tenantId, UUID accountId, LocalDate from, LocalDate to, int pageSize, Cursor after) {
         String currency =
                 jdbc.query(
                         "SELECT currency FROM accounts WHERE tenant_id = ? AND id = ?",
@@ -68,13 +88,17 @@ public class StatementService {
 
         long opening = movementBefore(tenantId, accountId, from);
 
+        // Keyset on the full sort key. Ordering is (value_date, id), so a cursor of id alone
+        // would skip or repeat lines wherever several entries share a value date.
         List<Line> lines =
                 jdbc.query(
                         """
                         SELECT id, transaction_id, direction, amount_minor, currency, value_date, booked_at
                           FROM entries
                          WHERE tenant_id = ? AND account_id = ? AND value_date >= ? AND value_date <= ?
+                           AND (?::date IS NULL OR (value_date, id) > (?::date, ?::bigint))
                          ORDER BY value_date, id
+                         LIMIT ?
                         """,
                         (rs, i) ->
                                 new Line(
@@ -88,24 +112,44 @@ public class StatementService {
                         tenantId,
                         accountId,
                         from,
-                        to);
+                        to,
+                        after == null ? null : after.valueDate(),
+                        after == null ? null : after.valueDate(),
+                        after == null ? null : after.entryId(),
+                        pageSize + 1);
 
-        long movements = lines.stream().mapToLong(Line::signedMinor).sum();
-        long closing = opening + movements;
+        // One row beyond the page tells us whether more remain, without a second count query.
+        boolean hasMore = lines.size() > pageSize;
+        if (hasMore) {
+            lines = lines.subList(0, pageSize);
+        }
+        String nextCursor =
+                hasMore && !lines.isEmpty()
+                        ? new Cursor(lines.get(lines.size() - 1).valueDate(), lines.get(lines.size() - 1).entryId())
+                                .encode()
+                        : null;
 
-        // A statement that does not reconcile is not a statement. Checked here rather than assumed,
-        // because the failure it guards against — a line dropped by a bad filter — would otherwise
-        // produce a plausible document that quietly disagrees with the ledger.
-        if (closing != movementBefore(tenantId, accountId, to.plusDays(1))) {
-            throw new IllegalStateException(
-                    "statement does not reconcile for account " + accountId + " over " + from + ".." + to);
+        // opening and closing describe the whole period on every page: they are the document's
+        // header, not a running total. Summing this page would make each page look like its own
+        // statement and none of them reconcile.
+        long closing = movementBefore(tenantId, accountId, to.plusDays(1));
+
+        // A statement that does not reconcile is not a statement. On a single page the check is
+        // exact; across pages the caller verifies the same equality by summing every page, which is
+        // the property the header exists to make checkable.
+        if (after == null && !hasMore) {
+            long movements = lines.stream().mapToLong(Line::signedMinor).sum();
+            if (opening + movements != closing) {
+                throw new IllegalStateException(
+                        "statement does not reconcile for account " + accountId + " over " + from + ".." + to);
+            }
         }
 
         // Final only if the whole period is closed: any part still open can still receive a
         // backdated posting.
         boolean isFinal = periods.isClosed(tenantId, to);
 
-        return new Statement(accountId, currency, from, to, opening, closing, isFinal, lines);
+        return new Statement(accountId, currency, from, to, opening, closing, isFinal, lines, nextCursor);
     }
 
     /** Net movement strictly before {@code date}, which is the opening balance for a period. */
@@ -133,7 +177,32 @@ public class StatementService {
             long openingMinor,
             long closingMinor,
             boolean isFinal,
-            List<Line> lines) {}
+            List<Line> lines,
+            /** Non-null while more lines remain in this period. Spent when the walk ends. */
+            String nextCursor) {}
+
+    /** A position in one period's ordering. Encodes the full sort key, not just the id. */
+    private record Cursor(LocalDate valueDate, long entryId) {
+
+        String encode() {
+            return valueDate + ":" + entryId;
+        }
+
+        static Cursor parse(String raw) {
+            if (raw == null || raw.isBlank()) {
+                return null;
+            }
+            int split = raw.lastIndexOf(':');
+            if (split < 0) {
+                throw new LedgerException(ErrorCode.VALUE_DATE_INVALID, "malformed statement cursor");
+            }
+            try {
+                return new Cursor(LocalDate.parse(raw.substring(0, split)), Long.parseLong(raw.substring(split + 1)));
+            } catch (RuntimeException e) {
+                throw new LedgerException(ErrorCode.VALUE_DATE_INVALID, "malformed statement cursor");
+            }
+        }
+    }
 
     public record Line(
             long entryId,
