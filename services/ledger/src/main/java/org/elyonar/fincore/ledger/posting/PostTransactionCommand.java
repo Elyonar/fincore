@@ -18,7 +18,8 @@ public record PostTransactionCommand(
         List<EntryLine> entries,
         UUID consumeHoldId,
         UUID relatesToTransactionId,
-        String backdateReason) {
+        String backdateReason,
+        boolean closedAccountSweep) {
 
     public PostTransactionCommand {
         entries = entries == null ? List.of() : List.copyOf(entries);
@@ -33,7 +34,7 @@ public record PostTransactionCommand(
             String description,
             List<EntryLine> entries,
             UUID consumeHoldId) {
-        this(tenantId, idempotencyKey, initiatedBy, executedBy, description, entries, consumeHoldId, null, null);
+        this(tenantId, idempotencyKey, initiatedBy, executedBy, description, entries, consumeHoldId, null, null, false);
     }
 
     /** A compensation, linked to the transaction it partially corrects. */
@@ -55,7 +56,32 @@ public record PostTransactionCommand(
                 entries,
                 consumeHoldId,
                 relatesToTransactionId,
-                null);
+                null,
+                false);
+    }
+
+    /** A posting with full value-dating control but no closed-account sweep. */
+    public PostTransactionCommand(
+            UUID tenantId,
+            String idempotencyKey,
+            String initiatedBy,
+            String executedBy,
+            String description,
+            List<EntryLine> entries,
+            UUID consumeHoldId,
+            UUID relatesToTransactionId,
+            String backdateReason) {
+        this(
+                tenantId,
+                idempotencyKey,
+                initiatedBy,
+                executedBy,
+                description,
+                entries,
+                consumeHoldId,
+                relatesToTransactionId,
+                backdateReason,
+                false);
     }
 
     /** A posting that consumes no hold — the common case. */
@@ -66,6 +92,6 @@ public record PostTransactionCommand(
             String executedBy,
             String description,
             List<EntryLine> entries) {
-        this(tenantId, idempotencyKey, initiatedBy, executedBy, description, entries, null, null, null);
+        this(tenantId, idempotencyKey, initiatedBy, executedBy, description, entries, null, null, null, false);
     }
 }

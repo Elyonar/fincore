@@ -138,7 +138,11 @@ public class PostingService {
             lockBalance(command.tenantId(), accountId);
         }
 
-        validateAccounts(command.tenantId(), entries);
+        validateAccounts(command.tenantId(), entries, command.closedAccountSweep());
+
+        if (command.closedAccountSweep()) {
+            validateSweep(command, deltaByAccount);
+        }
 
         // Consume a hold, if asked. This commits with the entries, which is the whole point: a
         // release-then-post saga leaves a window in which concurrent spending can take funds the
@@ -165,7 +169,7 @@ public class PostingService {
                     entry.valueDate());
         }
         for (UUID accountId : lockOrder) {
-            applyDelta(command.tenantId(), accountId, deltaByAccount.get(accountId));
+            applyDelta(command.tenantId(), accountId, deltaByAccount.get(accountId), command.closedAccountSweep());
         }
 
         // 9. The event, in this same transaction: it exists if and only if the posting committed.
@@ -308,6 +312,69 @@ public class PostingService {
         return deltas;
     }
 
+    /**
+     * The release valve for reversal residue in a closed account.
+     *
+     * <p>Reversals may post into a closed account, so one can end up holding a balance that
+     * ordinary postings could never extract: closure demands zero, {@code ACCOUNT_CLOSED} rejects
+     * the sweep, and there is no reopen. Without this, the money is unreachable forever.
+     *
+     * <p>Deliberately direction-neutral. Residue can be positive (a reversal credits a closed
+     * account) or negative (the erroneous-credit dispute path — credit in error, customer
+     * withdraws, account closed at zero, original reversed). A debit-only valve would leave the
+     * more common case trapped.
+     *
+     * <p>Narrow by construction: it must bring the closed account to exactly zero, and its
+     * counterparty must be a same-tenant SUSPENSE account. Anything else is SWEEP_INVALID, so the
+     * flag cannot become a general way to post into closed accounts.
+     */
+    private void validateSweep(PostTransactionCommand command, Map<UUID, Long> deltaByAccount) {
+        List<UUID> closed =
+                deltaByAccount.keySet().stream()
+                        .filter(
+                                id ->
+                                        Boolean.TRUE.equals(
+                                                jdbc.queryForObject(
+                                                        "SELECT status = 'CLOSED' FROM accounts WHERE tenant_id = ? AND id = ?",
+                                                        Boolean.class,
+                                                        command.tenantId(),
+                                                        id)))
+                        .toList();
+        if (closed.size() != 1) {
+            throw new LedgerException(
+                    ErrorCode.SWEEP_INVALID, "a sweep touches exactly one closed account");
+        }
+
+        UUID closedAccount = closed.get(0);
+        Long balance =
+                jdbc.queryForObject(
+                        "SELECT current_minor FROM balances WHERE tenant_id = ? AND account_id = ?",
+                        Long.class,
+                        command.tenantId(),
+                        closedAccount);
+        long delta = deltaByAccount.get(closedAccount);
+        if (balance == null || balance + delta != 0L) {
+            throw new LedgerException(
+                    ErrorCode.SWEEP_INVALID, "a sweep must bring the closed account to exactly zero");
+        }
+
+        boolean suspenseCounterparty =
+                deltaByAccount.keySet().stream()
+                        .filter(id -> !id.equals(closedAccount))
+                        .allMatch(
+                                id ->
+                                        Boolean.TRUE.equals(
+                                                jdbc.queryForObject(
+                                                        "SELECT type = 'SUSPENSE' FROM accounts WHERE tenant_id = ? AND id = ?",
+                                                        Boolean.class,
+                                                        command.tenantId(),
+                                                        id)));
+        if (!suspenseCounterparty) {
+            throw new LedgerException(
+                    ErrorCode.SWEEP_INVALID, "a sweep's counterparty must be a same-tenant SUSPENSE account");
+        }
+    }
+
     private void consumeHold(UUID tenantId, UUID holdId, UUID transactionId, Map<UUID, Long> deltaByAccount) {
         var hold =
                 jdbc.query(
@@ -401,7 +468,7 @@ public class PostingService {
         }
     }
 
-    private void validateAccounts(UUID tenantId, List<EntryLine> entries) {
+    private void validateAccounts(UUID tenantId, List<EntryLine> entries, boolean sweep) {
         for (EntryLine entry : entries) {
             var account =
                     jdbc.query(
@@ -412,7 +479,7 @@ public class PostingService {
             if (account == null) {
                 throw new LedgerException(ErrorCode.ACCOUNT_NOT_FOUND, "unknown account " + entry.accountId());
             }
-            if (!"OPEN".equals(account[0])) {
+            if (!"OPEN".equals(account[0]) && !sweep) {
                 throw new LedgerException(ErrorCode.ACCOUNT_CLOSED, "account " + entry.accountId() + " is closed");
             }
             if (!account[1].equals(entry.currency())) {
@@ -423,7 +490,7 @@ public class PostingService {
         }
     }
 
-    private void applyDelta(UUID tenantId, UUID accountId, long delta) {
+    private void applyDelta(UUID tenantId, UUID accountId, long delta, boolean sweep) {
         jdbc.update(
                 """
                 UPDATE balances
@@ -448,7 +515,7 @@ public class PostingService {
                         Boolean.class,
                         tenantId,
                         accountId);
-        if (Boolean.TRUE.equals(breached)) {
+        if (Boolean.TRUE.equals(breached) && !sweep) {
             throw new LedgerException(
                     ErrorCode.INSUFFICIENT_FUNDS, "account " + accountId + " would go available < 0");
         }

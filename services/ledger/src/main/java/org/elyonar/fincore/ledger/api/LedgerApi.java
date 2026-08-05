@@ -8,6 +8,7 @@ import java.util.Map;
 import java.util.UUID;
 import org.elyonar.fincore.ledger.account.AccountService;
 import org.elyonar.fincore.ledger.account.OpenAccountCommand;
+import org.elyonar.fincore.ledger.account.StatementService;
 import org.elyonar.fincore.ledger.hold.HoldReleaseOutcome;
 import org.elyonar.fincore.ledger.hold.HoldService;
 import org.elyonar.fincore.ledger.hold.HoldView;
@@ -44,6 +45,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class LedgerApi {
 
     private final AccountService accounts;
+    private final StatementService statements;
     private final PostingService postings;
     private final ReversalService reversals;
     private final HoldService holds;
@@ -52,12 +54,14 @@ public class LedgerApi {
 
     public LedgerApi(
             AccountService accounts,
+            StatementService statements,
             PostingService postings,
             ReversalService reversals,
             HoldService holds,
             PeriodService periods,
             TenantResolver tenants) {
         this.accounts = accounts;
+        this.statements = statements;
         this.postings = postings;
         this.reversals = reversals;
         this.holds = holds;
@@ -103,6 +107,39 @@ public class LedgerApi {
             HttpServletRequest http, @PathVariable UUID id, @RequestBody Map<String, Object> body) {
         accounts.close(tenants.resolve(http), id, required(body, "closedBy"));
         return Map.of("accountId", id.toString(), "status", "CLOSED");
+    }
+
+    @GetMapping("/accounts/{id}/entries")
+    public Map<String, Object> statement(
+            HttpServletRequest http,
+            @PathVariable UUID id,
+            @RequestParam String from,
+            @RequestParam String to) {
+        var statement =
+                statements.forPeriod(tenants.resolve(http), id, LocalDate.parse(from), LocalDate.parse(to));
+        return Map.of(
+                "accountId", statement.accountId().toString(),
+                "currency", statement.currency(),
+                "from", statement.from().toString(),
+                "to", statement.to().toString(),
+                // Opening + movements = closing. The reconciliation is the document's own proof.
+                "openingMinor", Money.toWire(statement.openingMinor()),
+                "closingMinor", Money.toWire(statement.closingMinor()),
+                // camt.053 vs camt.052: a closed period is final, an open one may still change.
+                "status", statement.isFinal() ? "FINAL" : "INTERIM",
+                "lines",
+                        statement.lines().stream()
+                                .map(
+                                        l ->
+                                                Map.<String, Object>of(
+                                                        "entryId", Long.toString(l.entryId()),
+                                                        "transactionId", l.transactionId().toString(),
+                                                        "direction", l.direction(),
+                                                        "amountMinor", Money.toWire(l.amountMinor()),
+                                                        "currency", l.currency(),
+                                                        "valueDate", l.valueDate().toString(),
+                                                        "bookedAt", l.bookedAt().toString()))
+                                .toList());
     }
 
     @GetMapping("/accounts/{id}/holds")
@@ -166,7 +203,8 @@ public class LedgerApi {
                                 entries,
                                 uuid(body.get("consumeHoldId")),
                                 uuid(body.get("relatesToTransactionId")),
-                                text(body, "backdateReason")));
+                                text(body, "backdateReason"),
+                                Boolean.TRUE.equals(body.get("closedAccountSweep"))));
 
         return Map.of("transactionId", result.transactionId().toString(), "replayed", result.replayed());
     }
