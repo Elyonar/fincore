@@ -66,7 +66,8 @@ curl http://localhost:8080/actuator/health/readiness   # {"status":"UP"}
 docker compose up -d postgres
 ./mvnw -pl services/ledger spring-boot:run
 
-# this service's tests
+# this service's tests — requires the database above to be running
+docker compose up -d postgres
 ./mvnw -pl services/ledger verify
 ```
 
@@ -90,12 +91,24 @@ optimisation to be tuned casually.
 services/ledger/
 ├── README.md      ← you are here — the navigator
 ├── docs/          ← the territory: one topic per file, indexed above
-├── Dockerfile     ← multi-stage image; built from the repo root
-├── pom.xml        ← JDBC/Flyway arrive with the first schema commit
+├── Dockerfile     ← multi-stage image; jlink runtime on Alpine
+├── pom.xml        ← deliberately small; the dependency list is an architectural control
 └── src/
-    ├── main/java/org/elyonar/fincore/ledger/  ← implementation (skeleton)
-    ├── main/resources/                         ← config; db/migration/ (Flyway)
-    └── test/java/                              ← suites described in docs/testing.md
+    ├── main/java/org/elyonar/fincore/ledger/
+    │   └── package-info.java     ← how this service is packaged, and why
+    ├── main/resources/
+    │   ├── application.yml
+    │   └── db/migration/         ← Flyway, append-only: V1__initial_schema.sql
+    └── test/java/org/elyonar/fincore/ledger/
+        ├── support/              ← shared test infrastructure (database base class)
+        ├── architecture/         ← ArchUnit: the hard rules as failing builds
+        └── schema/               ← the schema exists (presence) and bites (enforcement)
+
+Packages are **vertical slices named after the domain** — `account`, `posting`,
+`hold`, `period`, `outbox`, `invariant`, `tenant`, `currency`, `shared` — not
+`controller`/`service`/`repository` layers. One capability lives in one
+directory. See
+[`package-info.java`](src/main/java/org/elyonar/fincore/ledger/package-info.java).
 ```
 
 ## Contributing here
