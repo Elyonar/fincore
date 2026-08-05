@@ -56,7 +56,8 @@ public class ApiExceptionHandler {
                     Map.entry(ErrorCode.HAS_COMPENSATIONS, HttpStatus.CONFLICT),
                     Map.entry(ErrorCode.TARGET_REVERSED, HttpStatus.CONFLICT),
                     Map.entry(ErrorCode.CLOSE_BLOCKED, HttpStatus.CONFLICT),
-                    Map.entry(ErrorCode.SWEEP_INVALID, HttpStatus.CONFLICT));
+                    Map.entry(ErrorCode.SWEEP_INVALID, HttpStatus.CONFLICT),
+                    Map.entry(ErrorCode.RATE_LIMITED, HttpStatus.TOO_MANY_REQUESTS));
 
     @ExceptionHandler(ReversalService.AlreadyReversedException.class)
     public ResponseEntity<ApiError> alreadyReversed(ReversalService.AlreadyReversedException e) {

@@ -16,9 +16,10 @@ nothing, consumes no events) while everything depends on it — and it is the
 project's trust artifact: a public test suite that provably conserves money.
 ([ADR 0004](../../docs/adr/0004-ledger-first.md))
 
-**Status: design AGREED v1.1 — implementation underway.** The schema and its
-presence, enforcement and tenant-isolation suites have landed; the posting
-engine is next. Changes to the agreed design go through
+**Status: design AGREED v1.3 — implemented, pre-1.0.** All sixteen documented
+endpoints exist and 205 tests pass on CI against real PostgreSQL. It is **not
+production-ready**: see [Known limitations](#known-limitations) below, which is
+the honest list rather than the hopeful one. Changes to the agreed design go through
 [`docs/CHANGELOG.md`](docs/CHANGELOG.md), never a silent doc edit.
 
 ---
@@ -125,6 +126,27 @@ Packages are **vertical slices named after the domain** — `account`, `posting`
 directory. See
 [`package-info.java`](src/main/java/org/elyonar/fincore/ledger/package-info.java).
 ```
+
+## Known limitations
+
+Real, and deliberately listed where a reader will find them rather than left to
+be discovered.
+
+| Area | State |
+|---|---|
+| Property-based tests | **Not implemented.** `docs/testing.md` marks the suite PLANNED |
+| Failure injection, migration equivalence, restore drills | **Not implemented** — marked PLANNED |
+| Hot-account throughput benchmark | **Not implemented**, so no TPS floor gates anything |
+| Event delivery | Events reach a broker only when one is configured; the default adapter logs |
+| Authentication | Tenant arrives in a header. **This is not authentication** — Identity does not exist yet |
+| Caller authorization | `api.md` names allowed callers; the ledger does not enforce them |
+| Performance / RPO targets | Documented, **never measured**. No benchmark, soak or DR evidence |
+| Release | `0.0.1-SNAPSHOT`. No tag, no published artifact, no upgrade policy |
+
+Correctness mechanisms — append-only entries, forced row-level security under a
+restricted role, the two-tier lock protocol, idempotency, invariants — are
+implemented and tested. Operational maturity is not there yet, and the two are
+different claims.
 
 ## Contributing here
 

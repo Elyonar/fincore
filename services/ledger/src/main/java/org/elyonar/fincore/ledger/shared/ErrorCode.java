@@ -76,7 +76,15 @@ public enum ErrorCode {
     CLOSE_BLOCKED,
 
     /** A sweep that does not exactly zero a closed account, or lacks a suspense counterparty. */
-    SWEEP_INVALID;
+    SWEEP_INVALID,
+
+    /**
+     * A verification run was requested too soon after the last one.
+     *
+     * <p>Full verification is expensive by nature. An endpoint that could start one on demand,
+     * repeatedly, is a denial-of-service lever pointed at the ledger's own database.
+     */
+    RATE_LIMITED;
 
     /** The stable string clients match on; never derived from the enum's position. */
     public String code() {

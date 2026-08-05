@@ -1,9 +1,14 @@
 package org.elyonar.fincore.ledger.invariant;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import org.elyonar.fincore.ledger.shared.ErrorCode;
+import org.elyonar.fincore.ledger.shared.LedgerException;
 import org.elyonar.fincore.ledger.tenant.TenantScope;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -33,29 +38,138 @@ public class InvariantService {
         this.anchors = anchors;
     }
 
+    /**
+     * How long a tenant must wait between requested runs.
+     *
+     * <p>Scheduled verification is the normal path; this endpoint exists for an operator who needs
+     * an answer now. Without a floor, a caller in a retry loop could hold the database in
+     * permanent full-scan.
+     */
+    private static final Duration RUN_COOLDOWN = Duration.ofMinutes(5);
+
+    /**
+     * One verification at a time, service-wide.
+     *
+     * <p>A single thread rather than a pool: these scans are heavy, and running several at once
+     * would turn a request spike into database contention on the very tables the ledger needs for
+     * posting. Queueing is the point — the endpoint answers immediately and the work happens
+     * behind it.
+     */
+    private final ExecutorService runner =
+            Executors.newSingleThreadExecutor(
+                    r -> {
+                        Thread t = new Thread(r, "invariant-runner");
+                        t.setDaemon(true);
+                        return t;
+                    });
+
+    /**
+     * Accepts a run request and returns immediately.
+     *
+     * <p>The contract is 202: the run is queued, not finished. A row is created now so the caller
+     * has an id to poll with, and {@code completed_at} stays null until the scan finishes — which
+     * is how {@code GET /v1/invariants} tells a completed report from one still in flight.
+     */
+    public InvariantReport requestRun(UUID tenantId) {
+        InvariantReport queued = enqueue(tenantId);
+        runner.submit(
+                () -> {
+                    try {
+                        completeRun(tenantId, queued.runId());
+                    } catch (RuntimeException e) {
+                        // Never let one tenant's failure kill the runner thread for everyone else.
+                        org.slf4j.LoggerFactory.getLogger(InvariantService.class)
+                                .error("verification run {} failed for tenant {}", queued.runId(), tenantId, e);
+                    }
+                });
+        return queued;
+    }
+
+    private InvariantReport enqueue(UUID tenantId) {
+        return tenantScope.inTenant(
+                tenantId,
+                () -> {
+                    // query, not queryForObject: no in-flight run is the normal case, and
+                    // queryForObject treats "no rows" as an error rather than an answer.
+                    Long inFlight =
+                            jdbc.query(
+                                    "SELECT id FROM invariant_runs WHERE tenant_id = ? AND completed_at IS NULL"
+                                            + " ORDER BY started_at DESC LIMIT 1",
+                                    rs -> rs.next() ? rs.getLong(1) : null,
+                                    tenantId);
+                    if (inFlight != null) {
+                        // Already queued. Returning it is friendlier than a second scan and keeps
+                        // a retrying caller from stacking work.
+                        return new InvariantReport(inFlight, tenantId, Instant.now(), null, "INCREMENTAL", List.of());
+                    }
+
+                    Boolean tooSoon =
+                            jdbc.queryForObject(
+                                    "SELECT EXISTS (SELECT 1 FROM invariant_runs WHERE tenant_id = ?"
+                                            + " AND started_at > now() - make_interval(secs => ?))",
+                                    Boolean.class,
+                                    tenantId,
+                                    (double) RUN_COOLDOWN.toSeconds());
+                    if (Boolean.TRUE.equals(tooSoon)) {
+                        throw new LedgerException(
+                                ErrorCode.RATE_LIMITED,
+                                "a verification run was requested within the last "
+                                        + RUN_COOLDOWN.toMinutes()
+                                        + " minutes; poll GET /v1/invariants for its result");
+                    }
+
+                    Long id =
+                            jdbc.queryForObject(
+                                    "INSERT INTO invariant_runs (tenant_id, scope) VALUES (?, 'INCREMENTAL')"
+                                            + " RETURNING id",
+                                    Long.class,
+                                    tenantId);
+                    return new InvariantReport(id, tenantId, Instant.now(), null, "INCREMENTAL", List.of());
+                });
+    }
+
+    private void completeRun(UUID tenantId, long runId) {
+        List<Finding> findings = collectFindings(tenantId);
+        tenantScope.inTenant(
+                tenantId,
+                () ->
+                        jdbc.update(
+                                "UPDATE invariant_runs SET completed_at = now(), violations = ?, exposures = ?,"
+                                        + " findings = CAST(? AS jsonb) WHERE tenant_id = ? AND id = ?",
+                                (int) findings.stream().filter(f -> f.kind() == Finding.Kind.VIOLATION).count(),
+                                (int) findings.stream().filter(f -> f.kind() == Finding.Kind.AUTHORIZED_EXPOSURE).count(),
+                                toJson(findings),
+                                tenantId,
+                                runId));
+    }
+
+    /** Runs verification inline and records it. Used by the scheduler and by tests. */
     public InvariantReport verify(UUID tenantId) {
         Instant startedAt = Instant.now();
-        List<Finding> findings =
-                tenantScope.inTenant(
-                        tenantId,
-                        () -> {
-                            List<Finding> all = new ArrayList<>();
-                            all.addAll(moneyIsConserved(tenantId));
-                            all.addAll(balancesMatchEntries(tenantId));
-                            all.addAll(holdsAddUp(tenantId));
-                            all.addAll(noUnexplainedNegatives(tenantId));
-                            all.addAll(reversalsAreExactAndExclusive(tenantId));
-                            all.addAll(terminalStatesAreTerminal(tenantId));
-                            // Anchored accounts get the cheap check as well: it is the one that
-                            // will still be affordable in year seven, so it must be exercised
-                            // from the first day rather than switched on once history is large.
-                            all.addAll(anchors.verifyIncrementally(tenantId));
-                            return all;
-                        });
+        List<Finding> findings = collectFindings(tenantId);
 
         InvariantReport report =
                 new InvariantReport(null, tenantId, startedAt, Instant.now(), "INCREMENTAL", findings);
         return persist(report);
+    }
+
+    private List<Finding> collectFindings(UUID tenantId) {
+        return tenantScope.inTenant(
+                tenantId,
+                () -> {
+                    List<Finding> all = new ArrayList<>();
+                    all.addAll(moneyIsConserved(tenantId));
+                    all.addAll(balancesMatchEntries(tenantId));
+                    all.addAll(holdsAddUp(tenantId));
+                    all.addAll(noUnexplainedNegatives(tenantId));
+                    all.addAll(reversalsAreExactAndExclusive(tenantId));
+                    all.addAll(terminalStatesAreTerminal(tenantId));
+                    // Anchored accounts get the cheap check as well: it is the one that will still
+                    // be affordable in year seven, so it is exercised from the first day rather
+                    // than switched on once history is large.
+                    all.addAll(anchors.verifyIncrementally(tenantId));
+                    return all;
+                });
     }
 
     /** 1. Money is conserved: within each currency, every debit has its credit. */
