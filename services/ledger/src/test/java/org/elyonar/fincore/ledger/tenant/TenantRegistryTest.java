@@ -1,6 +1,7 @@
 package org.elyonar.fincore.ledger.tenant;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -52,7 +53,10 @@ class TenantRegistryTest extends LedgerHttpTest {
     @Test
     @DisplayName("a provisioned tenant passes")
     void registered_tenant_is_accepted() {
-        registry.requireActive(tenant);
+        // Explicitly, rather than by not throwing. A test whose only assertion is the absence of an
+        // exception passes just as green when its subject is deleted, and reads to a scanner as a
+        // test that checks nothing.
+        assertThatCode(() -> registry.requireActive(tenant)).doesNotThrowAnyException();
     }
 
     @Test
