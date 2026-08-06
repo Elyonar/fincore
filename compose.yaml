@@ -9,6 +9,17 @@
 services:
   postgres:
     image: postgres:16
+    # Local convenience only, and deliberately not how this is solved in production. Each service
+    # opens one pool per module — Core alone has six — and the default 100 is exhausted by a
+    # running stack plus a few Spring test contexts, so `docker compose up` and `./mvnw verify`
+    # could not coexist. Raising the ceiling fixes that on a laptop.
+    #
+    # In production the ceiling is the wrong lever: a PostgreSQL connection is a backend process,
+    # throughput peaks at a couple of dozen active connections, and more of them makes it worse
+    # rather than better. The answer there is small right-sized pools behind a transaction-mode
+    # pooler — which this platform can use precisely because tenant context is SET LOCAL and no
+    # transaction is held across an outbound call.
+    command: ["postgres", "-c", "max_connections=400"]
     environment:
       POSTGRES_USER: fincore
       POSTGRES_PASSWORD: fincore
@@ -144,9 +155,63 @@ services:
       SPRING_RABBITMQ_PUBLISHER_CONFIRM_TYPE: correlated
       SPRING_RABBITMQ_PUBLISHER_RETURNS: "true"
     ports:
-      - "8080:8080"
+      # Published on 58080, not 8080 — the same reasoning as the database's 55432. The service's
+      # own test suite starts a server on 8080, so a container holding that port meant
+      # `docker compose up` and `./mvnw verify` could not run at the same time. A stack should
+      # never be able to break the build, or the other way round.
+      #
+      # Only the host side moves. Inside the compose network this is still 8080, which is why
+      # Core's FINCORE_LEDGER_URL and the healthcheck below are unchanged.
+      - "${FINCORE_LEDGER_PORT:-58080}:8080"
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:8080/actuator/health/readiness | grep -q '\"status\":\"UP\"'"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  # Core — the deployable that orchestrates transfers. Four modules, one process,
+  # one image; the boundary between them is enforced by per-module database roles
+  # inside the container, not by separate containers (ADR 0006).
+  core:
+    build:
+      # Root context: the Dockerfile builds through the Maven reactor, so it
+      # needs the parent pom, the wrapper and libs/auth.
+      context: .
+      dockerfile: services/core/app/Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+      # Core calls the ledger to move money and is useless without it. Waiting for
+      # readiness rather than start means the first transfer does not race the
+      # ledger's migrations.
+      ledger:
+        condition: service_healthy
+    environment:
+      # Core's own database — never the ledger's. A deployable owns its database
+      # (AGENTS.md rule 5), and the roles come from db/init/30-core-roles.sql.
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/core
+      SPRING_DATASOURCE_USERNAME: fincore
+      SPRING_DATASOURCE_PASSWORD: fincore
+      # A container is not a dev machine; it must never start its own database
+      # sidecar.
+      SPRING_DOCKER_COMPOSE_ENABLED: "false"
+      # Orchestration's only outbound dependency, by service name on the compose
+      # network. No other module may hold a ledger client.
+      FINCORE_LEDGER_URL: http://ledger:8080
+      # Dev identity: headers rather than tokens. libs/auth refuses this unless a
+      # sanctioned profile is also active, so the profile is set here too and the
+      # startup banner says loudly that this is not authentication (ADR 0010).
+      # Run `docker compose --profile identity up` and set FINCORE_AUTH_MODE=jwt
+      # with an issuer URI to exercise the real path against Keycloak.
+      FINCORE_AUTH_MODE: ${FINCORE_AUTH_MODE:-dev}
+      FINCORE_AUTH_ISSUER_URI: ${FINCORE_AUTH_ISSUER_URI:-}
+      SPRING_PROFILES_ACTIVE: ${FINCORE_CORE_PROFILE:-dev}
+    ports:
+      # Published on 58081 for the same reason the ledger uses 58080: Core's own tests bind 8081.
+      - "${FINCORE_CORE_PORT:-58081}:8081"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8081/actuator/health/readiness | grep -q '\"status\":\"UP\"'"]
       interval: 10s
       timeout: 5s
       retries: 12

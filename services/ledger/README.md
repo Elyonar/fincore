@@ -61,8 +61,8 @@ New deep-dive topics get their own file under `docs/` and a row in this table
 ```bash
 # whole stack in Docker — database + service
 docker compose up --build
-curl http://localhost:8080/actuator/health/readiness   # {"status":"UP"}
-open  http://localhost:8080/docs                       # interactive API
+curl http://localhost:58080/actuator/health/readiness  # {"status":"UP"}
+open  http://localhost:58080/docs                      # interactive API
 
 # database only, running the service from an IDE
 docker compose up -d postgres
@@ -76,6 +76,12 @@ docker compose up -d postgres
 Requires Java 25 and Docker. The database publishes on host port **55432**, not
 5432 — a clash with an unrelated local Postgres should never be able to fail
 this stack. Override with `FINCORE_POSTGRES_PORT` if you want the usual port.
+
+The service publishes on **58080**, not 8080, for the same reason turned inward:
+this service's own test suite starts a server on 8080, so a running container on
+that port meant `docker compose up` and `./mvnw verify` could not coexist. Only
+the host side moves — inside the compose network it is still 8080. Override with
+`FINCORE_LEDGER_PORT`.
 
 **Two database roles, deliberately.** Migrations run as the owner (`fincore`);
 the service and the test suite connect as `ledger_app`, which is neither a
@@ -105,7 +111,7 @@ Delivery is at-least-once and **consumers must deduplicate on `outboxId`**.
 Ordering is per aggregate, never global — react to an event by fetching current
 state through the read API, never by replaying a sequence.
 
-**Swagger UI** is at [`/docs`](http://localhost:8080/docs); the raw document is at
+**Swagger UI** is at [`/docs`](http://localhost:58080/docs); the raw document is at
 `/v3/api-docs` (that `v3` is the *OpenAPI specification* version — this API is
 `/v1`). `/swagger-ui/index.html` still works, because tooling expects it.
 It is generated from the code, so it cannot describe an endpoint the service
