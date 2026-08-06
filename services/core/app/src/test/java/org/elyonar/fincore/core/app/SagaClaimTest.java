@@ -13,7 +13,10 @@ import org.elyonar.fincore.core.orchestration.internal.saga.SagaClaims;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * The claim protocol under contention.
@@ -26,13 +29,37 @@ import org.springframework.jdbc.core.JdbcTemplate;
 class SagaClaimTest {
 
     @Autowired private SagaClaims claims;
-    @Autowired private JdbcTemplate jdbc;
+
+    // The worker's connection: it claims across tenants, so it is the one that can see the rows
+    // these tests assert on without a tenant context.
+    @Autowired @Qualifier("workerJdbcTemplate") private JdbcTemplate jdbc;
+    @Autowired @Qualifier("orchestrationJdbcTemplate") private JdbcTemplate requestPathDb;
+    @Autowired @Qualifier("orchestrationTransactionManager") private PlatformTransactionManager requestPathTx;
+
+    /**
+     * Inserts a saga the way a request would: as the tenant-scoped role, inside a transaction.
+     *
+     * <p>The tenant context is SET LOCAL, so it belongs to the transaction. Seeding outside one
+     * would be refused by row-level security — correctly.
+     */
+    private UUID seedSaga(UUID tenantId, String sql, Object... args) {
+        var holder = new java.util.concurrent.atomic.AtomicReference<UUID>();
+        new TransactionTemplate(requestPathTx)
+                .executeWithoutResult(
+                        s -> {
+                            requestPathDb.queryForObject(
+                                    "SELECT set_config('app.tenant_id', ?, true)", String.class, tenantId.toString());
+                            holder.set(requestPathDb.queryForObject(sql, UUID.class, args));
+                        });
+        return holder.get();
+    }
 
     private static final Duration LEASE = Duration.ofSeconds(30);
 
     private UUID insertClaimableSaga() {
         UUID tenantId = UUID.randomUUID();
-        return jdbc.queryForObject(
+        return seedSaga(
+                tenantId,
                 """
                 INSERT INTO orchestration.sagas
                     (tenant_id, type, state, channel_idempotency_key, request_fingerprint,
@@ -40,7 +67,6 @@ class SagaClaimTest {
                 VALUES (?, 'TRANSFER', 'POSTING', ?, 'fp', 1000, 'NGN', 'user:ada', 'core')
                 RETURNING id
                 """,
-                UUID.class,
                 tenantId,
                 UUID.randomUUID().toString());
     }
@@ -85,7 +111,8 @@ class SagaClaimTest {
     void a_terminal_saga_is_never_claimed() {
         UUID tenantId = UUID.randomUUID();
         UUID sagaId =
-                jdbc.queryForObject(
+                seedSaga(
+                        tenantId,
                         """
                         INSERT INTO orchestration.sagas
                             (tenant_id, type, state, channel_idempotency_key, request_fingerprint,
@@ -95,7 +122,6 @@ class SagaClaimTest {
                                 'core', ?, now())
                         RETURNING id
                         """,
-                        UUID.class,
                         tenantId,
                         UUID.randomUUID().toString(),
                         UUID.randomUUID());

@@ -66,7 +66,7 @@ jobs:
           # several (ADR 0006) — a cross-module query then fails at runtime rather than
           # surviving until someone tries to extract a module. The password matches the role
           # name in CI only; deployments provision real secrets.
-          ROLES="ledger_app core_customer core_product core_orchestration core_relay"
+          ROLES="ledger_app core_customer core_product core_orchestration core_relay core_worker"
 
           for db in $DATABASES; do
             echo "creating database $db"

@@ -3,6 +3,7 @@ package org.elyonar.fincore.core.orchestration.internal.saga;
 import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
@@ -33,7 +34,7 @@ public class SagaClaims {
 
     private final JdbcTemplate jdbc;
 
-    public SagaClaims(JdbcTemplate jdbc) {
+    public SagaClaims(@Qualifier("workerJdbcTemplate") JdbcTemplate jdbc) {
         this.jdbc = jdbc;
     }
 
@@ -43,7 +44,7 @@ public class SagaClaims {
      * <p>{@code FOR UPDATE SKIP LOCKED} means concurrent workers step over each other's rows rather
      * than queueing behind them, so throughput scales with instances instead of serialising.
      */
-    @Transactional
+    @Transactional(transactionManager = "workerTransactionManager")
     public List<UUID> claim(String worker, Duration lease, int batch) {
         List<UUID> claimed =
                 jdbc.queryForList(
@@ -86,7 +87,7 @@ public class SagaClaims {
      * <p>Only the holder may extend, so a worker that lost its lease cannot silently take it back
      * while another instance is already retrying the same saga.
      */
-    @Transactional
+    @Transactional(transactionManager = "workerTransactionManager")
     public boolean heartbeat(UUID sagaId, String worker, Duration lease) {
         return jdbc.update(
                         """
@@ -101,7 +102,7 @@ public class SagaClaims {
     }
 
     /** Releases a claim without changing state — used when a worker shuts down cleanly. */
-    @Transactional
+    @Transactional(transactionManager = "workerTransactionManager")
     public void release(UUID sagaId, String worker) {
         jdbc.update(
                 "UPDATE orchestration.sagas SET claimed_by = NULL, claim_expires_at = NULL"
@@ -116,7 +117,7 @@ public class SagaClaims {
      * <p>Releases the lease at the same time: the saga is no longer being worked, and holding the
      * claim until expiry would delay the retry by the lease duration for no reason.
      */
-    @Transactional
+    @Transactional(transactionManager = "workerTransactionManager")
     public void scheduleRetry(UUID sagaId, String worker, Duration backoff) {
         jdbc.update(
                 """

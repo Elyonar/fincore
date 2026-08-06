@@ -9,6 +9,24 @@ spring:
     password: ${SPRING_DATASOURCE_PASSWORD:fincore}
 
 fincore:
+  core:
+    datasource:
+      customer:
+        jdbc-url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:55432/core}
+        username: core_customer
+        password: core_customer
+      product:
+        jdbc-url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:55432/core}
+        username: core_product
+        password: core_product
+      worker:
+        jdbc-url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:55432/core}
+        username: core_worker
+        password: core_worker
+      orchestration:
+        jdbc-url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:55432/core}
+        username: core_orchestration
+        password: core_orchestration
   auth:
     # Verifies nothing — and only starts at all because the `test` profile is
     # sanctioned, which exercises the guard rather than bypassing it.
