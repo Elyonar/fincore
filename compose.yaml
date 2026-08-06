@@ -79,7 +79,7 @@ services:
 
   # Alternative backbone. Opt-in, so `docker compose up` stays lean:
   #   docker compose --profile rabbit up
-  # then set ledger.events.broker=rabbit.
+  # then set fincore.events.broker=rabbit.
   rabbitmq:
     image: rabbitmq:4-management
     profiles: ["rabbit"]
@@ -145,7 +145,7 @@ services:
       # Which backbone the relay publishes to: kafka | rabbit | log.
       # 'log' is the development adapter and delivers nothing; the startup
       # summary says so plainly rather than letting it pass for delivery.
-      LEDGER_EVENTS_BROKER: ${FINCORE_EVENTS_BROKER:-kafka}
+      FINCORE_EVENTS_BROKER: ${FINCORE_EVENTS_BROKER:-kafka}
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       SPRING_RABBITMQ_HOST: rabbitmq
       SPRING_RABBITMQ_USERNAME: fincore
@@ -199,6 +199,11 @@ services:
       # Orchestration's only outbound dependency, by service name on the compose
       # network. No other module may hold a ledger client.
       FINCORE_LEDGER_URL: http://ledger:8080
+      # The same backbone key both services read (libs/events). One key, so an
+      # operator cannot half-migrate by changing it in one place.
+      FINCORE_EVENTS_BROKER: ${FINCORE_EVENTS_BROKER:-kafka}
+      FINCORE_EVENTS_TOPIC_PREFIX: fincore.core
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       # Dev identity: headers rather than tokens. libs/auth refuses this unless a
       # sanctioned profile is also active, so the profile is set here too and the
       # startup banner says loudly that this is not authentication (ADR 0010).

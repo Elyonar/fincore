@@ -8,6 +8,34 @@ entry first.
 
 ---
 
+## [1.4.0] — 2026-08-06 · MINOR
+
+**Publishers move to `libs/events`; RabbitMQ arrives as a consequence.**
+
+- **Docs:** `design.md`, `architecture.md`
+- **Why:** v1.3 recorded the duplication as deliberate and named its trigger. The
+  trigger fired immediately — adding Core's Kafka adapter made two
+  implementations of one idea concrete rather than hypothetical.
+- **Impact:** internal, plus a configuration rename: the backbone is chosen by
+  `fincore.events.broker` for every service. RabbitMQ now works for Core without
+  a line of Core code, which is the point of the seam.
+- **Supersedes:** the v1.3 note deferring the extraction, and Core's
+  single-event publisher signature. The library took the ledger's
+  batch-with-acknowledgements shape: a batch where the third send fails must
+  still mark the first two published, or one unlucky event stalls everything
+  behind it forever. Core's relay now marks published exactly what the broker
+  acknowledged.
+- **Tests:** `OutboxTest` unchanged in intent and passing against the new shape;
+  `ModuleBoundaryTest` states that a shared library is not another deployable.
+- **Migration:** none.
+
+*Broker health indicators are disabled deliberately. A broker outage delays
+delivery and must never make the service unhealthy — that is the entire reason
+events are written to an outbox first, and readiness must not follow a dependency
+the write path does not have.*
+
+---
+
 ## [1.3.0] — 2026-08-06 · MINOR
 
 **The operator surface exists, and events can reach a broker.**

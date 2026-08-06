@@ -1,6 +1,6 @@
 # Ledger — Data Model
 
-**Status:** AGREED v1.5 (2026-08-06) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
+**Status:** AGREED v1.6 (2026-08-06) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
 
 Thirteen tables. Amounts are integer minor units (`BIGINT`), currency on every
 entry and account, `tenant_id` on **every** row — including holds and outbox.

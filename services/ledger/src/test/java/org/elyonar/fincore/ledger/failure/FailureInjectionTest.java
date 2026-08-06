@@ -8,9 +8,9 @@ import static org.elyonar.fincore.ledger.posting.EntryLine.Direction.DEBIT;
 import java.util.List;
 import java.util.UUID;
 import javax.sql.DataSource;
-import org.elyonar.fincore.ledger.outbox.EventPublisher;
+import org.elyonar.fincore.events.EventPublisher;
 import org.elyonar.fincore.ledger.outbox.OutboxRelay;
-import org.elyonar.fincore.ledger.outbox.PublishedEvent;
+import org.elyonar.fincore.events.DomainEvent;
 import org.elyonar.fincore.ledger.posting.EntryLine;
 import org.elyonar.fincore.ledger.posting.PostTransactionCommand;
 import org.elyonar.fincore.ledger.posting.PostingService;
@@ -51,18 +51,29 @@ class FailureInjectionTest extends LedgerPostgresTest {
     }
 
     static class FlakyPublisher implements EventPublisher {
+
+        @Override
+        public String name() {
+            return "flaky";
+        }
+
+        @Override
+        public boolean delivers() {
+            return true;
+        }
+
         volatile boolean brokerDown = false;
         volatile int publishAttempts = 0;
 
         @Override
-        public List<Long> publish(List<PublishedEvent> batch) {
+        public List<Long> publish(List<DomainEvent> batch) {
             publishAttempts++;
             if (brokerDown) {
                 // Acknowledges nothing: the broker took the batch and never confirmed, or died
                 // between receiving and confirming. Indistinguishable from the outside.
                 return List.of();
             }
-            return batch.stream().map(PublishedEvent::id).toList();
+            return batch.stream().map(DomainEvent::id).toList();
         }
     }
 

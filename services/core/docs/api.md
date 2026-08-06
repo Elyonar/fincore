@@ -1,6 +1,6 @@
 # Core — API Surface (v1)
 
-**Status:** AGREED v1.3 (2026-08-06) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
+**Status:** AGREED v1.4 (2026-08-06) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
 
 REST/JSON. OpenAPI is generated from the code once implementation lands; this
 document is the agreed contract shape. Every request carries a validated

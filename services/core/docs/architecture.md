@@ -1,6 +1,6 @@
 # Core — Architecture & Boundaries
 
-**Status:** AGREED v1.3 (2026-08-06) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
+**Status:** AGREED v1.4 (2026-08-06) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
 
 ## The shape
 

@@ -79,6 +79,16 @@ fincore:
       base-url: ${FINCORE_LEDGER_URL:http://localhost:8080}
 
 management:
+  health:
+    # A broker outage delays delivery; it never makes this service unhealthy. That is the entire
+    # point of writing events to an outbox first — readiness must not follow a dependency the
+    # write path deliberately does not have. Both clients are on the classpath because the broker
+    # is a runtime choice, and their default health indicators would otherwise report DOWN
+    # whenever the unselected one is absent.
+    rabbit:
+      enabled: false
+    kafka:
+      enabled: false
   endpoints:
     web:
       exposure:

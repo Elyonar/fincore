@@ -4,6 +4,8 @@ import java.util.List;
 import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.elyonar.fincore.events.DomainEvent;
+import org.elyonar.fincore.events.EventPublisher;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
@@ -45,7 +47,7 @@ public class OutboxRelay {
      */
     @Transactional(transactionManager = "relayTransactionManager")
     public int publishBatch(int batchSize) {
-        List<PendingEvent> pending =
+        List<DomainEvent> pending =
                 jdbc.query(
                         """
                         SELECT id, tenant_id, event_type, aggregate_id, epoch, payload::text AS payload
@@ -56,22 +58,26 @@ public class OutboxRelay {
                          LIMIT ?
                         """,
                         (rs, row) ->
-                                new PendingEvent(
+                                new DomainEvent(
                                         rs.getLong("id"),
-                                        rs.getObject("tenant_id", java.util.UUID.class),
                                         rs.getString("event_type"),
                                         rs.getString("aggregate_id"),
-                                        rs.getLong("epoch"),
-                                        rs.getString("payload")),
+                                        // The platform envelope, assembled from the module's own
+                                        // row (ADR 0008). The library carries events, not schemas,
+                                        // so wrapping is the service's job and stays here.
+                                        envelope(rs.getLong("id"), rs.getString("event_type"),
+                                                rs.getString("aggregate_id"),
+                                                rs.getString("tenant_id"), rs.getLong("epoch"),
+                                                rs.getString("payload"))),
                         batchSize);
 
-        for (PendingEvent event : pending) {
-            publisher.publish(event);
-            jdbc.update(
-                    "UPDATE orchestration.outbox_events SET published_at = now() WHERE id = ?",
-                    event.id());
+        // Only what the broker acknowledged is marked published: an unacknowledged event stays
+        // pending and is retried, and one failure never strands the rest of the batch behind it.
+        List<Long> acknowledged = publisher.publish(pending);
+        for (Long id : acknowledged) {
+            jdbc.update("UPDATE orchestration.outbox_events SET published_at = now() WHERE id = ?", id);
         }
-        return pending.size();
+        return acknowledged.size();
     }
 
     /**
@@ -89,7 +95,14 @@ public class OutboxRelay {
         return Optional.ofNullable(age);
     }
 
-    void warnIfStale(long thresholdSeconds) {
+    private static String envelope(
+            long id, String eventType, String aggregateId, String tenantId, long epoch, String payload) {
+        return """
+               {"eventId":%d,"eventType":"%s","aggregateId":"%s","tenantId":"%s","epoch":%d,"payload":%s}"""
+                .formatted(id, eventType, aggregateId, tenantId, epoch, payload);
+    }
+
+    public void warnIfStale(long thresholdSeconds) {
         oldestPendingAgeSeconds()
                 .filter(age -> age > thresholdSeconds)
                 .ifPresent(age -> log.error("core outbox relay is stale: oldest unpublished event is {}s old", age));

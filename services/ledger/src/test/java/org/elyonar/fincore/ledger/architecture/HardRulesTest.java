@@ -99,7 +99,13 @@ class HardRulesTest {
                     .should()
                     .dependOnClassesThat(
                             resideInAPackage("org.elyonar.fincore..")
-                                    .and(not(resideInAPackage(LEDGER))))
+                                    .and(not(resideInAPackage(LEDGER)))
+                                    // Shared libraries are not other deployables. PRD §3.4 draws
+                                    // the line: a deployable owns a database and a process, a
+                                    // library owns neither and is linked in. The rule was written
+                                    // before any lib existed, so it could not say so.
+                                    .and(not(resideInAPackage("org.elyonar.fincore.events..")))
+                                    .and(not(resideInAPackage("org.elyonar.fincore.auth.."))))
                     .because(
                             "AGENTS.md hard rule 5: a monorepo is not a monolith; services"
                                 + " integrate over APIs and events, never over the classpath");
