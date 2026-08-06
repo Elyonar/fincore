@@ -6,7 +6,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.InitializingBean;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
@@ -32,12 +34,18 @@ public class AuthAutoConfiguration {
     /** Paths served before a caller is known. Health and readiness must answer unauthenticated. */
     private static final String[] OPEN_PATHS = {"/actuator/health/**", "/actuator/info"};
 
+    /**
+     * Only defined in JWT mode.
+     *
+     * <p>Conditional rather than returning null for the other modes: a {@code @Bean} method that
+     * returns null defines no bean at all, so anything injecting a {@link JwtDecoder} fails to
+     * start instead of falling back — which is exactly what happened the first time a service ran
+     * in dev mode.
+     */
     @Bean
     @ConditionalOnMissingBean
+    @ConditionalOnProperty(prefix = "fincore.auth", name = "mode", havingValue = "jwt", matchIfMissing = true)
     public JwtDecoder jwtDecoder(AuthProperties properties) {
-        if (properties.getMode() != AuthProperties.Mode.JWT) {
-            return null;
-        }
         if (properties.getIssuerUri() == null || properties.getIssuerUri().isBlank()) {
             throw new IllegalStateException(
                     "fincore.auth.mode=jwt requires fincore.auth.issuer-uri. Refusing to start "
@@ -51,13 +59,21 @@ public class AuthAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
     public IdentityResolver identityResolver(
-            AuthProperties properties, Environment environment, JwtDecoder jwtDecoder) {
+            AuthProperties properties,
+            Environment environment,
+            ObjectProvider<JwtDecoder> jwtDecoder) {
         if (properties.getMode() == AuthProperties.Mode.DEV) {
             // Constructor refuses outside a sanctioned profile.
             return new DevIdentityResolver(
                     environment.getActiveProfiles(), properties.getDevProfiles());
         }
-        return new JwtIdentityResolver(jwtDecoder, properties);
+        JwtDecoder decoder = jwtDecoder.getIfAvailable();
+        if (decoder == null) {
+            throw new IllegalStateException(
+                    "fincore.auth.mode=jwt but no JwtDecoder is available. Refusing to start"
+                            + " rather than serving requests nobody authenticated.");
+        }
+        return new JwtIdentityResolver(decoder, properties);
     }
 
     @Bean
