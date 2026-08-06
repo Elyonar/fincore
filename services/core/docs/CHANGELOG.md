@@ -8,7 +8,7 @@ entry first.
 
 ---
 
-## [1.8.0] — 2026-08-06 · MINOR
+## [1.10.0] — 2026-08-06 · MINOR
 
 **An error contract a non-anglophone caller can render from.**
 
@@ -53,6 +53,37 @@ entry first.
   against Orchestration, which is the cross-module dependency ADR 0006
   exists to prevent.
 - **Migration:** none — no schema change.
+
+---
+
+## [1.9.0] — 2026-08-06 · MINOR
+
+**The suite gets its own database.**
+
+- **Docs:** `testing.md`, `README.md`
+- **Why:** the suite and `docker compose up` shared one database per service, and
+  a running deployable is a concurrent writer. That produced two separate
+  failures that looked like real defects and were not — `AnchorServiceTest` in
+  the Ledger, because Core's saga worker and outbox relay poll on short
+  intervals and PostgreSQL transaction ids are **cluster-wide**, so polling
+  Core's database held the Ledger's quiesce horizon below entries a test had
+  already committed; and `OutboxTest`, because `HoldExpirySweep` runs every
+  thirty seconds inside the Ledger container and writes the very events that
+  test counts. The first was fixed by teaching the tests to wait. The second is
+  what said the problem is the shared database, not the assertions: no amount of
+  draining or waiting inside a test makes a live writer go away.
+- **Impact:** none on the product. All six module datasources default to
+  `core_test`; `SPRING_DATASOURCE_URL` still overrides. Flyway builds it from the
+  same migrations, so the schemas cannot drift.
+- **Supersedes:** the assumption behind the port split — that moving host ports
+  was enough for the stack and the suite to coexist. Ports were the visible half.
+- **Tests:** whole suite green **with the stack running**, and the isolation
+  demonstrated rather than asserted: the development databases' row counts were
+  identical before and after a full run, while the test databases took every
+  write.
+- **Migration:** `db/init/50-test-databases.sql`. It runs only on an empty
+  volume, so an existing checkout needs the database created in place — the
+  command is in `README.md`. Nothing is dropped and no development data moves.
 
 ---
 

@@ -1,6 +1,6 @@
 # Core — API Surface (v1)
 
-**Status:** AGREED v1.8 (2026-08-06) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
+**Status:** AGREED v1.10 (2026-08-06) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
 
 REST/JSON. Every request carries a validated identity token — **the tenant comes
 from the token, never from a header**
@@ -30,7 +30,7 @@ the first place.
 | `POST /v1/deposits` | cash in: till → customer account | orchestration | `cash:transact` | teller, API |
 | `POST /v1/withdrawals` | cash out: customer account → till | orchestration | `cash:transact` | teller, API |
 | `POST /v1/transfers` | intra-tenant book transfer | orchestration | `transfers:create` | teller, API |
-| `GET  /v1/transactions/{id}` | saga state — **non-mutating recovery read** | orchestration | `transfers:read` | teller, API, ops |
+| `GET  /v1/transactions/{id}` | saga state and the accounts it moved between — **non-mutating recovery read** | orchestration | `transfers:read` | teller, API, ops, consumers |
 | `POST /v1/transactions/{id}/reverse` | **business** reversal of a completed transaction — approval required | orchestration | `transfers:reverse` | ops, supervisor |
 | `POST /v1/customers` | create a customer | customer | `customers:create` | admin, API |
 | `GET  /v1/customers/{id}` | customer profile, tier, status, linked accounts | customer | `customers:read` | teller, API |

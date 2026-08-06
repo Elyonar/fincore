@@ -9,6 +9,19 @@ on:
       - 'feature/**'
   pull_request:
 
+# Only the newest run for a ref is worth paying for. Pushing three times to a branch
+# used to start three full builds — each spinning up PostgreSQL, resolving the whole
+# Maven reactor and running every suite — and the first two were answering a question
+# about code that no longer existed.
+#
+# main is excluded from cancellation on purpose. A run on main is the record of whether
+# what is on main actually builds; cancelling it to start the next one leaves a merge
+# commit whose result nobody ever learns. On a branch the newest push supersedes the
+# older; on main every commit's answer is worth having.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 jobs:
   build:
     runs-on: ubuntu-latest

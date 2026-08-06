@@ -144,7 +144,7 @@ service directory first.
 Verified by running the suites, not by reading the docs: **457 tests green** —
 26 `libs/auth`, 9 `libs/events`, 231 ledger, 191 Core.
 
-- `services/ledger` — **design AGREED v1.7; implemented and merged to main.**
+- `services/ledger` — **design AGREED v1.8; implemented and merged to main.**
   Every documented endpoint exists. Do not re-implement the schema, posting
   engine, holds, reversal, outbox, value dating, statements or invariants: they
   are done.
@@ -164,7 +164,7 @@ Verified by running the suites, not by reading the docs: **457 tests green** —
     and two cross-tenant probes
   - no performance, soak or disaster-recovery evidence exists
 
-- `services/core` — **design AGREED v1.8; implemented, merged, and running.**
+- `services/core` — **design AGREED v1.10; implemented, merged, and running.**
   One deployable holding four modules ([ADR 0006](docs/adr/0006-modular-core.md)):
   `customer`, `product`, `orchestration` and `app`, with a schema and a database
   role each. Transfers, cash in and out, business reversal with maker-checker

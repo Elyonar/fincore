@@ -1,11 +1,13 @@
 # Core — Invariants & Test Strategy
 
-**Status:** AGREED v1.8 (2026-08-06) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
+**Status:** AGREED v1.10 (2026-08-06) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
 
-**Every suite below is unimplemented, because the service does not exist yet.**
-Markers (`IMPLEMENTED` / `PARTIAL` / `DEFERRED`) become meaningful when code
-lands, and only `IMPLEMENTED` suites gate merges. Stating this once, plainly, is
-the alternative to a document that reads as though verification already runs.
+**Suites are marked `IMPLEMENTED` / `PARTIAL` / `DEFERRED` individually, and only
+`IMPLEMENTED` ones gate merges.** An unmarked suite is not yet written. This
+header once said every suite below was unimplemented because the service did not
+exist; several now are, and leaving that sentence in place would have made the
+document wrong in the direction that flatters — which is the failure the markers
+exist to prevent.
 
 ## Core's invariants
 
@@ -62,6 +64,30 @@ production.
 
 Invariants 1 and 6 need production schedules, not only test assertions. A
 violation of 3, 6 or 8 pages; the others alarm.
+
+## Where the suite's data lives
+
+**The suite runs against `core_test`, never `core`.**
+
+A running deployable is a concurrent writer, and a test cannot defend itself
+against one. Core is the more instructive case, because its interference reached
+somewhere nobody would look for it: the saga worker and the outbox relay poll on
+short intervals, and PostgreSQL transaction ids are **cluster-wide**, so Core's
+polling of the `core` database held the *Ledger's* quiesce horizon below entries
+the Ledger's own tests had already committed. A Core process, a Core database,
+and a failing Ledger test.
+
+It looked like a Ledger defect. It was not. The Ledger's tests were taught to
+wait for the horizon, which was correct but treated a symptom; when a second,
+unrelated failure appeared there for the same underlying reason, that was the
+signal the shared database was the problem rather than any assertion — draining
+or waiting cannot help against a writer that fires *after* you drain. The Ledger
+side of the story is in its own [`testing.md`](../../ledger/docs/testing.md).
+
+Flyway builds the test database from the same migrations, so the two cannot
+drift. `SPRING_DATASOURCE_URL` overrides the default. `db/init` runs only on an
+empty volume, so an existing checkout needs the database created in place — see
+`README.md`.
 
 ## The suites
 
