@@ -35,6 +35,10 @@ fincore:
         jdbc-url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:55432/core}
         username: ${FINCORE_PRODUCT_DB_USER:core_product}
         password: ${FINCORE_PRODUCT_DB_PASSWORD:core_product}
+      relay:
+        jdbc-url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:55432/core}
+        username: core_relay
+        password: core_relay
       worker:
         jdbc-url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:55432/core}
         username: core_worker

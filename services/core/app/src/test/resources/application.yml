@@ -23,6 +23,11 @@ fincore:
         jdbc-url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:55432/core}
         username: core_product
         password: core_product
+      relay:
+        maximum-pool-size: 2
+        jdbc-url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:55432/core}
+        username: core_relay
+        password: core_relay
       worker:
         maximum-pool-size: 2
         jdbc-url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:55432/core}
