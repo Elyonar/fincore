@@ -4,6 +4,7 @@ import org.springframework.amqp.core.TopicExchange;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.elyonar.fincore.ledger.shared.LedgerProperties;
 
 /**
  * Declares the exchange the relay publishes to.
@@ -16,12 +17,12 @@ import org.springframework.context.annotation.Configuration;
  * <p>Durable, because a broker restart must not take the topology with it.
  */
 @Configuration
-@ConditionalOnProperty(name = "ledger.events.broker", havingValue = "rabbit")
+@ConditionalOnProperty(name = LedgerProperties.EVENTS_BROKER, havingValue = LedgerProperties.Broker.RABBIT)
 public class RabbitTopology {
 
     @Bean
     public TopicExchange ledgerEventsExchange(
-            @org.springframework.beans.factory.annotation.Value("${ledger.events.exchange:fincore.ledger}")
+            @org.springframework.beans.factory.annotation.Value("${" + LedgerProperties.EVENTS_EXCHANGE + ":fincore.ledger}")
                     String exchange) {
         return new TopicExchange(exchange, true, false);
     }

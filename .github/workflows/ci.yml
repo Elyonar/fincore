@@ -31,28 +31,46 @@ jobs:
           --health-timeout=5s
           --health-retries=5
 
-    env:
-      # Traffic as the restricted role, migrations as the owner — the same
-      # separation the service uses in compose and in production.
-      SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/ledger
-      SPRING_DATASOURCE_USERNAME: ledger_app
-      SPRING_DATASOURCE_PASSWORD: ledger_app
-      SPRING_FLYWAY_USER: fincore
-      SPRING_FLYWAY_PASSWORD: fincore
-
     steps:
       - uses: actions/checkout@v4
 
-      # RLS cannot constrain a superuser, so the suite connects as a restricted
-      # role. Locally this role comes from db/init; service containers cannot
-      # mount init scripts, so CI creates it here.
-      - name: Create the restricted application role
+      # RLS cannot constrain a SUPERUSER or a BYPASSRLS role, and exempts a
+      # table's owner unless the table is FORCEd — so every service connects as
+      # a restricted role and migrations run as the owner (ADR 0007). Locally
+      # these come from db/init; service containers cannot mount init scripts,
+      # so CI creates them here.
+      #
+      # Adding a service is a one-line change to each list below. A deployable
+      # holding several modules needs one role per module, each granted only on
+      # its own schema (ADR 0006) — Core will add core_customer, core_product
+      # and core_orchestration alongside a "core" database.
+      - name: Create databases and restricted application roles
         env:
           PGPASSWORD: fincore
         run: |
-          psql -h localhost -U fincore -d ledger -v ON_ERROR_STOP=1 -c \
-            "CREATE ROLE ledger_app LOGIN PASSWORD 'ledger_app' \
-             NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;"
+          set -euo pipefail
+
+          # Databases beyond POSTGRES_DB, which already created "ledger".
+          DATABASES="core"
+
+          # Restricted roles. One per service, and one per module where a deployable holds
+          # several (ADR 0006) — a cross-module query then fails at runtime rather than
+          # surviving until someone tries to extract a module. The password matches the role
+          # name in CI only; deployments provision real secrets.
+          ROLES="ledger_app core_customer core_product core_orchestration core_relay core_worker"
+
+          for db in $DATABASES; do
+            echo "creating database $db"
+            psql -h localhost -U fincore -d ledger -v ON_ERROR_STOP=1 \
+              -c "CREATE DATABASE \"$db\";"
+          done
+
+          for role in $ROLES; do
+            echo "creating restricted role $role"
+            psql -h localhost -U fincore -d ledger -v ON_ERROR_STOP=1 \
+              -c "CREATE ROLE \"$role\" LOGIN PASSWORD '$role' \
+                  NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;"
+          done
 
       - name: Set up Java 25
         uses: actions/setup-java@v4
@@ -61,8 +79,38 @@ jobs:
           java-version: '25'
           cache: maven
 
-      - name: Build & test
-        run: ./mvnw --batch-mode verify
+      # Every deployable owns its own database (AGENTS.md rule 5), so each one is
+      # tested against its own. A single job-wide SPRING_DATASOURCE_URL cannot
+      # express that: both deployables read the same variable with different
+      # defaults, so whichever value CI set, the other connected to the wrong
+      # database. Core did — it resolved the ledger's URL and tried to CREATE
+      # SCHEMA there as ledger_app. Locally the variable is unset, both fall back
+      # to their own defaults, and the collision is invisible. The env belongs to
+      # the deployable, not to the job.
+      - name: Build everything once
+        run: ./mvnw --batch-mode install -DskipTests
+
+      # Traffic as the restricted role, migrations as the owner — the same
+      # separation the service uses in compose and in production.
+      - name: Test — libs and the ledger deployable
+        run: ./mvnw --batch-mode verify -pl libs/auth,services/ledger
+        env:
+          SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/ledger
+          SPRING_DATASOURCE_USERNAME: ledger_app
+          SPRING_DATASOURCE_PASSWORD: ledger_app
+          SPRING_FLYWAY_USER: fincore
+          SPRING_FLYWAY_PASSWORD: fincore
+
+      # Core connects per module role (ADR 0006); the URL is the only thing shared,
+      # and it is Core's database, never the ledger's.
+      - name: Test — the Core deployable
+        run: ./mvnw --batch-mode verify -pl services/core/customer,services/core/product,services/core/orchestration,services/core/app
+        env:
+          SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/core
+          SPRING_DATASOURCE_USERNAME: fincore
+          SPRING_DATASOURCE_PASSWORD: fincore
+          SPRING_FLYWAY_USER: fincore
+          SPRING_FLYWAY_PASSWORD: fincore
 
   # An AGREED design is a contract. If a PR edits one without recording the
   # amendment, the convention in docs/conventions/design-changes.md is being

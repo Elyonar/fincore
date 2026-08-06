@@ -52,6 +52,16 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-jdbc</artifactId>
         </dependency>
+        <!--
+            Prometheus metrics. architecture.md requires alerting on
+            oldest-unpublished outbox age; a log line only alerts someone who
+            happens to be grepping, which is not monitoring.
+        -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+            <scope>runtime</scope>
+        </dependency>
         <dependency>
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>
@@ -157,6 +167,19 @@
             of review comments. A contributor (human or AI) cannot argue with a
             red test; they can argue with a paragraph.
         -->
+        <!--
+            Property-based testing. ADR 0004 gates the second service on this
+            suite being green; example-based tests encode what the author
+            already believed, which is exactly the blind spot a ledger cannot
+            afford.
+        -->
+        <dependency>
+            <groupId>net.jqwik</groupId>
+            <artifactId>jqwik</artifactId>
+            <version>1.9.2</version>
+            <scope>test</scope>
+        </dependency>
+
         <dependency>
             <groupId>com.tngtech.archunit</groupId>
             <artifactId>archunit-junit5</artifactId>

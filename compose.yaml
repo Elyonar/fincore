@@ -85,6 +85,30 @@ services:
       retries: 10
       start_period: 20s
 
+  # Identity provider (ADR 0010). Opt-in, because nothing consumes it yet:
+  #   docker compose --profile identity up -d keycloak
+  # then point a service at fincore.auth.issuer-uri.
+  #
+  # Development mode only — no persistence, throwaway credentials, HTTP. Real
+  # deployments configure this properly and those details live with the
+  # deployment, not in this repository (AGENTS.md hard rule 8).
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    profiles: ["identity"]
+    command: ["start-dev"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      KC_HEALTH_ENABLED: "true"
+    ports:
+      - "${FINCORE_KEYCLOAK_PORT:-8180}:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/localhost/9000 && echo -e 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && cat <&3 | grep -q '\"status\": \"UP\"'"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
   ledger:
     build:
       # Root context: the Dockerfile builds through the Maven reactor, so it
@@ -123,6 +147,52 @@ services:
       - "8080:8080"
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:8080/actuator/health/readiness | grep -q '\"status\":\"UP\"'"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  # Core — the deployable that orchestrates transfers. Four modules, one process,
+  # one image; the boundary between them is enforced by per-module database roles
+  # inside the container, not by separate containers (ADR 0006).
+  core:
+    build:
+      # Root context: the Dockerfile builds through the Maven reactor, so it
+      # needs the parent pom, the wrapper and libs/auth.
+      context: .
+      dockerfile: services/core/app/Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+      # Core calls the ledger to move money and is useless without it. Waiting for
+      # readiness rather than start means the first transfer does not race the
+      # ledger's migrations.
+      ledger:
+        condition: service_healthy
+    environment:
+      # Core's own database — never the ledger's. A deployable owns its database
+      # (AGENTS.md rule 5), and the roles come from db/init/30-core-roles.sql.
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/core
+      SPRING_DATASOURCE_USERNAME: fincore
+      SPRING_DATASOURCE_PASSWORD: fincore
+      # A container is not a dev machine; it must never start its own database
+      # sidecar.
+      SPRING_DOCKER_COMPOSE_ENABLED: "false"
+      # Orchestration's only outbound dependency, by service name on the compose
+      # network. No other module may hold a ledger client.
+      FINCORE_LEDGER_URL: http://ledger:8080
+      # Dev identity: headers rather than tokens. libs/auth refuses this unless a
+      # sanctioned profile is also active, so the profile is set here too and the
+      # startup banner says loudly that this is not authentication (ADR 0010).
+      # Run `docker compose --profile identity up` and set FINCORE_AUTH_MODE=jwt
+      # with an issuer URI to exercise the real path against Keycloak.
+      FINCORE_AUTH_MODE: ${FINCORE_AUTH_MODE:-dev}
+      FINCORE_AUTH_ISSUER_URI: ${FINCORE_AUTH_ISSUER_URI:-}
+      SPRING_PROFILES_ACTIVE: ${FINCORE_CORE_PROFILE:-dev}
+    ports:
+      - "8081:8081"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8081/actuator/health/readiness | grep -q '\"status\":\"UP\"'"]
       interval: 10s
       timeout: 5s
       retries: 12

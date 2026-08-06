@@ -1,6 +1,6 @@
 # Ledger — Invariants & Test Strategy
 
-**Status:** AGREED v1.3.1 (2026-08-05) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
+**Status:** AGREED v1.5 (2026-08-06) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
 
 The test suite is the product's argument for correctness — public, runnable
 by anyone. If you want to contribute: **try to break the ledger and encode
@@ -93,7 +93,7 @@ to exist.
 
 **Invariant suite.** *(IMPLEMENTED)* All six checks after every test scenario.
 
-**Property-based tests.** *(PLANNED — no jqwik/QuickTheories dependency exists; randomized UUIDs in fixtures are not property-based testing)* Random operation sequences — postings, reversals,
+**Property-based tests.** *(IMPLEMENTED — jqwik; `LedgerPropertiesTest` generates operation sequences of postings, reversals and rejections, and asserts conservation, provable balances and that no transaction exists without its entries. Shrinking reduces a failure to its smallest reproducing case.)* Random operation sequences — postings, reversals,
 holds, releases, captures, expiries, closures, **compensation+reversal mixes
 in both orders**, closed-account sweeps, wash attempts — must preserve every
 invariant; shrinking on failure.
@@ -138,14 +138,14 @@ interim. A backdated posting arriving after its period closed appears on the
 `bookedAt`, and does not alter the already-issued statement. Both dates are
 present on every line, and `bookedAt >= valueDate` for backdated entries.
 
-**Schema & migration suite.** *(PARTIAL — schema-presence and enforcement are implemented; stepwise-vs-fresh migration equivalence and expand/migrate/contract rehearsal are PLANNED)* schema-presence tests assert every
+**Schema & migration suite.** *(PARTIAL — schema-presence and enforcement are implemented; stepwise-vs-fresh migration equivalence and expand/migrate/contract rehearsal are **DEFERRED**, see below)* schema-presence tests assert every
 trigger, partial unique index, composite FK, CHECK, and RLS policy exists
 *and fires* (a migration that silently drops the append-only trigger fails
 CI, not an audit); stepwise (V1→…→Vn) and fresh-install (empty→Vn)
 migrations converge to byte-identical schemas; expand→migrate→contract
 rehearsed on a copy for any change touching hot tables.
 
-**Concurrency suite.** *(PARTIAL — races and the zero-deadlock proof are implemented; the single-hot-account TPS benchmark is PLANNED, so no throughput floor gates anything today)* N threads hammering shared accounts; plus targeted
+**Concurrency suite.** *(PARTIAL — races and the zero-deadlock proof are implemented; the single-hot-account TPS benchmark is **DEFERRED**, see below)* N threads hammering shared accounts; plus targeted
 races: double-reversal of one transaction (one winner, loser gets
 `ALREADY_REVERSED` + winner id); capture racing expiry sweep (exactly one
 wins; money conserved either way); duplicate posting racing (blocked-insert
@@ -170,7 +170,7 @@ triggers — tamper-evidence must not depend on application code. Also:
 value that would silently reinterpret every stored amount in every tenant
 while leaving all six invariants green.
 
-**Tenant-isolation suite.** *(PARTIAL — RLS enforcement, pooled-connection bleed, shared group_ref and posting into another tenant's account are implemented; probes for reversing another tenant's transaction, releasing its hold and reading its statement are PLANNED)* Cross-tenant probes for every mutating endpoint:
+**Tenant-isolation suite.** *(PARTIAL — RLS enforcement, pooled-connection bleed, shared `group_ref`, posting into another tenant's account, and the tenant registry are implemented; probes for reversing another tenant's transaction and releasing its hold are **DEFERRED**, see below)* Cross-tenant probes for every mutating endpoint:
 reverse another tenant's transaction, release/consume another tenant's hold,
 post to another tenant's account, read another tenant's statement — all must
 fail as not-found; composite-FK violation tests at the schema level; RLS
@@ -188,12 +188,12 @@ where isolation is *not* carried by a foreign key:
   the failure is silent, survives code review, and defeats RLS in exactly
   the scenario RLS is there to cover.
 
-**Failure injection.** *(PLANNED — none of the connection-kill, duplicate-delivery or relay-crash cases below are implemented)* Kill the DB connection at each step boundary;
+**Failure injection.** *(IMPLEMENTED — `FailureInjectionTest`: an unacknowledged broker leaves events pending rather than lost; a relay crash between publish and mark redelivers; a duplicate delivery moves money once; a backend terminated mid-transaction leaves no partial posting and frees the key.)* Kill the DB connection at each step boundary;
 duplicate deliveries; relay crash between publish and mark-published
 (at-least-once + consumer dedupe verified); the outbox commit-order case
 (late-committing low id must still publish — watermark bugs caught by test).
 
-**Restore drill (scheduled, not merge-gating).** *(PLANNED — no automation exists)* Quarterly: restore from
+**Restore drill (scheduled, not merge-gating).** *(DEFERRED — needs real backup infrastructure; the epoch fencing it depends on is now implemented, see below)* Quarterly: restore from
 replica, verify epoch fencing, replay Orchestration's window, prove
 invariants on the restored state. RPO = 0 for acknowledged commits is a
 stated guarantee — drills are how it stays true.
@@ -203,3 +203,22 @@ stated guarantee — drills are how it stays true.
 `.github/workflows/ci.yml` runs `./mvnw verify` on every push and PR. All
 suites run against real PostgreSQL — never an in-memory substitute: the
 locking, trigger, constraint, and RLS behaviour under test *is* PostgreSQL's.
+
+---
+
+## Deferred, and why
+
+These are not oversights. Each needs something the project does not have yet, and
+each is listed here rather than left to be discovered.
+
+| Item | Blocked on | Cost of deferring |
+|---|---|---|
+| Single-hot-account TPS benchmark | An agreed reference machine. A throughput floor measured on whatever laptop ran it last is a number that means nothing, and a CI gate against it would fail for the wrong reasons | The fan-in sharding trigger stays a judgement call rather than an objective one. Acceptable while no tenant is near 200 TPS |
+| Stepwise-vs-fresh migration equivalence | Nothing technical — it is straightforward. Deferred only because six migrations is small enough to inspect | Grows with every migration. Worth doing before V10 |
+| Expand/migrate/contract rehearsal | A deployed environment to rehearse against | No zero-downtime evidence. Irrelevant until something is deployed |
+| Restore drill automation | Real backup infrastructure and a restore target | RPO = 0 is stated and unproven. The epoch fencing the protocol depends on now exists, so the drill is the only missing piece |
+| Cross-tenant probes for reverse and hold-release | Nothing — these are two more tests | Small. The mechanism is proven for accounts, statements and postings; these two paths rely on the same composite keys and RLS |
+| Performance, soak and DR evidence | An environment that is not a laptop | Every non-functional target in `architecture.md` is documented and unmeasured |
+
+**Authentication and caller authorization** are deferred to the Identity service
+by design, not by omission — see the ledger README's known-limitations table.

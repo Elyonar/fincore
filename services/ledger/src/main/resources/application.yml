@@ -5,6 +5,15 @@ spring:
 server:
   port: ${LEDGER_PORT:8080}
 
+spring.datasource.hikari:
+  # Probe idle connections so a failover or an admin cull is noticed before a
+  # posting borrows a dead one. Hikari skips validation for connections used in
+  # the last 500ms, so this narrows the window rather than closing it — the
+  # retry rule closes the rest.
+  keepalive-time: 30000
+  validation-timeout: 3000
+  max-lifetime: 900000
+
 springdoc:
   swagger-ui:
     # /docs is the path people guess and remember. springdoc's own
@@ -27,7 +36,9 @@ management:
         # Deliberately narrow. The ledger's operational surface grows by
         # decision, not by default — an actuator that exposes env, beans or
         # heapdump on an internal network is a disclosure waiting to happen.
-        include: health,info
+        # prometheus is included because the outbox staleness alert has to be
+        # scrapeable; a log line alerts only whoever is grepping.
+        include: health,info,prometheus
   endpoint:
     health:
       # Readiness and liveness are what an orchestrator restarts or routes on;

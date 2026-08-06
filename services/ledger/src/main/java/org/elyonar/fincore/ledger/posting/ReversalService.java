@@ -15,6 +15,7 @@ import org.elyonar.fincore.ledger.shared.LedgerException;
 import org.elyonar.fincore.ledger.tenant.TenantScope;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.elyonar.fincore.ledger.shared.TransactionStatus;
 
 /**
  * Undoes a posted transaction by mirroring its entries.
@@ -77,7 +78,7 @@ public class ReversalService {
                     ErrorCode.ACCOUNT_NOT_FOUND, "unknown transaction " + command.originalTransactionId());
         }
 
-        if ("REVERSED".equals(original[0])) {
+        if (TransactionStatus.of((String) original[0]).isReversed()) {
             // Carry the winner's id so a saga converges on it rather than retry-looping against a
             // state that will never change again.
             UUID winner =

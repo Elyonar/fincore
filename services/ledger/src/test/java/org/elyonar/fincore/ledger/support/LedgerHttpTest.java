@@ -29,6 +29,11 @@ public abstract class LedgerHttpTest extends LedgerPostgresTest {
 
     protected void seedTenant() {
         tenant = UUID.randomUUID();
+        // Provisioning, as the seed script does it: a tenant exists before it can hold money.
+        jdbc.update(
+                "INSERT INTO tenants (id, name, created_by) VALUES (?, 'http test tenant', 'test')"
+                        + " ON CONFLICT (id) DO NOTHING",
+                tenant);
         jdbc.update("INSERT INTO currencies VALUES ('NGN',2,'Naira') ON CONFLICT (code) DO NOTHING");
     }
 

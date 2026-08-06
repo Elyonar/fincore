@@ -8,6 +8,7 @@ import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
+import org.elyonar.fincore.ledger.shared.LedgerProperties;
 
 /**
  * Publishes outbox events to RabbitMQ.
@@ -34,7 +35,7 @@ import org.springframework.stereotype.Component;
  * took it.
  */
 @Component
-@ConditionalOnProperty(name = "ledger.events.broker", havingValue = "rabbit")
+@ConditionalOnProperty(name = LedgerProperties.EVENTS_BROKER, havingValue = LedgerProperties.Broker.RABBIT)
 public class RabbitEventPublisher implements EventPublisher {
 
     private static final Logger log = LoggerFactory.getLogger(RabbitEventPublisher.class);
@@ -46,7 +47,7 @@ public class RabbitEventPublisher implements EventPublisher {
     private final String exchange;
 
     public RabbitEventPublisher(
-            RabbitTemplate rabbit, @Value("${ledger.events.exchange:fincore.ledger}") String exchange) {
+            RabbitTemplate rabbit, @Value("${" + LedgerProperties.EVENTS_EXCHANGE + ":fincore.ledger}") String exchange) {
         this.rabbit = rabbit;
         this.exchange = exchange;
     }

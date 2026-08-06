@@ -16,7 +16,7 @@ nothing, consumes no events) while everything depends on it — and it is the
 project's trust artifact: a public test suite that provably conserves money.
 ([ADR 0004](../../docs/adr/0004-ledger-first.md))
 
-**Status: design AGREED v1.3.1 — implemented, pre-1.0.** All sixteen documented
+**Status: design AGREED v1.4 — implemented, pre-1.0.** All sixteen documented
 endpoints exist and 205 tests pass on CI against real PostgreSQL. It is **not
 production-ready**: see [Known limitations](#known-limitations) below, which is
 the honest list rather than the hopeful one. Changes to the agreed design go through
@@ -30,12 +30,12 @@ Read in this order for full context; jump directly if you know what you need.
 
 | You want to know… | Read | Status |
 |---|---|---|
-| The design at a glance + the decision log | [`docs/design.md`](docs/design.md) | AGREED v1.3.1 |
-| Tables, relationships, ER diagram, schema-enforced rules, decided edge cases | [`docs/data-model.md`](docs/data-model.md) | AGREED v1.3.1 |
-| Boundaries, traffic, the outbox/relay contract, DR posture | [`docs/architecture.md`](docs/architecture.md) | AGREED v1.3.1 |
-| The endpoint surface, error catalog, and contract properties | [`docs/api.md`](docs/api.md) | AGREED v1.3.1 |
-| How postings/reversals/holds execute: the two-tier lock protocol, hot accounts | [`docs/posting-algorithm.md`](docs/posting-algorithm.md) | AGREED v1.3.1 |
-| The six invariants, the exposure split, and the test suites gating merges | [`docs/testing.md`](docs/testing.md) | AGREED v1.3.1 |
+| The design at a glance + the decision log | [`docs/design.md`](docs/design.md) | AGREED v1.4 |
+| Tables, relationships, ER diagram, schema-enforced rules, decided edge cases | [`docs/data-model.md`](docs/data-model.md) | AGREED v1.4 |
+| Boundaries, traffic, the outbox/relay contract, DR posture | [`docs/architecture.md`](docs/architecture.md) | AGREED v1.4 |
+| The endpoint surface, error catalog, and contract properties | [`docs/api.md`](docs/api.md) | AGREED v1.4 |
+| How postings/reversals/holds execute: the two-tier lock protocol, hot accounts | [`docs/posting-algorithm.md`](docs/posting-algorithm.md) | AGREED v1.4 |
+| The six invariants, the exposure split, and the test suites gating merges | [`docs/testing.md`](docs/testing.md) | AGREED v1.4 |
 | Every amendment since the design was agreed | [`docs/CHANGELOG.md`](docs/CHANGELOG.md) | v1.3.1 |
 | Platform-wide hard rules (no floats, append-only, one writer…) | [`AGENTS.md`](../../AGENTS.md) | Standing |
 | Why Java 25 / monorepo / AGPL / ledger-first | [`docs/adr/`](../../docs/adr/) (root) | Accepted |
@@ -154,13 +154,16 @@ be discovered.
 
 | Area | State |
 |---|---|
-| Property-based tests | **Not implemented.** `docs/testing.md` marks the suite PLANNED |
-| Failure injection, migration equivalence, restore drills | **Not implemented** — marked PLANNED |
-| Hot-account throughput benchmark | **Not implemented**, so no TPS floor gates anything |
+| Property-based tests | **Implemented** (jqwik) — generated operation sequences with shrinking |
+| Failure injection | **Implemented** — unacknowledged publish, relay crash, duplicate delivery, backend killed mid-transaction |
+| Migration equivalence, expand/migrate/contract, restore drills | **Deferred**, with reasons and cost in `docs/testing.md` |
+| Hot-account throughput benchmark | **Deferred** — needs an agreed reference machine; no TPS floor gates anything today |
+| Restore protocol | Epoch fencing **implemented**; the drill itself needs backup infrastructure |
 | Event delivery | Working. Kafka by default, RabbitMQ supported, `log` adapter delivers nothing (see below) |
 | Authentication | Tenant arrives in a header. **This is not authentication** — Identity does not exist yet |
 | Caller authorization | `api.md` names allowed callers; the ledger does not enforce them |
 | Performance / RPO targets | Documented, **never measured**. No benchmark, soak or DR evidence |
+| Monitoring | Outbox depth and staleness are exposed at `/actuator/prometheus`; no dashboards or alert rules ship with the repo |
 | Release | `0.0.1-SNAPSHOT`. No tag, no published artifact, no upgrade policy |
 
 Correctness mechanisms — append-only entries, forced row-level security under a

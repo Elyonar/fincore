@@ -1,6 +1,6 @@
 # Ledger — Architecture & Boundaries
 
-**Status:** AGREED v1.3.1 (2026-08-05) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
+**Status:** AGREED v1.5 (2026-08-06) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
 
 ## The shape
 
@@ -110,7 +110,13 @@ so a consumer parsing events and a consumer parsing responses never disagree.
 
 ## Events consumed: none
 
-The ledger subscribes to nothing; it is command-driven only. Its behaviour is
+The ledger subscribes to nothing; it is command-driven only.
+
+This survives the tenant registry intact. `tenants` is a local projection of the one fact the
+ledger needs — may this tenant transact — written by provisioning rather than by a subscription.
+Consuming a tenant feed would make the ability to accept money depend on a message having arrived,
+and a missed message would leave a real bank silently unable to post. Provisioning that fails is
+visible to the operator running it, immediately. Its behaviour is
 fully determined by the API calls it receives — fully testable, replayable,
 auditable. Everything that reacts to money (notifications, compliance,
 reporting, AI) subscribes downstream.

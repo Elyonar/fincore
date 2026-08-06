@@ -8,6 +8,78 @@ entry first.
 
 ---
 
+## [1.5.0] — 2026-08-06 · MINOR
+
+**An error contract a non-anglophone caller can render from.**
+
+- **Docs:** `api.md` (error catalog rewritten, reasons table added)
+- **Convention:** [`docs/conventions/error-contract.md`](../../../docs/conventions/error-contract.md) — new, platform-wide
+- **Why:** the catalog's own `LIMIT_EXCEEDED` row read "entries > cap, amount >
+  cap, key > 200 chars" — the doc admitted the code was overloaded. In the
+  source it covered eight distinct failures, and `ACCOUNT_NOT_FOUND` covered
+  four. The only thing separating them was an English sentence in `message`.
+  A francophone tenant's channel could therefore say no more than "invalid
+  request", because everything specific was in prose it must not parse. The
+  ledger knows what is wrong; only the channel knows the language, and nothing
+  in the contract carried the first across to the second.
+- **Change:** the error body gains `reason` (sub-classification where one code
+  spans several causes) and `details` (machine-readable parameters — a field
+  name, a limit, what was supplied). `message` is now explicitly developer
+  English: never displayed, never parsed, reworded without an amendment.
+- **Impact:** backward compatible. `code`, `retryableWithSameKey` and `detail`
+  are unchanged; the new members are omitted from the wire when empty, so a
+  rejection carrying no parameters looks exactly as it did in v1.4. Existing
+  callers keying on `code` alone keep working — they simply cannot localize.
+- **Tests:** `ErrorCodeCatalogTest` — fails the build when a code or reason
+  exists in the source without appearing in `api.md`, and when `api.md`
+  documents a code that no longer exists. The second direction matters as much
+  as the first: a documented code that cannot occur means somebody writes a
+  French message for a rejection that will never fire and trusts a table that
+  is lying. Non-error vocabulary is derived from the status enums, so adding a
+  status is never mistaken for an undocumented error.
+- **Migration:** none — no schema change.
+
+---
+
+## [1.4.0] — 2026-08-05 · MINOR
+
+**Tenant registry and ledger epoch — two things the design specified and the
+implementation never had.**
+
+- **Docs:** `data-model.md` (eleven tables → thirteen)
+- **Why:** both were written as design and silently absent, which is worse than
+  a gap the docs admit — they read as done.
+  - `design.md` recorded "tenant provisioning → versioned seed script" and
+    `data-model.md` said `tenant_config` is "seeded by the provisioning script".
+    No script existed, and `TenantConfigService` falls back to platform defaults
+    when no row matches, so **any UUID in the header was a valid tenant** with a
+    working ledger of its own. Every isolation test passed, because isolation
+    between tenants was never what was broken.
+  - `architecture.md` specifies a restore protocol in which every published
+    event carries a ledger epoch. The field did not exist anywhere — not in the
+    schema, not in a payload. It is a *consumer-side* contract, so the first
+    service to consume events would have been written against something absent.
+- **Impact:** additive for callers. Operationally required: a tenant must now be
+  provisioned before it can transact, and `db/init/20-dev-tenant.sql` seeds one
+  for local development. Event payloads gain `ledgerEpoch`.
+- **Decision recorded with it:** `tenants` is a **local projection**, not a join
+  and not a subscription. The ledger makes no synchronous outbound calls, so it
+  cannot ask Identity mid-posting whether a tenant is real without putting
+  another service's availability in the money path. It keeps an id, a name and a
+  status — nothing about the customer — and provisioning writes it, which keeps
+  "events consumed: NONE, EVER" exactly true. A tenant feed would make accepting
+  money depend on a message having arrived; a missed one would leave a real bank
+  silently unable to post.
+- **Supersedes:** nothing.
+- **Tests:** `TenantRegistryTest` — unknown and suspended tenants refused, over
+  HTTP as 404, and indistinguishable from any other not-found so the endpoint is
+  not an enumeration oracle. Epoch presence asserted in the outbox suite.
+- **Migration:** `V6__tenant_registry_and_epoch.sql`, which backfills `tenants`
+  from existing accounts and config so the new foreign keys can be trusted
+  rather than merely declared.
+
+---
+
 ## [1.3.1] — 2026-08-05 · PATCH
 
 **Test suites marked IMPLEMENTED / PARTIAL / PLANNED.**

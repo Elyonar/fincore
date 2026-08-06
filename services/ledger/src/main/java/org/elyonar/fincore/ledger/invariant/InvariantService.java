@@ -12,6 +12,7 @@ import org.elyonar.fincore.ledger.shared.LedgerException;
 import org.elyonar.fincore.ledger.tenant.TenantScope;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.elyonar.fincore.ledger.shared.VerificationScope;
 
 /**
  * The six invariants, checked per tenant and per currency.
@@ -100,7 +101,7 @@ public class InvariantService {
                     if (inFlight != null) {
                         // Already queued. Returning it is friendlier than a second scan and keeps
                         // a retrying caller from stacking work.
-                        return new InvariantReport(inFlight, tenantId, Instant.now(), null, "INCREMENTAL", List.of());
+                        return new InvariantReport(inFlight, tenantId, Instant.now(), null, VerificationScope.INCREMENTAL.name(), List.of());
                     }
 
                     Boolean tooSoon =
@@ -124,7 +125,7 @@ public class InvariantService {
                                             + " RETURNING id",
                                     Long.class,
                                     tenantId);
-                    return new InvariantReport(id, tenantId, Instant.now(), null, "INCREMENTAL", List.of());
+                    return new InvariantReport(id, tenantId, Instant.now(), null, VerificationScope.INCREMENTAL.name(), List.of());
                 });
     }
 
@@ -143,13 +144,28 @@ public class InvariantService {
                                 runId));
     }
 
+    /**
+     * A full-history proof, recorded with scope FULL.
+     *
+     * <p>{@code testing.md} calls for this weekly and <strong>against a read replica, never the
+     * primary</strong> — summing seven years of entries on the box serving postings is how a
+     * verification job becomes an outage. Routing it to a replica is a datasource concern of the
+     * deployment; what belongs here is that a full proof is a distinct, recorded thing rather than
+     * an incremental one relabelled.
+     */
+    public InvariantReport verifyFull(UUID tenantId) {
+        Instant startedAt = Instant.now();
+        List<Finding> findings = collectFindings(tenantId);
+        return persist(new InvariantReport(null, tenantId, startedAt, Instant.now(), VerificationScope.FULL.name(), findings));
+    }
+
     /** Runs verification inline and records it. Used by the scheduler and by tests. */
     public InvariantReport verify(UUID tenantId) {
         Instant startedAt = Instant.now();
         List<Finding> findings = collectFindings(tenantId);
 
         InvariantReport report =
-                new InvariantReport(null, tenantId, startedAt, Instant.now(), "INCREMENTAL", findings);
+                new InvariantReport(null, tenantId, startedAt, Instant.now(), VerificationScope.INCREMENTAL.name(), findings);
         return persist(report);
     }
 

@@ -1,0 +1,39 @@
+# Tests run against real PostgreSQL — never an in-memory substitute. The trigger,
+# constraint and row-level-security behaviour under test is PostgreSQL's.
+spring:
+  profiles:
+    active: test
+  datasource:
+    hikari:
+      maximum-pool-size: 2
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:55432/core}
+    username: ${SPRING_DATASOURCE_USERNAME:fincore}
+    password: ${SPRING_DATASOURCE_PASSWORD:fincore}
+
+fincore:
+  core:
+    datasource:
+      customer:
+        maximum-pool-size: 2
+        jdbc-url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:55432/core}
+        username: core_customer
+        password: core_customer
+      product:
+        maximum-pool-size: 2
+        jdbc-url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:55432/core}
+        username: core_product
+        password: core_product
+      worker:
+        maximum-pool-size: 2
+        jdbc-url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:55432/core}
+        username: core_worker
+        password: core_worker
+      orchestration:
+        maximum-pool-size: 2
+        jdbc-url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:55432/core}
+        username: core_orchestration
+        password: core_orchestration
+  auth:
+    # Verifies nothing — and only starts at all because the `test` profile is
+    # sanctioned, which exercises the guard rather than bypassing it.
+    mode: dev

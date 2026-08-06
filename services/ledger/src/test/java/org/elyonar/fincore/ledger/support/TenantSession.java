@@ -29,11 +29,26 @@ public final class TenantSession implements AutoCloseable {
         this.connection = connection;
     }
 
-    /** Opens a connection and pins it to {@code tenant}. */
+    /**
+     * Opens a connection and pins it to {@code tenant}, registering the tenant first.
+     *
+     * <p>Registration stands in for the provisioning script: a tenant must exist before it can hold
+     * money, and tests are not exempt from that. {@code TenantRegistryTest} covers the case this
+     * deliberately does not — an id that was never provisioned.
+     */
     public static TenantSession open(DataSource dataSource, UUID tenant) {
         try {
             Connection c = dataSource.getConnection();
             c.setAutoCommit(true);
+            if (tenant != null) {
+                try (PreparedStatement register =
+                        c.prepareStatement(
+                                "INSERT INTO tenants (id, name, created_by) VALUES (?, 'test tenant', 'test')"
+                                        + " ON CONFLICT (id) DO NOTHING")) {
+                    register.setObject(1, tenant);
+                    register.execute();
+                }
+            }
             try (PreparedStatement ps = c.prepareStatement("SELECT set_config('app.tenant_id', ?, false)")) {
                 ps.setString(1, tenant == null ? "" : tenant.toString());
                 ps.execute();

@@ -65,7 +65,7 @@ public class ApiExceptionHandler {
         // retry-looping against a state that will never change again.
         return ResponseEntity.status(HttpStatus.CONFLICT)
                 .body(
-                        new ApiError(
+                        ApiError.of(
                                 ErrorCode.ALREADY_REVERSED.code(),
                                 e.getMessage(),
                                 false,
@@ -75,7 +75,15 @@ public class ApiExceptionHandler {
     @ExceptionHandler(LedgerException.class)
     public ResponseEntity<ApiError> ledgerRejection(LedgerException e) {
         HttpStatus status = STATUSES.getOrDefault(e.errorCode(), HttpStatus.CONFLICT);
-        return ResponseEntity.status(status).body(ApiError.of(e.errorCode().code(), e.getMessage()));
+        return ResponseEntity.status(status)
+                .body(
+                        new ApiError(
+                                e.errorCode().code(),
+                                e.reason(),
+                                e.getMessage(),
+                                false,
+                                null,
+                                e.details()));
     }
 
     @ExceptionHandler(IllegalArgumentException.class)
@@ -94,7 +102,7 @@ public class ApiExceptionHandler {
     @ExceptionHandler({NoResourceFoundException.class, NoHandlerFoundException.class})
     public ResponseEntity<ApiError> unknownRoute(Exception e) {
         return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                .body(new ApiError("NOT_FOUND", "no such endpoint", false, null));
+                .body(ApiError.of("NOT_FOUND", "no such endpoint"));
     }
 
     /** Malformed JSON, wrong method, missing parameter — Spring has already classified these. */
@@ -103,7 +111,7 @@ public class ApiExceptionHandler {
         HttpStatus status = HttpStatus.valueOf(e.getStatusCode().value());
         return ResponseEntity.status(status)
                 .body(
-                        new ApiError(
+                        ApiError.of(
                                 status == HttpStatus.NOT_FOUND ? "NOT_FOUND" : "BAD_REQUEST",
                                 e.getBody().getDetail() == null ? status.getReasonPhrase() : e.getBody().getDetail(),
                                 false,
@@ -121,6 +129,6 @@ public class ApiExceptionHandler {
     public ResponseEntity<ApiError> unexpected(Exception e) {
         log.error("unhandled failure serving a ledger request", e);
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(new ApiError("INTERNAL", "the outcome is unknown; retry with the same idempotency key", true, null));
+                .body(ApiError.of("INTERNAL", "the outcome is unknown; retry with the same idempotency key", true, null));
     }
 }

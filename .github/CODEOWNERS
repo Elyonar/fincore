@@ -22,3 +22,10 @@
 
 # The ledger. Every kobo the platform moves ends up here.
 /services/ledger/                   @nondefyde
+
+# The money path outside the ledger: the only module that may call its write
+# API, and the one Core module under the invariant/concurrency merge gate.
+/services/core/orchestration/  @nondefyde
+
+# The shared authorization library — every service's enforcement mechanics.
+/libs/                              @nondefyde

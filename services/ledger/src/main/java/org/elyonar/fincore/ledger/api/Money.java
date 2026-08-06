@@ -2,6 +2,7 @@ package org.elyonar.fincore.ledger.api;
 
 import org.elyonar.fincore.ledger.shared.ErrorCode;
 import org.elyonar.fincore.ledger.shared.LedgerException;
+import org.elyonar.fincore.ledger.shared.ErrorReason;
 
 /**
  * Money on the wire: a decimal string, always.
@@ -31,21 +32,29 @@ public final class Money {
      */
     public static long fromWire(Object raw, String field) {
         if (raw == null) {
-            throw new LedgerException(ErrorCode.LIMIT_EXCEEDED, field + " is required");
+            throw LedgerException.of(ErrorCode.LIMIT_EXCEEDED, ErrorReason.FIELD_REQUIRED)
+                    .with("field", field)
+                    .message(field + " is required");
         }
         String text = String.valueOf(raw).trim();
         if (text.isEmpty()) {
-            throw new LedgerException(ErrorCode.LIMIT_EXCEEDED, field + " is required");
+            throw LedgerException.of(ErrorCode.LIMIT_EXCEEDED, ErrorReason.FIELD_REQUIRED)
+                    .with("field", field)
+                    .message(field + " is required");
         }
         if (raw instanceof Double || raw instanceof Float || text.contains(".") || text.contains("e") || text.contains("E")) {
-            throw new LedgerException(
-                    ErrorCode.LIMIT_EXCEEDED,
-                    field + " must be an integer count of minor units (kobo), not a decimal");
+            throw LedgerException.of(ErrorCode.LIMIT_EXCEEDED, ErrorReason.AMOUNT_NOT_INTEGER)
+                    .with("field", field)
+                    .with("supplied", text)
+                    .message(field + " must be an integer count of minor units (kobo), not a decimal");
         }
         try {
             return Long.parseLong(text);
         } catch (NumberFormatException e) {
-            throw new LedgerException(ErrorCode.LIMIT_EXCEEDED, field + " is not a valid integer amount");
+            throw LedgerException.of(ErrorCode.LIMIT_EXCEEDED, ErrorReason.AMOUNT_NOT_PARSEABLE)
+                    .with("field", field)
+                    .with("supplied", text)
+                    .message(field + " is not a valid integer amount");
         }
     }
 }
