@@ -8,6 +8,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.elyonar.fincore.core.product.api.ProductBeans;
 
 /**
  * Product's decision for an intended operation, under the configuration live right now.
@@ -25,12 +26,12 @@ public class JdbcProductDecisions implements ProductDecisions {
 
     private final JdbcTemplate jdbc;
 
-    public JdbcProductDecisions(@Qualifier("productJdbcTemplate") JdbcTemplate productJdbcTemplate) {
+    public JdbcProductDecisions(@Qualifier(ProductBeans.JDBC) JdbcTemplate productJdbcTemplate) {
         this.jdbc = productJdbcTemplate;
     }
 
     @Override
-    @Transactional(readOnly = true, transactionManager = "productTransactionManager")
+    @Transactional(readOnly = true, transactionManager = ProductBeans.TRANSACTION_MANAGER)
     public ProductDecision evaluate(ProductRequest request) {
         jdbc.queryForObject("SELECT set_config(\'app.tenant_id\', ?, true)", String.class, request.tenantId().toString());
 

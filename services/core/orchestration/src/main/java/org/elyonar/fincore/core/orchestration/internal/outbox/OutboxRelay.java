@@ -8,6 +8,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
+import org.elyonar.fincore.core.orchestration.api.CoreProperties;
 
 /**
  * Moves committed events out of the outbox and onto the backbone.
@@ -30,7 +31,7 @@ public class OutboxRelay {
     private final JdbcTemplate jdbc;
     private final EventPublisher publisher;
 
-    public OutboxRelay(@Qualifier("relayJdbcTemplate") JdbcTemplate jdbc, EventPublisher publisher) {
+    public OutboxRelay(@Qualifier(CoreProperties.Beans.RELAY_JDBC) JdbcTemplate jdbc, EventPublisher publisher) {
         this.jdbc = jdbc;
         this.publisher = publisher;
     }
@@ -43,7 +44,7 @@ public class OutboxRelay {
      *
      * @return how many were published
      */
-    @Transactional(transactionManager = "relayTransactionManager")
+    @Transactional(transactionManager = CoreProperties.Beans.RELAY_TX)
     public int publishBatch(int batchSize) {
         List<PendingEvent> pending =
                 jdbc.query(

@@ -1,7 +1,12 @@
 package org.elyonar.fincore.core.orchestration.internal.api;
 
+import java.util.LinkedHashMap;
+import java.util.Map;
 import org.elyonar.fincore.auth.NotAuthenticatedException;
 import org.elyonar.fincore.auth.NotAuthorizedException;
+import org.elyonar.fincore.core.orchestration.api.CoreException;
+import org.elyonar.fincore.core.orchestration.api.DetailKey;
+import org.elyonar.fincore.core.orchestration.api.ErrorCode;
 import org.elyonar.fincore.core.orchestration.internal.saga.TransferService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -18,23 +23,66 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
  * retry the same idempotency key — and that retry is what eventually resolves the saga. A 202 would
  * invite a teller to record "submitted" and move on, telling a customer the transfer went through
  * while the platform does not know whether it did.
+ *
+ * <p>Every body follows {@code docs/conventions/error-contract.md}: a documented {@code code}, a
+ * {@code reason} where one code spans several causes, machine-readable {@code details}, and a
+ * developer-English {@code message} that no channel displays or parses.
  */
 @RestControllerAdvice
 public class ApiErrors {
 
     private static final Logger log = LoggerFactory.getLogger(ApiErrors.class);
 
-    /** A refusal. Terminal for this key — a new logical attempt mints a new one. */
-    @ExceptionHandler(TransferService.TransferRefused.class)
-    public ResponseEntity<ApiError> refused(TransferService.TransferRefused e) {
-        return ResponseEntity.unprocessableEntity().body(new ApiError(e.code(), null));
+    /** 4xx statuses per code. Everything terminal for the key; only 5xx means "retry the same". */
+    private static final Map<ErrorCode, HttpStatus> STATUSES =
+            Map.ofEntries(
+                    Map.entry(ErrorCode.CUSTOMER_NOT_FOUND, HttpStatus.UNPROCESSABLE_ENTITY),
+                    Map.entry(ErrorCode.CUSTOMER_NOT_ACTIVE, HttpStatus.UNPROCESSABLE_ENTITY),
+                    Map.entry(ErrorCode.ACCOUNT_NOT_LINKED, HttpStatus.UNPROCESSABLE_ENTITY),
+                    Map.entry(ErrorCode.PRODUCT_NOT_FOUND, HttpStatus.UNPROCESSABLE_ENTITY),
+                    Map.entry(ErrorCode.OPERATION_NOT_PERMITTED, HttpStatus.UNPROCESSABLE_ENTITY),
+                    Map.entry(ErrorCode.LIMIT_EXCEEDED, HttpStatus.UNPROCESSABLE_ENTITY),
+                    Map.entry(ErrorCode.AMOUNT_INVALID, HttpStatus.UNPROCESSABLE_ENTITY),
+                    Map.entry(ErrorCode.WASH_TRANSACTION, HttpStatus.UNPROCESSABLE_ENTITY),
+                    Map.entry(ErrorCode.CURRENCY_MISMATCH, HttpStatus.UNPROCESSABLE_ENTITY),
+                    Map.entry(ErrorCode.COMMAND_INVALID, HttpStatus.UNPROCESSABLE_ENTITY),
+                    Map.entry(ErrorCode.TILL_NOT_OPEN, HttpStatus.UNPROCESSABLE_ENTITY),
+                    Map.entry(ErrorCode.FEE_EXCEEDS_DEPOSIT, HttpStatus.UNPROCESSABLE_ENTITY),
+                    Map.entry(ErrorCode.INSUFFICIENT_FUNDS, HttpStatus.UNPROCESSABLE_ENTITY),
+                    Map.entry(ErrorCode.LEDGER_REFUSED, HttpStatus.UNPROCESSABLE_ENTITY),
+                    Map.entry(ErrorCode.NOT_REVERSIBLE, HttpStatus.UNPROCESSABLE_ENTITY),
+                    Map.entry(ErrorCode.APPROVAL_REQUIRED, HttpStatus.UNPROCESSABLE_ENTITY),
+                    Map.entry(ErrorCode.TRANSACTION_NOT_FOUND, HttpStatus.NOT_FOUND),
+                    Map.entry(ErrorCode.IDEMPOTENCY_KEY_REUSED, HttpStatus.CONFLICT),
+                    Map.entry(ErrorCode.ALREADY_REVERSED, HttpStatus.CONFLICT),
+                    Map.entry(ErrorCode.LEDGER_UNREACHABLE, HttpStatus.SERVICE_UNAVAILABLE),
+                    Map.entry(ErrorCode.OUTCOME_UNKNOWN, HttpStatus.SERVICE_UNAVAILABLE));
+
+    /**
+     * Every contract refusal, including {@code TransferRefused} and {@code NotReversible}.
+     *
+     * <p>One handler rather than one per exception: the code decides the status, so a new refusal
+     * cannot accidentally get a status nobody chose.
+     */
+    @ExceptionHandler(CoreException.class)
+    public ResponseEntity<ApiError> refused(CoreException e) {
+        HttpStatus status = STATUSES.getOrDefault(e.errorCode(), HttpStatus.UNPROCESSABLE_ENTITY);
+        return ResponseEntity.status(status)
+                .body(
+                        new ApiError(
+                                e.errorCode().code(),
+                                e.reason(),
+                                e.getMessage(),
+                                status.is5xxServerError(),
+                                null,
+                                e.details()));
     }
 
     /** Same key, different economics. A caller bug, and never a silent wrong answer. */
     @ExceptionHandler(TransferService.IdempotencyKeyReused.class)
     public ResponseEntity<ApiError> keyReused(TransferService.IdempotencyKeyReused e) {
         return ResponseEntity.status(HttpStatus.CONFLICT)
-                .body(new ApiError("IDEMPOTENCY_KEY_REUSED", null));
+                .body(ApiError.of(ErrorCode.IDEMPOTENCY_KEY_REUSED.code(), e.getMessage()));
     }
 
     @ExceptionHandler(NotAuthenticatedException.class)
@@ -49,9 +97,16 @@ public class ApiErrors {
         return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
     }
 
+    /**
+     * Anything still throwing a bare {@code IllegalArgumentException}.
+     *
+     * <p>It carries a documented code now instead of putting the exception's English message where
+     * the code belongs. The message still travels, in the field a developer reads.
+     */
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<ApiError> invalid(IllegalArgumentException e) {
-        return ResponseEntity.unprocessableEntity().body(new ApiError(e.getMessage(), null));
+        return ResponseEntity.unprocessableEntity()
+                .body(ApiError.of(ErrorCode.COMMAND_INVALID.code(), e.getMessage()));
     }
 
     /**
@@ -64,10 +119,16 @@ public class ApiErrors {
     @ExceptionHandler(TransferService.OutcomeUnknown.class)
     public ResponseEntity<ApiError> unknown(TransferService.OutcomeUnknown e) {
         log.warn("outcome unknown for saga {}", e.transactionId());
+        Map<String, String> details = new LinkedHashMap<>();
+        details.put(DetailKey.TRANSACTION_ID, String.valueOf(e.transactionId()));
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
-                .body(new ApiError("OUTCOME_UNKNOWN", e.transactionId().toString()));
+                .body(
+                        new ApiError(
+                                ErrorCode.OUTCOME_UNKNOWN.code(),
+                                null,
+                                "the outcome is unknown; retry with the same idempotency key",
+                                true,
+                                e.transactionId() == null ? null : e.transactionId().toString(),
+                                details));
     }
-
-    /** @param transactionId present when the caller has something to poll */
-    public record ApiError(String code, String transactionId) {}
 }

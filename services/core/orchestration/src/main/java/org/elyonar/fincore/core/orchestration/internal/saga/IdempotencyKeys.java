@@ -1,6 +1,10 @@
 package org.elyonar.fincore.core.orchestration.internal.saga;
 
 import java.util.UUID;
+import org.elyonar.fincore.core.orchestration.api.CoreException;
+import org.elyonar.fincore.core.orchestration.api.DetailKey;
+import org.elyonar.fincore.core.orchestration.api.ErrorCode;
+import org.elyonar.fincore.core.orchestration.api.ErrorReason;
 
 /**
  * The idempotency key Core presents to the Ledger.
@@ -35,19 +39,27 @@ public final class IdempotencyKeys {
      */
     public static String forStep(UUID sagaId, String step) {
         if (sagaId == null) {
-            throw new IllegalArgumentException("sagaId is required");
+            throw CoreException.of(ErrorCode.COMMAND_INVALID, ErrorReason.FIELD_REQUIRED)
+                    .with(DetailKey.FIELD, "sagaId")
+                    .message("sagaId is required");
         }
         if (step == null || step.isBlank()) {
-            throw new IllegalArgumentException("step is required");
+            throw CoreException.of(ErrorCode.COMMAND_INVALID, ErrorReason.FIELD_REQUIRED)
+                    .with(DetailKey.FIELD, "step")
+                    .message("step is required");
         }
         if (step.indexOf(':') >= 0) {
             // A colon in the step would make the key ambiguous to parse and, worse, would let two
             // different (saga, step) pairs produce one key.
-            throw new IllegalArgumentException("step must not contain ':'");
+            throw CoreException.of(ErrorCode.COMMAND_INVALID, ErrorReason.STEP_CONTAINS_SEPARATOR)
+                    .with(DetailKey.FIELD, "step")
+                    .message("step must not contain ':'");
         }
         String key = PREFIX + ":" + sagaId + ":" + step;
         if (key.length() > MAX_LENGTH) {
-            throw new IllegalArgumentException("derived key exceeds the Ledger's 200-character cap");
+            throw CoreException.of(ErrorCode.COMMAND_INVALID, ErrorReason.DERIVED_KEY_TOO_LONG)
+                    .with(DetailKey.MAX_LENGTH, 200)
+                    .message("derived key exceeds the Ledger's 200-character cap");
         }
         return key;
     }

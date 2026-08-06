@@ -5,6 +5,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
+import org.elyonar.fincore.core.orchestration.api.CoreProperties;
 
 /**
  * Teller tills.
@@ -22,7 +23,7 @@ public class TillRecords {
 
     private final JdbcTemplate jdbc;
 
-    public TillRecords(@Qualifier("orchestrationJdbcTemplate") JdbcTemplate jdbc) {
+    public TillRecords(@Qualifier(CoreProperties.Beans.ORCHESTRATION_JDBC) JdbcTemplate jdbc) {
         this.jdbc = jdbc;
     }
 

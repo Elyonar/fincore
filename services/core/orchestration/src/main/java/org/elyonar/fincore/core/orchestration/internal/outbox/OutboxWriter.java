@@ -4,6 +4,7 @@ import java.util.UUID;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
+import org.elyonar.fincore.core.orchestration.api.CoreProperties;
 
 /**
  * Writes a domain event in the same database transaction as the state change it describes.
@@ -22,7 +23,7 @@ public class OutboxWriter {
 
     private final JdbcTemplate jdbc;
 
-    public OutboxWriter(@Qualifier("orchestrationJdbcTemplate") JdbcTemplate jdbc) {
+    public OutboxWriter(@Qualifier(CoreProperties.Beans.ORCHESTRATION_JDBC) JdbcTemplate jdbc) {
         this.jdbc = jdbc;
     }
 

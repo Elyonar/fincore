@@ -8,6 +8,45 @@ entry first.
 
 ---
 
+## [1.3.0] — 2026-08-06 · MINOR
+
+**An error contract a non-anglophone caller can render from.**
+
+- **Docs:** `api.md` (error catalog rewritten, reasons table added)
+- **Convention:** [`docs/conventions/error-contract.md`](../../../docs/conventions/error-contract.md)
+- **Why:** Core's rejections were not machine-readable at all. The
+  `IllegalArgumentException` handler put `e.getMessage()` into the `code` field,
+  so a caller branching on the code was branching on an English sentence —
+  literally `{"code": "amountMinor must be positive"}`. The same field also
+  carried real codes like `WASH_TRANSACTION`, so what it held depended on which
+  validation happened to fail first. A channel serving francophone customers
+  could not translate either kind, and could not reliably tell them apart.
+- **Change:** the error body gains `reason` and `details` and drops prose from
+  `code`. `ErrorCode` is an enum, `TransferRefused` and `NotReversible` carry it
+  rather than a free string, and command validation throws `CoreException`
+  instead of `IllegalArgumentException`. `message` is now explicitly developer
+  English: never displayed, never parsed, reworded without an amendment.
+- **New codes documented:** `COMMAND_INVALID`, `TILL_NOT_OPEN`,
+  `FEE_EXCEEDS_DEPOSIT`, `LEDGER_UNREACHABLE`, `OUTCOME_UNKNOWN`,
+  `LEDGER_REFUSED` — all of these could already reach a caller; none was in the
+  catalog. That gap is the reason the guardrail below exists.
+- **The Ledger's codes are mapped, not forwarded.** A Ledger error Core does not
+  model becomes `LEDGER_REFUSED` with the original in `details.ledgerCode`.
+  Forwarding it verbatim would put codes in Core's responses that Core's own
+  catalog does not document, silently merging two contracts.
+- **Impact:** breaking for anyone who parsed `code` as prose — which nothing
+  should have been doing, and which is exactly why this is worth fixing before
+  Core has consumers. Callers keying on documented codes are unaffected.
+- **Tests:** `ErrorCodeCatalogTest` — fails the build when a code or reason
+  exists without documentation, and when `api.md` documents one that no longer
+  exists. Mutation-tested in both directions before it was trusted. It also
+  asserts every `ProductDecision.Refusal` has a matching `ErrorCode`, because
+  `TransferService` maps them by `valueOf` and a drift there is a runtime
+  failure on a money path.
+- **Migration:** none — no schema change.
+
+---
+
 ## [1.2.0] — 2026-08-06 · MINOR
 
 **The Ledger client carries the tenant, and the contract suite that found it is

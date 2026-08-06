@@ -1,6 +1,6 @@
 # Core — API Surface (v1)
 
-**Status:** AGREED v1.2 (2026-08-06) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
+**Status:** AGREED v1.3 (2026-08-06) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
 
 REST/JSON. OpenAPI is generated from the code once implementation lands; this
 document is the agreed contract shape. Every request carries a validated
@@ -94,8 +94,24 @@ anything** — the same courtesy the ledger extends for holds.
 
 ## Error catalog
 
-Distinct, documented, and tested — one generic error is a debugging cost paid
-forever by every caller.
+Every rejection returns the shape defined in
+[`docs/conventions/error-contract.md`](../../../docs/conventions/error-contract.md):
+
+```json
+{
+  "code": "AMOUNT_INVALID",
+  "reason": "AMOUNT_NOT_POSITIVE",
+  "message": "amountMinor must be positive",
+  "retryableWithSameKey": false,
+  "details": { "field": "amountMinor", "supplied": "-500" }
+}
+```
+
+`code` is what a caller branches on. `reason` separates causes that share a
+code. `details` carries the facts a translated message interpolates. **`message`
+is developer English for a log** — never displayed to an end user, never parsed,
+and free to be reworded without an amendment. A channel serving a francophone
+tenant renders its own string from `code`, `reason` and `details`.
 
 | Code | Meaning | Retry same key? |
 |---|---|---|
@@ -105,15 +121,52 @@ forever by every caller.
 | `PRODUCT_NOT_FOUND` | no product, or no published version in effect | no |
 | `OPERATION_NOT_PERMITTED` | the product forbids this operation for this tier or channel | no |
 | `LIMIT_EXCEEDED` | per-transaction or daily limit would be breached | no — new key after the window rolls |
+| `AMOUNT_INVALID` | zero, negative, or above the platform cap | no |
+| `COMMAND_INVALID` | a required field is absent or malformed — see reasons | no |
 | `CURRENCY_MISMATCH` | entry currency ≠ account currency | no |
+| `WASH_TRANSACTION` | source and destination are the same account | no |
+| `TILL_NOT_OPEN` | the teller's till is not open | no |
+| `FEE_EXCEEDS_DEPOSIT` | the fee would consume more than the deposit | no |
 | `INSUFFICIENT_FUNDS` | relayed from the Ledger; the account would go available < 0 | no — new key after funding |
 | `IDEMPOTENCY_KEY_REUSED` | same key, different payload fingerprint | no — caller bug |
-| `AMOUNT_INVALID` | zero, negative, or above the platform cap | no |
-| `WASH_TRANSACTION` | source and destination are the same account | no |
 | `TRANSACTION_NOT_FOUND` | unknown saga, or another tenant's | no |
 | `NOT_REVERSIBLE` | target is not `COMPLETED`, or is itself a reversal | no |
 | `APPROVAL_REQUIRED` | reversal without a valid maker-checker approval reference | no — obtain approval |
 | `ALREADY_REVERSED` | a reversal exists; the response carries its id | converge on the returned id |
+| `LEDGER_REFUSED` | the Ledger refused for a reason Core does not model; its code is in `details.ledgerCode` | no |
+| `LEDGER_UNREACHABLE` | the connection was refused — nothing was sent, so this is definite | yes — after backoff |
+| `OUTCOME_UNKNOWN` | the outcome is not known; 503, and the saga id is returned to poll | **yes — same key** |
+
+### Reasons
+
+| Code | Reason | Cause | `details` |
+|---|---|---|---|
+| `COMMAND_INVALID` | `FIELD_REQUIRED` | a required field was absent | `field` |
+| `COMMAND_INVALID` | `IDEMPOTENCY_KEY_REQUIRED` | a posting without a key is not retryable | `field` |
+| `COMMAND_INVALID` | `TOO_FEW_ENTRIES` | fewer than two entries | `limit`, `supplied` |
+| `COMMAND_INVALID` | `STEP_CONTAINS_SEPARATOR` | a saga step name contains `:` | `field` |
+| `COMMAND_INVALID` | `DERIVED_KEY_TOO_LONG` | the derived key exceeds the Ledger's cap | `maxLength` |
+| `AMOUNT_INVALID` | `AMOUNT_NOT_POSITIVE` | zero or negative amount | `field`, `supplied` |
+| `AMOUNT_INVALID` | `AMOUNT_SIGN_ON_ENTRY` | an entry carried a sign; direction carries it | `supplied` |
+| `LIMIT_EXCEEDED` | `PER_TRANSACTION_LIMIT` | the amount alone breaches the per-transaction limit | `limit`, `supplied` |
+| `LIMIT_EXCEEDED` | `DAILY_LIMIT` | the amount breaches the rolling daily limit | `limit`, `supplied` |
+| `NOT_REVERSIBLE` | `NOT_COMPLETED` | the target saga is not `COMPLETED` | — |
+| `NOT_REVERSIBLE` | `IS_A_REVERSAL` | the target is itself a reversal | — |
+| `OUTCOME_UNKNOWN` | `READ_TIMEOUT` | the Ledger did not answer in time | `transactionId` |
+| `OUTCOME_UNKNOWN` | `NO_TRANSACTION_ID` | a 2xx arrived without a transaction id | `transactionId` |
+| `OUTCOME_UNKNOWN` | `UNEXPECTED_STATUS` | an unmodelled HTTP status | `transactionId` |
+
+**The Ledger's codes are mapped, never forwarded.** A Ledger error Core does not
+model becomes `LEDGER_REFUSED` with the original in `details.ledgerCode`, rather
+than appearing verbatim as if it were a Core code. Otherwise a caller would meet
+codes that Core's own catalog does not list and cannot translate, and the two
+catalogs would silently merge without anyone deciding they should.
+
+**Denials name no permissions.** A 403 is body-less; naming the permission that
+would have worked is a map handed to a prober.
+
+`ErrorCodeCatalogTest` fails the build if a code or reason exists in the source
+and not in these tables, or the reverse.
 
 **`PENDING_RESOLUTION` is a state, not an error code.** It appears in
 `GET /v1/transactions/{id}` and never as a rejection — a transaction whose

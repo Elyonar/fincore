@@ -5,6 +5,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.elyonar.fincore.core.orchestration.api.CoreException;
+import org.elyonar.fincore.core.orchestration.api.DetailKey;
+import org.elyonar.fincore.core.orchestration.api.ErrorCode;
+import org.elyonar.fincore.core.orchestration.api.ErrorReason;
 
 /**
  * The property the Ledger's retry rule depends on: the same saga step always derives the same key.
@@ -59,15 +63,23 @@ class IdempotencyKeysTest {
     @Test
     void a_step_containing_the_separator_is_refused() {
         // Otherwise ("a", "b:c") and ("a:b", "c") would derive one key for two different steps.
+        // Asserts the contract, not just that something was thrown: a caller has to be able to
+        // tell these apart from a missing field to say anything useful to a user.
         assertThatThrownBy(() -> IdempotencyKeys.forStep(UUID.randomUUID(), "post:retry"))
-                .isInstanceOf(IllegalArgumentException.class);
+                .isInstanceOf(CoreException.class)
+                .extracting(e -> ((CoreException) e).errorCode(), e -> ((CoreException) e).reason())
+                .containsExactly(ErrorCode.COMMAND_INVALID, ErrorReason.STEP_CONTAINS_SEPARATOR);
     }
 
     @Test
     void a_missing_saga_or_step_is_refused_rather_than_defaulted() {
         assertThatThrownBy(() -> IdempotencyKeys.forStep(null, "post"))
-                .isInstanceOf(IllegalArgumentException.class);
+                .isInstanceOf(CoreException.class)
+                .extracting(e -> ((CoreException) e).details().get(DetailKey.FIELD))
+                .isEqualTo("sagaId");
         assertThatThrownBy(() -> IdempotencyKeys.forStep(UUID.randomUUID(), " "))
-                .isInstanceOf(IllegalArgumentException.class);
+                .isInstanceOf(CoreException.class)
+                .extracting(e -> ((CoreException) e).details().get(DetailKey.FIELD))
+                .isEqualTo("step");
     }
 }

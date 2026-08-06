@@ -7,6 +7,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.annotation.Scheduled;
+import org.elyonar.fincore.core.orchestration.api.CoreProperties;
 
 /**
  * Wires the relay and says at startup whether events actually go anywhere.
@@ -57,7 +58,7 @@ public class OutboxConfiguration {
             this.relay = relay;
         }
 
-        @Scheduled(fixedDelayString = "${fincore.core.outbox.relay.interval-ms:1000}")
+        @Scheduled(fixedDelayString = "${" + CoreProperties.OUTBOX_RELAY_INTERVAL_MS + ":1000}")
         public void relay() {
             try {
                 relay.publishBatch(100);
