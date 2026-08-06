@@ -16,6 +16,10 @@ import org.elyonar.fincore.ledger.tenant.TenantConfigService;
 import org.elyonar.fincore.ledger.tenant.TenantScope;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.elyonar.fincore.ledger.shared.AccountStatus;
+import org.elyonar.fincore.ledger.shared.HoldStatus;
+import org.elyonar.fincore.ledger.shared.TransactionStatus;
+import org.elyonar.fincore.ledger.shared.ErrorReason;
 
 /**
  * Posts balanced transactions. The order of operations here is the design, not a preference —
@@ -121,7 +125,7 @@ public class PostingService {
                             String.class,
                             command.tenantId(),
                             command.relatesToTransactionId());
-            if ("REVERSED".equals(targetStatus)) {
+            if (TransactionStatus.of(targetStatus).isReversed()) {
                 // Compensating an undone transaction is the same double credit as reversing a
                 // compensated one, with the operations swapped.
                 throw new LedgerException(
@@ -198,22 +202,33 @@ public class PostingService {
     private void validateShape(PostTransactionCommand command, TenantConfig config) {
         List<EntryLine> entries = command.entries();
         if (entries.size() < 2) {
-            throw new LedgerException(ErrorCode.UNBALANCED, "a transaction needs at least two entries");
+            throw LedgerException.of(ErrorCode.UNBALANCED, ErrorReason.TOO_FEW_ENTRIES)
+                    .with("minimum", 2)
+                    .with("supplied", entries.size())
+                    .message("a transaction needs at least two entries");
         }
         int cap = Math.min(config.maxEntriesPerTransaction(), MAX_ENTRIES);
         if (entries.size() > cap) {
-            throw new LedgerException(
-                    ErrorCode.LIMIT_EXCEEDED, "a transaction may carry at most " + cap + " entries");
+            throw LedgerException.of(ErrorCode.LIMIT_EXCEEDED, ErrorReason.ENTRY_COUNT_EXCEEDED)
+                    .with("limit", cap)
+                    .with("supplied", entries.size())
+                    .message("a transaction may carry at most " + cap + " entries");
         }
         if (command.idempotencyKey() == null || command.idempotencyKey().length() > 200) {
-            throw new LedgerException(ErrorCode.LIMIT_EXCEEDED, "idempotency key must be 1..200 characters");
+            throw LedgerException.of(ErrorCode.LIMIT_EXCEEDED, ErrorReason.IDEMPOTENCY_KEY_TOO_LONG)
+                    .with("maxLength", 200)
+                    .message("idempotency key must be 1..200 characters");
         }
         for (EntryLine entry : entries) {
             if (entry.amountMinor() <= 0) {
-                throw new LedgerException(ErrorCode.LIMIT_EXCEEDED, "entry amounts must be positive");
+                throw LedgerException.of(ErrorCode.LIMIT_EXCEEDED, ErrorReason.AMOUNT_NOT_POSITIVE)
+                        .message("entry amounts must be positive");
             }
             if (entry.amountMinor() > MAX_AMOUNT_MINOR) {
-                throw new LedgerException(ErrorCode.LIMIT_EXCEEDED, "entry amount exceeds the 10^15 cap");
+                throw LedgerException.of(ErrorCode.LIMIT_EXCEEDED, ErrorReason.AMOUNT_ABOVE_CAP)
+                        .with("cap", MAX_AMOUNT_MINOR)
+                        .with("supplied", entry.amountMinor())
+                        .message("entry amount exceeds the 10^15 cap");
             }
         }
 
@@ -246,8 +261,10 @@ public class PostingService {
         netByCurrency.forEach(
                 (currency, net) -> {
                     if (net != 0L) {
-                        throw new LedgerException(
-                                ErrorCode.UNBALANCED, "debits and credits differ in " + currency);
+                        throw LedgerException.of(ErrorCode.UNBALANCED, ErrorReason.CURRENCY_NOT_BALANCED)
+                                .with("currency", currency)
+                                .with("differenceMinor", net)
+                                .message("debits and credits differ in " + currency);
                     }
                 });
     }
@@ -268,28 +285,32 @@ public class PostingService {
         for (EntryLine entry : entries) {
             LocalDate valueDate = entry.valueDate();
             if (valueDate.isAfter(businessDate)) {
-                throw new LedgerException(
-                        ErrorCode.VALUE_DATE_INVALID, "value date " + valueDate + " is in the future");
+                throw LedgerException.of(ErrorCode.VALUE_DATE_INVALID, ErrorReason.VALUE_DATE_IN_FUTURE)
+                        .with("valueDate", valueDate)
+                        .with("businessDate", businessDate)
+                        .message("value date " + valueDate + " is in the future");
             }
             if (valueDate.isBefore(businessDate)) {
                 anyBackdated = true;
                 if (valueDate.isBefore(earliest)) {
-                    throw new LedgerException(
-                            ErrorCode.VALUE_DATE_INVALID,
-                            "value date " + valueDate + " is older than the tenant's backdate window");
+                    throw LedgerException.of(ErrorCode.VALUE_DATE_INVALID, ErrorReason.BACKDATE_WINDOW_EXCEEDED)
+                            .with("valueDate", valueDate)
+                            .with("earliestAllowed", earliest)
+                            .with("windowDays", config.backdateWindowDays())
+                            .message("value date " + valueDate + " is older than the tenant's backdate window");
                 }
                 if (periods.isClosed(command.tenantId(), valueDate)) {
-                    throw new LedgerException(
-                            ErrorCode.VALUE_DATE_INVALID,
-                            "value date " + valueDate + " falls in a closed accounting period");
+                    throw LedgerException.of(ErrorCode.VALUE_DATE_INVALID, ErrorReason.PERIOD_CLOSED)
+                            .with("valueDate", valueDate)
+                            .message("value date " + valueDate + " falls in a closed accounting period");
                 }
             }
         }
 
         if (anyBackdated && (command.backdateReason() == null || command.backdateReason().isBlank())) {
             // Backdating is legitimate and routine; doing it unexplained is not.
-            throw new LedgerException(
-                    ErrorCode.VALUE_DATE_INVALID, "backdated postings require a stated reason");
+            throw LedgerException.of(ErrorCode.VALUE_DATE_INVALID, ErrorReason.BACKDATE_REASON_REQUIRED)
+                    .message("backdated postings require a stated reason");
         }
     }
 
@@ -393,7 +414,7 @@ public class PostingService {
         long heldAmount = (Long) hold[1];
         String status = (String) hold[2];
 
-        if (!"ACTIVE".equals(status)) {
+        if (!HoldStatus.of(status).isActive()) {
             // Terminal for this hold. Re-authorisation is the only honest recovery — the caller
             // must never be told a reservation still exists when it does not.
             throw new LedgerException(
@@ -479,7 +500,7 @@ public class PostingService {
             if (account == null) {
                 throw new LedgerException(ErrorCode.ACCOUNT_NOT_FOUND, "unknown account " + entry.accountId());
             }
-            if (!"OPEN".equals(account[0]) && !sweep) {
+            if (!AccountStatus.of(account[0]).isOpen() && !sweep) {
                 throw new LedgerException(ErrorCode.ACCOUNT_CLOSED, "account " + entry.accountId() + " is closed");
             }
             if (!account[1].equals(entry.currency())) {

@@ -63,8 +63,10 @@ class SagaClaimTest {
                 """
                 INSERT INTO orchestration.sagas
                     (tenant_id, type, state, channel_idempotency_key, request_fingerprint,
-                     amount_minor, currency, initiated_by, executed_by)
-                VALUES (?, 'TRANSFER', 'POSTING', ?, 'fp', 1000, 'NGN', 'user:ada', 'core')
+                     amount_minor, currency, initiated_by, executed_by,
+                     from_account_id, to_account_id)
+                VALUES (?, 'TRANSFER', 'POSTING', ?, 'fp', 1000, 'NGN', 'user:ada', 'core',
+                        gen_random_uuid(), gen_random_uuid())
                 RETURNING id
                 """,
                 tenantId,
@@ -117,9 +119,9 @@ class SagaClaimTest {
                         INSERT INTO orchestration.sagas
                             (tenant_id, type, state, channel_idempotency_key, request_fingerprint,
                              amount_minor, currency, initiated_by, executed_by,
-                             ledger_transaction_id, terminal_at)
+                             ledger_transaction_id, terminal_at, from_account_id, to_account_id)
                         VALUES (?, 'TRANSFER', 'COMPLETED', ?, 'fp', 1000, 'NGN', 'user:ada',
-                                'core', ?, now())
+                                'core', ?, now(), gen_random_uuid(), gen_random_uuid())
                         RETURNING id
                         """,
                         tenantId,

@@ -5,6 +5,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
+import org.elyonar.fincore.ledger.shared.LedgerProperties;
 
 /**
  * Development adapter: logs each event and acknowledges it. <strong>It delivers nothing.</strong>
@@ -18,7 +19,10 @@ import org.springframework.stereotype.Component;
  * deployment running on this adapter is emitting no events at all, and the startup summary says so.
  */
 @Component
-@ConditionalOnProperty(name = "ledger.events.broker", havingValue = "log", matchIfMissing = true)
+@ConditionalOnProperty(
+        name = LedgerProperties.EVENTS_BROKER,
+        havingValue = LedgerProperties.Broker.LOG,
+        matchIfMissing = true)
 public class LoggingEventPublisher implements EventPublisher {
 
     private static final Logger log = LoggerFactory.getLogger(LoggingEventPublisher.class);

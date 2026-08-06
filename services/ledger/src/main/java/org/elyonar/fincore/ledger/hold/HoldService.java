@@ -9,6 +9,8 @@ import org.elyonar.fincore.ledger.shared.LedgerException;
 import org.elyonar.fincore.ledger.tenant.TenantScope;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.elyonar.fincore.ledger.shared.HoldStatus;
+import org.elyonar.fincore.ledger.shared.ErrorReason;
 
 /**
  * Places and releases holds. Capture lives in the posting engine, deliberately — see
@@ -37,11 +39,12 @@ public class HoldService {
 
     private UUID doPlace(PlaceHoldCommand command) {
         if (command.expiresAt() == null) {
-            throw new LedgerException(
-                    ErrorCode.LIMIT_EXCEEDED, "a hold must carry an expiry: an unbounded hold is a permanent lien");
+            throw LedgerException.of(ErrorCode.LIMIT_EXCEEDED, ErrorReason.HOLD_EXPIRY_REQUIRED)
+                    .message("a hold must carry an expiry: an unbounded hold is a permanent lien");
         }
         if (command.amountMinor() <= 0) {
-            throw new LedgerException(ErrorCode.LIMIT_EXCEEDED, "hold amount must be positive");
+            throw LedgerException.of(ErrorCode.LIMIT_EXCEEDED, ErrorReason.AMOUNT_NOT_POSITIVE)
+                    .message("hold amount must be positive");
         }
 
         // Placement is idempotent on the caller's key, so a retried placement can never
@@ -171,14 +174,14 @@ public class HoldService {
         long amount = (Long) hold[1];
         String status = (String) hold[2];
 
-        switch (status) {
-            case "RELEASED" -> {
+        switch (HoldStatus.of(status)) {
+            case RELEASED -> {
                 return HoldReleaseOutcome.ALREADY_RELEASED;
             }
-            case "EXPIRED" -> {
+            case EXPIRED -> {
                 return HoldReleaseOutcome.ALREADY_EXPIRED;
             }
-            case "CONSUMED" -> {
+            case CONSUMED -> {
                 return HoldReleaseOutcome.ALREADY_CONSUMED;
             }
             default -> {
@@ -193,14 +196,14 @@ public class HoldService {
         String current =
                 jdbc.queryForObject(
                         "SELECT status FROM holds WHERE tenant_id = ? AND id = ?", String.class, tenantId, holdId);
-        switch (current) {
-            case "RELEASED" -> {
+        switch (HoldStatus.of(current)) {
+            case RELEASED -> {
                 return HoldReleaseOutcome.ALREADY_RELEASED;
             }
-            case "EXPIRED" -> {
+            case EXPIRED -> {
                 return HoldReleaseOutcome.ALREADY_EXPIRED;
             }
-            case "CONSUMED" -> {
+            case CONSUMED -> {
                 return HoldReleaseOutcome.ALREADY_CONSUMED;
             }
             default -> {

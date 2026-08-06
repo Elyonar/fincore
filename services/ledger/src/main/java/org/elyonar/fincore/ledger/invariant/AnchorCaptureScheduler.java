@@ -7,6 +7,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import org.elyonar.fincore.ledger.shared.LedgerProperties;
 
 /**
  * Captures anchors once a day, and verifies incrementally against them hourly.
@@ -15,7 +16,7 @@ import org.springframework.stereotype.Component;
  * off does not remove the code under test.
  */
 @Component
-@ConditionalOnProperty(name = "ledger.invariants.enabled", havingValue = "true", matchIfMissing = true)
+@ConditionalOnProperty(name = LedgerProperties.INVARIANTS_ENABLED, havingValue = "true", matchIfMissing = true)
 public class AnchorCaptureScheduler {
 
     private static final Logger log = LoggerFactory.getLogger(AnchorCaptureScheduler.class);
@@ -29,7 +30,7 @@ public class AnchorCaptureScheduler {
     }
 
     /** Early morning, after the business day has settled in the tenant's zone. */
-    @Scheduled(cron = "${ledger.invariants.anchor-cron:0 15 2 * * *}")
+    @Scheduled(cron = "${" + LedgerProperties.INVARIANTS_ANCHOR_CRON + ":0 15 2 * * *}")
     public void captureAnchors() {
         LocalDate today = LocalDate.now();
         for (UUID tenantId : anchors.tenantsWithAccounts()) {
@@ -56,7 +57,7 @@ public class AnchorCaptureScheduler {
      * years of history. That threshold is recorded in testing.md rather than left to be
      * discovered.
      */
-    @Scheduled(cron = "${ledger.invariants.full-cron:0 45 3 * * SUN}")
+    @Scheduled(cron = "${" + LedgerProperties.INVARIANTS_FULL_CRON + ":0 45 3 * * SUN}")
     public void verifyFully() {
         for (UUID tenantId : anchors.tenantsWithAccounts()) {
             try {
@@ -74,7 +75,7 @@ public class AnchorCaptureScheduler {
         }
     }
 
-    @Scheduled(fixedDelayString = "${ledger.invariants.verify-interval-ms:3600000}")
+    @Scheduled(fixedDelayString = "${" + LedgerProperties.INVARIANTS_VERIFY_INTERVAL_MS + ":3600000}")
     public void verifyIncrementally() {
         for (UUID tenantId : anchors.tenantsWithAccounts()) {
             try {

@@ -279,9 +279,11 @@ class OrchestrationSchemaTest {
                                                 INSERT INTO orchestration.sagas
                                                     (tenant_id, type, state, channel_idempotency_key,
                                                      request_fingerprint, amount_minor, currency,
-                                                     initiated_by, executed_by, approval_id)
+                                                     initiated_by, executed_by, approval_id,
+                                                     from_account_id, to_account_id)
                                                 VALUES (?, 'TRANSFER', 'RECEIVED', ?, 'fp', 1000, 'NGN',
-                                                        'user:ada', 'core', ?)
+                                                        'user:ada', 'core', ?,
+                                                        gen_random_uuid(), gen_random_uuid())
                                                 """,
                                                 tenantId,
                                                 UUID.randomUUID().toString(),
@@ -298,9 +300,10 @@ class OrchestrationSchemaTest {
                 INSERT INTO orchestration.sagas
                     (tenant_id, type, state, channel_idempotency_key, request_fingerprint,
                      amount_minor, currency, initiated_by, executed_by,
-                     ledger_transaction_id, terminal_at)
+                     ledger_transaction_id, terminal_at, from_account_id, to_account_id)
                 VALUES (?, 'TRANSFER', ?, ?, 'fp', 1000, 'NGN', 'user:ada', 'core', ?,
-                        CASE WHEN ? IN ('COMPLETED','FAILED') THEN now() ELSE NULL END)
+                        CASE WHEN ? IN ('COMPLETED','FAILED') THEN now() ELSE NULL END,
+                        gen_random_uuid(), gen_random_uuid())
                 RETURNING id
                 """,
                 UUID.class,
@@ -316,8 +319,10 @@ class OrchestrationSchemaTest {
                 """
                 INSERT INTO orchestration.sagas
                     (tenant_id, type, state, channel_idempotency_key, request_fingerprint,
-                     amount_minor, currency, initiated_by, executed_by)
-                VALUES (?, 'TRANSFER', 'RECEIVED', ?, 'fp', 1000, 'NGN', 'user:ada', 'core')
+                     amount_minor, currency, initiated_by, executed_by,
+                     from_account_id, to_account_id)
+                VALUES (?, 'TRANSFER', 'RECEIVED', ?, 'fp', 1000, 'NGN', 'user:ada', 'core',
+                        gen_random_uuid(), gen_random_uuid())
                 """,
                 tenantId,
                 key);
