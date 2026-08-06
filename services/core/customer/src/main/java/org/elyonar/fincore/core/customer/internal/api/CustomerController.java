@@ -1,5 +1,6 @@
 package org.elyonar.fincore.core.customer.internal.api;
 
+import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.UUID;
 import org.elyonar.fincore.auth.Authorization;
 import org.elyonar.fincore.core.customer.internal.CustomerRecords;
@@ -23,6 +24,7 @@ import org.springframework.web.bind.annotation.RestController;
  * without a reason — a tier is the ceiling on what someone may move, so changing it silently is
  * changing a limit silently.
  */
+@Tag(name = "Customers", description = "Who the tenant's customers are, their tiers and their accounts")
 @RestController
 @RequestMapping("/v1/customers")
 public class CustomerController {

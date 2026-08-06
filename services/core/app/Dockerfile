@@ -39,6 +39,7 @@ COPY services/core/customer/pom.xml services/core/customer/pom.xml
 COPY services/core/product/pom.xml services/core/product/pom.xml
 COPY services/core/orchestration/pom.xml services/core/orchestration/pom.xml
 COPY services/core/app/pom.xml services/core/app/pom.xml
+COPY services/notification/pom.xml services/notification/pom.xml
 RUN chmod +x mvnw && ./mvnw -B -pl services/core/app -am dependency:go-offline
 
 COPY libs/auth/src libs/auth/src

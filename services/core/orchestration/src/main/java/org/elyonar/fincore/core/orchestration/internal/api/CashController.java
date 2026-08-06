@@ -1,5 +1,6 @@
 package org.elyonar.fincore.core.orchestration.internal.api;
 
+import io.swagger.v3.oas.annotations.tags.Tag;
 import java.time.ZoneId;
 import java.util.UUID;
 import org.elyonar.fincore.auth.Authorization;
@@ -24,6 +25,7 @@ import org.springframework.web.bind.annotation.RestController;
  * direction of cash is the one thing that must never be defaulted, mistyped or flipped by a client
  * bug: a withdrawal recorded as a deposit balances perfectly and empties a till.
  */
+@Tag(name = "Cash", description = "Deposits and withdrawals over the counter")
 @RestController
 @RequestMapping("/v1")
 public class CashController {

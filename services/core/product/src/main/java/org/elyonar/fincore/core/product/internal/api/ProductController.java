@@ -1,5 +1,6 @@
 package org.elyonar.fincore.core.product.internal.api;
 
+import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.List;
 import java.util.UUID;
 import org.elyonar.fincore.auth.Authorization;
@@ -24,6 +25,7 @@ import org.springframework.web.bind.annotation.RestController;
  * <p>There is no endpoint that edits a published version. A change is a new version, so that a
  * transaction decided under version 3 stays explicable when version 4 exists.
  */
+@Tag(name = "Products", description = "The product catalogue and publishing versions")
 @RestController
 @RequestMapping("/v1/products")
 public class ProductController {

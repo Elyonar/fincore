@@ -1,5 +1,6 @@
 package org.elyonar.fincore.core.orchestration.internal.api;
 
+import io.swagger.v3.oas.annotations.tags.Tag;
 import java.time.ZoneId;
 import java.util.UUID;
 import org.elyonar.fincore.auth.Authorization;
@@ -18,6 +19,7 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 /** The money-path endpoints. Every one denies by default and takes its tenant from the token. */
+@Tag(name = "Transfers", description = "Book transfers and the non-mutating status read")
 @RestController
 @RequestMapping("/v1")
 public class TransferController {

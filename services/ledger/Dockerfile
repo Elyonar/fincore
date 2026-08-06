@@ -39,6 +39,7 @@ COPY services/core/customer/pom.xml services/core/customer/pom.xml
 COPY services/core/product/pom.xml services/core/product/pom.xml
 COPY services/core/orchestration/pom.xml services/core/orchestration/pom.xml
 COPY services/core/app/pom.xml services/core/app/pom.xml
+COPY services/notification/pom.xml services/notification/pom.xml
 RUN chmod +x mvnw && ./mvnw -B -pl services/ledger -am dependency:go-offline
 
 # The library's sources too, now that the relay's publishers live there. The ledger never

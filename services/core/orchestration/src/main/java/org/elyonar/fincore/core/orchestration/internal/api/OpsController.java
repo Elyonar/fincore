@@ -1,5 +1,6 @@
 package org.elyonar.fincore.core.orchestration.internal.api;
 
+import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -28,6 +29,7 @@ import org.springframework.web.bind.annotation.RestController;
  * advisory — and the pressure to add exactly that endpoint arrives on the worst day, from the
  * person least able to weigh it.
  */
+@Tag(name = "Operations", description = "Maker-checker approvals and the unresolved-outcome queue")
 @RestController
 @RequestMapping("/v1")
 public class OpsController {
