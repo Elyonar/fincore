@@ -167,8 +167,14 @@ sequence.
 - **OpenAPI generated from the code**, not hand-maintained — a generated document
   cannot describe an endpoint the service does not serve. The agreed `api.md`
   remains the *design*; the generated spec is its executable reflection.
-- **A distinct, documented, tested error code per failure mode.** A single
-  generic error is a debugging cost paid forever by every caller.
+- **Errors follow [`error-contract.md`](error-contract.md)** — `code`, a
+  `reason` where one code spans several causes, machine-readable `details`, and
+  a `message` that is developer English nobody displays or parses. A single
+  generic error is a debugging cost paid forever by every caller; an error whose
+  specifics live only in an English sentence is a service that cannot be
+  deployed outside anglophone markets.
+- **Copy `ErrorCodeCatalogTest`** so the build fails when a code or reason
+  exists without documentation, or is documented without existing.
 - Not-found and wrong-tenant are deliberately indistinguishable.
 
 ## 10. Operations
@@ -209,6 +215,8 @@ Scaffold, before the first feature:
 - [ ] Schema-presence and schema-enforcement suites green against real PostgreSQL
 - [ ] ArchUnit suite with an empty-import canary
 - [ ] Idempotency registry with payload fingerprints on every creating operation
+- [ ] Error catalog in `api.md` with codes, reasons and `details` keys, and the
+      `ErrorCodeCatalogTest` that keeps it honest in both directions
 - [ ] Outbox and relay, if the service publishes
 - [ ] Health/readiness, startup summary, and metrics for every stated alarm
 - [ ] CI provisions the database and roles

@@ -12,7 +12,9 @@ This folder holds material that spans the whole platform:
   ([`commits.md`](conventions/commits.md)), how an agreed service design is
   amended ([`design-changes.md`](conventions/design-changes.md)), what every
   service must have before it ships
-  ([`service-scaffold.md`](conventions/service-scaffold.md)), and future
+  ([`service-scaffold.md`](conventions/service-scaffold.md)), the shape every
+  service rejects requests in and how a caller renders it in its own language
+  ([`error-contract.md`](conventions/error-contract.md)), and future
   coding/review conventions as they're agreed.
 
 **Service-specific documentation does not live here.** Every service carries

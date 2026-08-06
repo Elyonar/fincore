@@ -8,6 +8,39 @@ entry first.
 
 ---
 
+## [1.5.0] — 2026-08-06 · MINOR
+
+**An error contract a non-anglophone caller can render from.**
+
+- **Docs:** `api.md` (error catalog rewritten, reasons table added)
+- **Convention:** [`docs/conventions/error-contract.md`](../../../docs/conventions/error-contract.md) — new, platform-wide
+- **Why:** the catalog's own `LIMIT_EXCEEDED` row read "entries > cap, amount >
+  cap, key > 200 chars" — the doc admitted the code was overloaded. In the
+  source it covered eight distinct failures, and `ACCOUNT_NOT_FOUND` covered
+  four. The only thing separating them was an English sentence in `message`.
+  A francophone tenant's channel could therefore say no more than "invalid
+  request", because everything specific was in prose it must not parse. The
+  ledger knows what is wrong; only the channel knows the language, and nothing
+  in the contract carried the first across to the second.
+- **Change:** the error body gains `reason` (sub-classification where one code
+  spans several causes) and `details` (machine-readable parameters — a field
+  name, a limit, what was supplied). `message` is now explicitly developer
+  English: never displayed, never parsed, reworded without an amendment.
+- **Impact:** backward compatible. `code`, `retryableWithSameKey` and `detail`
+  are unchanged; the new members are omitted from the wire when empty, so a
+  rejection carrying no parameters looks exactly as it did in v1.4. Existing
+  callers keying on `code` alone keep working — they simply cannot localize.
+- **Tests:** `ErrorCodeCatalogTest` — fails the build when a code or reason
+  exists in the source without appearing in `api.md`, and when `api.md`
+  documents a code that no longer exists. The second direction matters as much
+  as the first: a documented code that cannot occur means somebody writes a
+  French message for a rejection that will never fire and trusts a table that
+  is lying. Non-error vocabulary is derived from the status enums, so adding a
+  status is never mistaken for an undocumented error.
+- **Migration:** none — no schema change.
+
+---
+
 ## [1.4.0] — 2026-08-05 · MINOR
 
 **Tenant registry and ledger epoch — two things the design specified and the

@@ -74,9 +74,9 @@ Vocabulary and the rules that follow: PRD §3.4. Current packaging:
 
 ## Hard rules (violations fail the build where possible, review otherwise)
 
-Rules 1, 2, 5 and the ledger's boundaries are **enforced mechanically** — by
-ArchUnit in `services/ledger/src/test/java/.../architecture/HardRulesTest.java`
-and by database triggers. Prose persuades a careful contributor; a red build
+Rules 1, 2, 5, 9 and the ledger's boundaries are **enforced mechanically** — by
+ArchUnit in `services/ledger/src/test/java/.../architecture/HardRulesTest.java`,
+by `ErrorCodeCatalogTest` in the same package, and by database triggers. Prose persuades a careful contributor; a red build
 stops a careless one. When you find a rule here that could be a test and is
 not, that gap is a bug in the guardrails.
 
@@ -110,6 +110,17 @@ not, that gap is a bug in the guardrails.
    hand-written ledger code needs less proof. It does not.
 8. Never commit security-sensitive specifics: credentials, real auth flows,
    fraud thresholds, deployment infrastructure details.
+9. Errors are machine-readable before they are readable. Every rejection carries
+   a documented `code`, a `reason` where one code spans several causes, and
+   `details` holding the facts a message interpolates — never English prose a
+   caller would have to parse. The `message` field is developer English for a
+   log and is never shown to an end user, because a service serving Lagos and
+   Abidjan cannot write text for either. Full rules and the per-service
+   catalog test: [`docs/conventions/error-contract.md`](docs/conventions/error-contract.md).
+10. Avoid string literals for anything referenced twice — property keys, status
+   values, error codes. They belong in a constant or an enum, so changing one
+   is one edit and not a search. Enforced by review and by deriving docs and
+   tests from the enums rather than restating them.
 
 ## Build & test
 
