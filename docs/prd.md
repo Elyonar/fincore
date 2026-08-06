@@ -1,8 +1,8 @@
 # Core Banking Platform — Product Requirements Document (PRD)
 
-**Version:** 1.7
+**Version:** 1.8
 **Status:** Foundational ("Sacred Guide")
-**Date:** August 2026 — v1.1: Onboarding & Migration; v1.2: Security & Identity, Keycloak; v1.3: Licensing; v1.4: roadmap audit (Phase 0, country packs, currency schema, BSL+dual licensing, content, revenue stack, GTM risks); v1.5: AI architecture designed-in (constitution #12, §3.3, AI Service §4.12); **v1.6:** licensing strategy replaced — open source (AGPL-3.0 + CLA) from day one per [ADR 0003](adr/0003-agpl-cla-open-from-day-one.md); §11 rewritten; **v1.7:** commercial model (§12) and risk register (§14) moved to an internal strategy document — this public edition covers vision, architecture, and product
+**Date:** August 2026 — v1.1: Onboarding & Migration; v1.2: Security & Identity, Keycloak; v1.3: Licensing; v1.4: roadmap audit (Phase 0, country packs, currency schema, BSL+dual licensing, content, revenue stack, GTM risks); v1.5: AI architecture designed-in (constitution #12, §3.3, AI Service §4.12); **v1.6:** licensing strategy replaced — open source (AGPL-3.0 + CLA) from day one per [ADR 0003](adr/0003-agpl-cla-open-from-day-one.md); §11 rewritten; **v1.7:** commercial model (§12) and risk register (§14) moved to an internal strategy document — this public edition covers vision, architecture, and product; **v1.8:** domain/deployable vocabulary made explicit (new §3.4, constitution #4 refined, §4 and §5 framed as domain decomposition rather than deployment topology) so that [ADR 0006](adr/0006-modular-core.md) and this document say the same thing
 **Audience:** Founding team, senior backend & infrastructure engineers, collaborators
 
 > **How to propose changes:** this document is the platform's source of truth,
@@ -63,7 +63,7 @@ Build a modern, cloud-native, API-first core banking platform for Africa, starti
 1. **The ledger owns truth.** No service writes balances except the Ledger Service. All channels are message deliverers into one posting engine.
 2. **Double-entry, immutable, idempotent.** Corrections via reversing entries only. Every posting carries a client idempotency key.
 3. **Customers' money moves under customers' licenses.** Connectors run on per-tenant credentials (their NIBSS keys, their telco shortcode, their card processor agreement).
-4. **Database per service. No shared databases, ever.**
+4. **A deployable owns its database. No shared databases, ever.** Within a deployable, a module owns a *schema* and is reached only through its interface — never another module's tables. Vocabulary and the rules that follow: §3.4.
 5. **Event-driven backbone.** Services publish domain events; consumers (notifications, compliance, reporting) subscribe. Synchronous calls only where an immediate answer is required.
 6. **Configuration over code.** Products, fees, interest, limits, USSD menus, reports = tenant configuration, not deployments.
 7. **Multi-tenant by default,** with tenant ID enforced at the data layer; dedicated-instance option for customers demanding isolation.
@@ -128,9 +128,48 @@ The platform is country-agnostic at the core; each market is a **country pack**:
 
 **Sequencing discipline:** AI is differentiator #5, not #1 (§1.2) — localization and compliance win deals; AI wins demos and press. AI work never steals engineering time from the ledger or the Nigeria layer. Migration intelligence comes first because it serves our own operational bottleneck.
 
+### 3.4 Domains, deployables, and modules (vocabulary)
+
+Three words that are easy to conflate and expensive to conflate. Most arguments
+about "microservices versus monolith" are really arguments in which the two
+sides are using one word for two different things.
+
+- A **domain** is a bounded area of responsibility with its own data, rules, and
+  language — Ledger, Customer, Product, Orchestration, Lending. §4 enumerates
+  them. Domains are stable: they come from the business, not from the topology.
+- A **deployable** is a process with its own database, its own release cycle, and
+  its own network identity. This is what "service" means in constitution #4.
+- A **module** is a domain living inside a deployable. It owns a **schema** in
+  that deployable's database and is reached only through its interface.
+
+The rules that follow:
+
+- A deployable never reads another deployable's database. Integration between
+  deployables is APIs and events, always.
+- A module never reads another module's tables — not by join, not by shared
+  repository, not "just this once". Integration between modules is the module's
+  published interface.
+- **Schema ownership is enforced by database privilege, not by convention:** each
+  module connects as its own role, granted only on its own schema. A convention
+  that only a reviewer enforces is a convention that erodes.
+- One domain per module, always. A deployable may hold several modules; it may
+  never hold half a domain, and a domain may never straddle two deployables.
+
+Domains are permanent; packaging is a decision that is expected to change.
+Moving a module into its own deployable is normal evolution, governed by
+recorded extraction triggers rather than by architectural taste — see
+[ADR 0006](adr/0006-modular-core.md).
+
 ---
 
-## 4. Service Decomposition
+## 4. Service Decomposition (domains)
+
+This section decomposes the platform into **domains**: what each owns, what it
+must do, what it publishes. It is deliberately silent on packaging. How many
+processes these domains are deployed as is a different question, answered by §9
+and by ADRs (§3.4, [ADR 0006](adr/0006-modular-core.md)). A domain described
+here as a "Service" is not thereby promised its own process on day one — the
+name describes the boundary of responsibility, not the boundary of deployment.
 
 ### 4.1 Ledger Service (the crown jewel)
 
@@ -305,7 +344,17 @@ The platform is country-agnostic at the core; each market is a **country pack**:
 
 ## 5. Service Communication Map
 
-**Synchronous (REST/gRPC):**
+Read alongside §3.4: this map describes **domain** interactions, not transports.
+Where two domains share a deployable, the interaction below is an in-process
+interface call; where they do not, it is a network call. "Synchronous" describes
+the *dependency* — the caller cannot proceed without an answer — which is true
+either way and is the property that matters when reasoning about failure.
+
+Under the current topology ([ADR 0006](adr/0006-modular-core.md)): Orchestration
+→ Product and Orchestration → Customer are in-process interface calls;
+Orchestration → Ledger and Orchestration → Connectors are network calls.
+
+**Synchronous (REST/gRPC between deployables; interface calls within one):**
 - Channels → Orchestration ("do this transfer")
 - Orchestration → Ledger ("post/hold now"), → Product ("what fees/limits?"), → Connectors ("send to NIBSS")
 - Services → AI Service ("suggest a match/mapping/narrative") — request/response, suggestions only
@@ -317,7 +366,7 @@ The platform is country-agnostic at the core; each market is a **country pack**:
 - Connector inbound events (NIBSS inward credit) → Orchestration
 - AI Service publishes suggestion lifecycle events → audit/Compliance
 
-**Data:** one database per service; PostgreSQL default. Analytical store for Compliance/Reporting fed by events (Postgres read models v1; columnar store later). AI Service reads analytical stores, never operational databases of other services.
+**Data:** one database per **deployable**, one schema per **module** within it (§3.4); PostgreSQL default. Analytical store for Compliance/Reporting fed by events (Postgres read models v1; columnar store later). AI Service reads analytical stores, never operational databases of other services.
 
 ---
 
@@ -403,7 +452,7 @@ CI gates: no merge to Ledger or Orchestration without invariant + property + con
 - **Without one yet:** Phase 0 is the conversion instrument — demo first, LOIs/pilot agreements gate the full build.
 - Discipline: partner reactions route into these phases; Phase 0 never silently grows into an unplanned v1.
 
-**Phase 1 (Months 1–3): Foundation.** Three deployables — Ledger (standalone from day one), Core service (Customer + Product + Orchestration as clean internal modules), API Gateway. Full test strategy live in CI. Admin UI for products/customers. Internal demo tenant. (Phase 0 is the front half of this work.)
+**Phase 1 (Months 1–3): Foundation.** Ledger (standalone from day one) and Core — Customer + Product + Orchestration as clean internal modules, recorded with its boundaries and extraction triggers in [ADR 0006](adr/0006-modular-core.md) — plus the API Gateway when the first external consumer exists (§4.7.3; edge TLS and token validation are gateway configuration and the shared authorization library, not a service to build). Full test strategy live in CI. Admin UI for products/customers. Internal demo tenant. (Phase 0 is the front half of this work.)
 
 **Phase 2 (Months 2–5, parallel): Design partners.** Convert/sign 2–3 MFBs/cooperatives (pilot fee or signed agreement required — skin in the game; reference rights negotiated) shaping the roadmap; begin NIBSS partnership paperwork immediately (slowest dependency). Pilot shadow-mode in one branch from ~Month 3: double-entry by their tellers, daily comparison reports = live production evidence.
 
