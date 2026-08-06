@@ -46,6 +46,7 @@
             authentication to retire its tenant-header posture (ADR 0009).
         -->
         <module>libs/auth</module>
+        <module>libs/events</module>
         <module>services/ledger</module>
         <module>services/core</module>
     </modules>

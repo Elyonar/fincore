@@ -2,6 +2,8 @@ package org.elyonar.fincore.ledger.outbox;
 
 import java.util.ArrayList;
 import java.util.List;
+import org.elyonar.fincore.events.DomainEvent;
+import org.elyonar.fincore.events.EventPublisher;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -44,7 +46,7 @@ public class OutboxRelay {
     public int relayBatch(int batchSize) {
         enterRelayScope();
 
-        List<PublishedEvent> claimed =
+        List<DomainEvent> claimed =
                 jdbc.query(
                         """
                         SELECT id, event_type, aggregate_id, payload::text
@@ -55,7 +57,7 @@ public class OutboxRelay {
                          LIMIT ?
                         """,
                         (rs, rowNum) ->
-                                new PublishedEvent(
+                                new DomainEvent(
                                         rs.getLong(1), rs.getString(2), rs.getString(3), rs.getString(4)),
                         batchSize);
 

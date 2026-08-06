@@ -65,3 +65,10 @@ fincore:
     # Verifies nothing — and only starts at all because the `test` profile is
     # sanctioned, which exercises the guard rather than bypassing it.
     mode: dev
+
+management:
+  health:
+    rabbit:
+      enabled: false
+    kafka:
+      enabled: false

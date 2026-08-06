@@ -8,6 +8,31 @@ entry first.
 
 ---
 
+## [1.6.0] — 2026-08-06 · MINOR
+
+**The publisher adapters move to `libs/events`, shared with Core.**
+
+- **Docs:** `architecture.md`
+- **Why:** Core grew its own Kafka and logging publishers, so the platform had
+  two implementations of one idea. `AGENTS.md` extracts a library when a second
+  consumer exists, and one did. Keeping both would have let them drift in the
+  behaviour that matters most — what counts as an acknowledgement.
+- **Impact:** **operators must act.** The broker key is now
+  `fincore.events.broker`, not `ledger.events.broker`; likewise
+  `fincore.events.topic-prefix` and `fincore.events.exchange`. One key across the
+  platform, so a deployment cannot half-migrate by changing it in one service and
+  forgetting the other. `compose.yaml` is updated.
+- **Supersedes:** nothing in the relay contract. Poll semantics, at-least-once,
+  per-aggregate ordering and consumer-side dedupe on outbox id are unchanged —
+  the ledger's batch-with-acknowledgements shape is the one the library adopted,
+  because a batch where the third send fails must still mark the first two
+  published, and a single-event signature cannot express that.
+- **Tests:** `PublisherSelectionTest` (all three adapters, now resolved from the
+  library), `FailureInjectionTest`, and the ledger's own `HardRulesTest`, whose
+  cross-service rule was written before any library existed and now states that a
+  shared library is not another deployable (PRD §3.4).
+- **Migration:** none to the database.
+
 ## [1.5.0] — 2026-08-06 · MINOR
 
 **An error contract a non-anglophone caller can render from.**

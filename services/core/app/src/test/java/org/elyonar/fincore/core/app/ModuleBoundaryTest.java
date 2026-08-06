@@ -189,10 +189,14 @@ class ModuleBoundaryTest {
                     .dependOnClassesThat(
                             resideInAPackage("org.elyonar.fincore..")
                                     .and(not(resideInAPackage("org.elyonar.fincore.core..")))
-                                    .and(not(resideInAPackage("org.elyonar.fincore.auth.."))))
+                                    // Shared libraries, not deployables. The distinction is the
+                                    // one PRD §3.4 draws: a deployable owns a database and a
+                                    // process, a library owns neither and is linked in.
+                                    .and(not(resideInAPackage("org.elyonar.fincore.auth..")))
+                                    .and(not(resideInAPackage("org.elyonar.fincore.events.."))))
                     .because(
                             "AGENTS.md hard rule 5: deployables integrate over APIs and events,"
-                                + " never over the classpath. libs/auth is a shared library, not"
-                                + " another deployable.")
+                                + " never over the classpath. libs/auth and libs/events are"
+                                + " shared libraries, not other deployables.")
                     .allowEmptyShould(true);
 }

@@ -177,6 +177,8 @@ ever disagree, the changelog is right and this section is stale.
   - CI provisioning Core's database and its three module roles; the workflow's
     lists are already generalised for it
 
-- `libs/` — empty today. Extract a lib only when a second consumer exists; the
-  shared authorization library ([ADR 0009](docs/adr/0009-service-to-service-identity.md))
-  is the first to meet that bar, since Core and the ledger both need it.
+- `libs/` — two libraries, each extracted only once a second consumer existed:
+  `auth` (token validation, identity context, `require` helpers — ADR 0009) and
+  `events` (the Kafka/RabbitMQ/logging publishers behind one seam — ADR 0005,
+  0008). Both are linked in; neither owns a database or a process, which is what
+  makes them libraries rather than deployables (PRD §3.4).

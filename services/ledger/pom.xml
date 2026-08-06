@@ -25,6 +25,16 @@
         enforces the same rule against the code.
     -->
     <dependencies>
+        <!--
+            The shared backbone adapters. This module holds no broker type at all; the broker is a
+            runtime choice (ADR 0005, libs/events).
+        -->
+        <dependency>
+            <groupId>org.elyonar</groupId>
+            <artifactId>events</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
@@ -86,29 +96,6 @@
             Kafka type reaches the domain and a bare `./mvnw verify` needs no
             broker.
         -->
-        <dependency>
-            <groupId>org.springframework.kafka</groupId>
-            <artifactId>spring-kafka</artifactId>
-        </dependency>
-        <!--
-            Spring Boot 4 splits autoconfiguration per technology, as it does for
-            Flyway. Without this, spring-kafka is on the classpath and no
-            KafkaTemplate is ever created.
-        -->
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-kafka</artifactId>
-        </dependency>
-        <!--
-            RabbitMQ as an alternative backbone. Both client libraries ship, and
-            `ledger.events.broker` picks one at runtime — an operator should not
-            have to rebuild the service to change broker, and neither adapter is
-            reachable from the domain.
-        -->
-        <dependency>
-            <groupId>org.springframework.amqp</groupId>
-            <artifactId>spring-rabbit</artifactId>
-        </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-amqp</artifactId>
