@@ -55,6 +55,37 @@ Boundaries are enforced three ways — database privilege (one role per schema,
 no grants on its neighbours), ArchUnit (`api` is public, `internal` is not), and
 the POM dependency graph. A boundary defended one way is a boundary that erodes.
 
+## Run
+
+```bash
+# whole stack — database, ledger, core
+docker compose up --build
+curl http://localhost:58081/actuator/health   # {"status":"UP"}
+open  http://localhost:58081/docs             # interactive API
+
+# database only, running Core from an IDE
+docker compose up -d postgres
+./mvnw -pl services/core/app spring-boot:run
+```
+
+Core publishes on host port **58081**, not 8081, and the ledger on **58080** —
+each service's own test suite binds its default port, so a running container
+there would mean `docker compose up` and `./mvnw verify` could not coexist. Only
+the host side moves; inside the compose network Core still calls
+`http://ledger:8080`. Override with `FINCORE_CORE_PORT` and `FINCORE_LEDGER_PORT`.
+
+**Four database roles, deliberately.** Migrations run as the owner; each module's
+traffic connects as `core_customer`, `core_product` or `core_orchestration`,
+granted on its own schema and nothing else, with `core_worker` and `core_relay`
+for the background components. A cross-module query fails at runtime rather than
+surviving until someone tries to extract a module. `db/init/` creates them
+locally; CI creates them in a workflow step.
+
+The startup banner reports which Ledger this instance will call, whether identity
+verifies anything, and the role each module connected as — including whether
+row-level security can constrain it, because a superuser or `BYPASSRLS` role
+makes every tenant policy inert while the catalog still reports RLS enabled.
+
 ## Quick facts
 
 | | |

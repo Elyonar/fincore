@@ -25,7 +25,19 @@ RUN apk add --no-cache curl
 COPY mvnw .
 COPY .mvn .mvn
 COPY pom.xml .
+# Every module POM, because Maven parses the whole reactor before it builds any
+# part of it. `-pl <module> -am` narrows what is *built*, not what must *exist*:
+# a missing child module is a hard parse error, so adding a module to the root
+# POM breaks every image that does not list it. That is how this broke — libs
+# and Core were added, the ledger's image kept copying only its own POM, and
+# `docker compose up` failed on a service whose own code had not changed.
+COPY libs/auth/pom.xml libs/auth/pom.xml
 COPY services/ledger/pom.xml services/ledger/pom.xml
+COPY services/core/pom.xml services/core/pom.xml
+COPY services/core/customer/pom.xml services/core/customer/pom.xml
+COPY services/core/product/pom.xml services/core/product/pom.xml
+COPY services/core/orchestration/pom.xml services/core/orchestration/pom.xml
+COPY services/core/app/pom.xml services/core/app/pom.xml
 RUN chmod +x mvnw && ./mvnw -B -pl services/ledger -am dependency:go-offline
 
 COPY services/ledger/src services/ledger/src
