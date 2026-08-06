@@ -14,7 +14,7 @@ spring:
       maximum-pool-size: 1
       minimum-idle: 0
       idle-timeout: 10000
-    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:55432/core}
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:55432/core_test}
     username: ${SPRING_DATASOURCE_USERNAME:fincore}
     password: ${SPRING_DATASOURCE_PASSWORD:fincore}
 
@@ -30,35 +30,35 @@ fincore:
         maximum-pool-size: 1
         minimum-idle: 0
         idle-timeout: 10000
-        jdbc-url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:55432/core}
+        jdbc-url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:55432/core_test}
         username: core_customer
         password: core_customer
       product:
         maximum-pool-size: 1
         minimum-idle: 0
         idle-timeout: 10000
-        jdbc-url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:55432/core}
+        jdbc-url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:55432/core_test}
         username: core_product
         password: core_product
       relay:
         maximum-pool-size: 1
         minimum-idle: 0
         idle-timeout: 10000
-        jdbc-url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:55432/core}
+        jdbc-url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:55432/core_test}
         username: core_relay
         password: core_relay
       worker:
         maximum-pool-size: 1
         minimum-idle: 0
         idle-timeout: 10000
-        jdbc-url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:55432/core}
+        jdbc-url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:55432/core_test}
         username: core_worker
         password: core_worker
       orchestration:
         maximum-pool-size: 1
         minimum-idle: 0
         idle-timeout: 10000
-        jdbc-url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:55432/core}
+        jdbc-url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:55432/core_test}
         username: core_orchestration
         password: core_orchestration
   auth:

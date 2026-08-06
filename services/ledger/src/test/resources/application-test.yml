@@ -9,7 +9,7 @@
 # policy inert and every isolation test pass for the wrong reason.
 spring:
   datasource:
-    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:55432/ledger}
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:55432/ledger_test}
     username: ${SPRING_DATASOURCE_USERNAME:ledger_app}
     password: ${SPRING_DATASOURCE_PASSWORD:ledger_app}
   flyway:

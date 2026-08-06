@@ -1,6 +1,6 @@
 # Ledger — Invariants & Test Strategy
 
-**Status:** AGREED v1.6 (2026-08-06) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
+**Status:** AGREED v1.8 (2026-08-06) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
 
 The test suite is the product's argument for correctness — public, runnable
 by anyone. If you want to contribute: **try to break the ledger and encode
@@ -78,6 +78,28 @@ fetches the latest completed report; `POST /v1/invariants/run` queues a run
   pinned `asOf`), so it is built and proven against real PostgreSQL under
   concurrent long-running writers *first*, as a standalone exercise, rather
   than discovered to be subtly wrong underneath three features at once.
+
+## Where the suite's data lives
+
+**The suite runs against `ledger_test`, never `ledger`.**
+
+A running deployable is a concurrent writer, and two separate failures proved
+that a test cannot defend itself against one. `HoldExpirySweep` fires every
+thirty seconds inside the Ledger container and appends the exact events
+`OutboxTest` counts. Core's saga worker and outbox relay poll on short intervals
+and — because PostgreSQL transaction ids are **cluster-wide** — held the
+Ledger's quiesce horizon below entries a test had already committed, from a
+different database entirely.
+
+Both looked like real defects. Neither was. The tests were adjusted the first
+time; the second occurrence is what said the problem was the shared database
+rather than the assertions, because draining and waiting cannot help against a
+writer that fires *after* you drain.
+
+Flyway builds the test database from the same migrations, so the two cannot
+drift. `SPRING_DATASOURCE_URL` overrides the default. `db/init` runs only on an
+empty volume, so an existing checkout needs the database created in place — see
+`README.md`.
 
 ## The suites
 

@@ -8,6 +8,38 @@ entry first.
 
 ---
 
+## [1.8.0] — 2026-08-06 · MINOR
+
+**The suite gets its own database.**
+
+- **Docs:** `testing.md`, `README.md`
+- **Why:** `ledger` was shared by the test suite and by `docker compose up`, and
+  the running container writes to it. `HoldExpirySweep` fires every thirty
+  seconds and appends `HOLD_RELEASED` events — precisely what `OutboxTest`
+  counts — so a sweep landing between a test's drain and its assertion shifted
+  the totals by however many holds happened to be swept. Intermittent, and
+  indistinguishable from a real relay defect while it lasted. `AnchorServiceTest`
+  had already failed the same way for a different reason: transaction ids are
+  **cluster-wide**, so Core's workers polling their own database in the same
+  PostgreSQL instance held this service's quiesce horizon down.
+- **Impact:** none on the product. The suite defaults to `ledger_test`;
+  `SPRING_DATASOURCE_URL` still overrides. Flyway builds it from the same
+  migrations, so it cannot drift from `ledger`.
+- **The deliberate exception:** `LedgerContractTest` still runs against the
+  *running* Ledger and therefore the development database. Exercising a real
+  deployable is the whole point of it, and pointing it at a schema that merely
+  looks like one would remove the only thing it proves.
+- **Supersedes:** the drain-first comments in `OutboxTest` as the mechanism for
+  coexisting with other writers. They stay — they still handle leftovers from
+  earlier tests in the same run — but they were never able to handle a writer
+  that fires *after* the drain.
+- **Tests:** 230 green with the stack running, and the development database's
+  `outbox_events` count identical before and after a full run.
+- **Migration:** `db/init/50-test-databases.sql`, which runs only on an empty
+  volume; `README.md` carries the one-line command for an existing checkout.
+
+---
+
 ## [1.7.0] — 2026-08-06 · MINOR
 
 **The published envelope becomes ADR 0008's envelope. `V7__outbox_envelope.sql`.**

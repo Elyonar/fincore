@@ -74,6 +74,25 @@ there would mean `docker compose up` and `./mvnw verify` could not coexist. Only
 the host side moves; inside the compose network Core still calls
 `http://ledger:8080`. Override with `FINCORE_CORE_PORT` and `FINCORE_LEDGER_PORT`.
 
+**The suite runs against `core_test`, not `core`.** Moving the ports was the
+visible half of letting the stack and the suite coexist; separating the database
+was the other half. A running deployable is a concurrent writer — Core's saga
+worker and outbox relay poll on short intervals, and because PostgreSQL
+transaction ids are cluster-wide, that polling reached across into the *ledger's*
+database and stalled its quiesce horizon. Two suites produced failures that
+looked like real defects and were not. All six module datasources point at
+`core_test`, and Flyway builds it from the same migrations, so the schemas cannot
+drift apart.
+
+Point them elsewhere with `SPRING_DATASOURCE_URL`. If your Postgres volume
+predates this, the database will not exist, because `db/init` runs only on an
+empty volume — either recreate it, or add it in place:
+
+```bash
+docker compose exec postgres psql -U fincore -d postgres \
+  -c "CREATE DATABASE core_test OWNER fincore;"
+```
+
 **Four database roles, deliberately.** Migrations run as the owner; each module's
 traffic connects as `core_customer`, `core_product` or `core_orchestration`,
 granted on its own schema and nothing else, with `core_worker` and `core_relay`

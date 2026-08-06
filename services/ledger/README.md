@@ -83,6 +83,28 @@ that port meant `docker compose up` and `./mvnw verify` could not coexist. Only
 the host side moves — inside the compose network it is still 8080. Override with
 `FINCORE_LEDGER_PORT`.
 
+**The suite runs against `ledger_test`, not `ledger`.** Ports were the visible
+half of making the stack and the suite coexist; the database was the other half,
+and it cost two false failures before it was fixed. A running deployable is a
+concurrent writer: `HoldExpirySweep` fires every thirty seconds and writes
+outbox events, which is exactly what `OutboxTest` counts, and Core's worker
+polling a *different* database in the same PostgreSQL instance held this
+service's quiesce horizon down, because transaction ids are cluster-wide. No
+amount of draining or waiting inside a test makes a live writer go away. Flyway
+builds `ledger_test` from the same migrations, so the two cannot drift.
+
+Point it elsewhere with `SPRING_DATASOURCE_URL`. `LedgerContractTest` is the
+deliberate exception — it runs against the *running* Ledger and therefore the
+development database, because exercising a real deployable is its entire purpose.
+
+If your Postgres volume predates this, the database will not exist: `db/init`
+runs only on an empty volume. Either recreate it, or add it in place —
+
+```bash
+docker compose exec postgres psql -U fincore -d postgres \
+  -c "CREATE DATABASE ledger_test OWNER fincore;"
+```
+
 **Two database roles, deliberately.** Migrations run as the owner (`fincore`);
 the service and the test suite connect as `ledger_app`, which is neither a
 superuser nor `BYPASSRLS`. PostgreSQL skips row-level security entirely for
