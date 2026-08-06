@@ -52,7 +52,11 @@ class OutboxTest {
     @Autowired @Qualifier("customerTransactionManager") private PlatformTransactionManager customerTx;
     @Autowired @Qualifier("productTransactionManager") private PlatformTransactionManager productTx;
     @Autowired @Qualifier("orchestrationTransactionManager") private PlatformTransactionManager orchestrationTx;
-    @Autowired @Qualifier("orchestrationDataSource") private javax.sql.DataSource orchestrationDataSource;
+    // A connection opened outside the pool. The slow writer holds one open across a transfer that
+    // needs its own, so borrowing both from the same pool would starve it rather than test
+    // anything — and the interleaving under test is precisely two independent connections.
+    @org.springframework.beans.factory.annotation.Value("${fincore.core.datasource.orchestration.jdbc-url}")
+    private String orchestrationUrl;
 
     private UUID tenantId;
     private UUID customerId;
@@ -255,7 +259,9 @@ class OutboxTest {
 
         // A genuinely separate connection with manual commit. Using the shared transaction manager
         // would enlist this in the surrounding transaction, and nothing would be concurrent.
-        try (var connection = orchestrationDataSource.getConnection()) {
+        try (var connection =
+                java.sql.DriverManager.getConnection(
+                        orchestrationUrl, "core_orchestration", "core_orchestration")) {
             connection.setAutoCommit(false);
             try (var scope = connection.prepareStatement("SELECT set_config('app.tenant_id', ?, true)")) {
                 scope.setString(1, tenantId.toString());
