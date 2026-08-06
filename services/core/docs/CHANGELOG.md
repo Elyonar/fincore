@@ -8,6 +8,78 @@ entry first.
 
 ---
 
+## [1.6.0] — 2026-08-06 · MINOR
+
+**Every endpoint `api.md` documents now exists, and the document can no longer
+drift from the code.**
+
+- **Docs:** `api.md` (v1.5)
+- **Why:** `api.md` was stamped AGREED and listed sixteen endpoints. Six were
+  built. Customer had no HTTP surface at all and neither did Product — their
+  modules held only the two narrow ports Orchestration reads through, so
+  `customer.customers` and `product.products` were populated exclusively by
+  tests issuing raw INSERTs. Deposits, withdrawals and business reversal were
+  worse: all three are named in this CHANGELOG's own v1 scope, and
+  `CashService` and `ReversalService` were built, tested and passing with no
+  route to reach them. Logic without a route is not a feature, it is a plan, and
+  a document that lists it beside working endpoints is telling an integrator
+  something untrue.
+- **Impact:** additive. Ten new routes — three wiring existing orchestration
+  services (`POST /v1/deposits`, `POST /v1/withdrawals`,
+  `POST /v1/transactions/{id}/reverse`), four for Customer, three for Product.
+  Twelve new error codes. No existing endpoint, request shape or response shape
+  changes. `api.md` gains a permission column, which had never been written down
+  anywhere but the code.
+- **Design decisions worth recording:**
+  - Administration lives in each module's `internal` package, not its `api`
+    package. `customer.api` and `product.api` are the contracts Orchestration
+    reads through, and their narrowness is load-bearing — it is what keeps the
+    money path free of PII and lets either module become its own deployable by
+    turning an interface into a client. Widening them to carry an admin console's
+    shape would give that up for nothing.
+  - Maker-checker on publish is enforced by two names on one row, not by
+    Orchestration's `approvals` table. Product may not depend on Orchestration,
+    and an approval there is bound to a saga id and an amount — neither of which
+    a product version has.
+  - Each module now carries its own `@RestControllerAdvice`. Orchestration's
+    cannot map Customer's or Product's exceptions without importing their
+    internals, which `ModuleBoundaryTest` forbids. The boundary that keeps them
+    extractable is the same one that rules out a single shared advice.
+- **Two defects found by the new endpoints, both pre-existing:**
+  - `customer.customer_accounts.one_live_holder_per_account` did not enforce its
+    name. Written as `UNIQUE (tenant_id, ledger_account_id, unlinked_at)`, and a
+    live link has `unlinked_at IS NULL` — PostgreSQL treats NULLs as distinct, so
+    two live holders of one account inserted happily. That is the exact case the
+    constraint's own comment said must never happen, and
+    `CustomerEligibility.holdsAccount` — asked on every transfer and every cash
+    operation — would have been answering from whichever row the planner
+    returned. Nothing caught it because until now no code path could create a
+    second link. Replaced with a partial unique index in customer `V4`.
+  - `ReversalService.NotReversible` and `ApprovalRecords.ApprovalRejected` had no
+    HTTP mapping and would have surfaced as 500s. Invisible while the reversal
+    endpoint did not exist.
+- **Supersedes:** `api.md`'s "OpenAPI is generated from the code once
+  implementation lands", which framed the document as a target while it read as
+  a description. The surface is now checked both ways by
+  `ApiSurfaceCatalogTest`. Per-endpoint status markers were considered and
+  rejected — a hand-maintained "not yet built" marker is the same category of
+  artefact that went stale here, whereas a failing build is not.
+- **Tests:** `CustomerApiTest` (14), `ProductApiTest` (11),
+  `CashAndReversalApiTest` (10), `ApiSurfaceCatalogTest` (2). The last is
+  modelled on the Ledger's `ErrorCodeCatalogTest` and carries the same
+  empty-set canary, because a parser that silently matches nothing turns a
+  bidirectional check into a decoration.
+- **Migration:** customer `V3` (tier-change audit, append-only; `created_by`),
+  customer `V4` (the live-holder index), product `V3` (`created_by` and
+  `publisher_differs_from_author`). Product `V3` adds its column with a default
+  rather than backfilling by UPDATE: V2's immutability trigger correctly refuses
+  to update a published row, and refused this migration's first draft. **Customer
+  `V4` fails loudly if any account is already live-linked to two customers** —
+  choosing which customer keeps an account decides who may move its money, and a
+  migration is the last place that should happen silently.
+
+---
+
 ## [1.4.0] — 2026-08-06 · MINOR
 
 **Publishers move to `libs/events`; RabbitMQ arrives as a consequence.**

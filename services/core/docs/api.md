@@ -1,32 +1,73 @@
 # Core — API Surface (v1)
 
-**Status:** AGREED v1.4 (2026-08-06) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
+**Status:** AGREED v1.6 (2026-08-06) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
 
-REST/JSON. OpenAPI is generated from the code once implementation lands; this
-document is the agreed contract shape. Every request carries a validated
-identity token — **the tenant comes from the token, never from a header**
-([ADR 0009](../../../docs/adr/0009-service-to-service-identity.md)).
+REST/JSON. Every request carries a validated identity token — **the tenant comes
+from the token, never from a header**
+([ADR 0009](../../../docs/adr/0009-service-to-service-identity.md)). Every
+endpoint denies by default: the permission named below is required, and holding
+a different one is a 403.
+
+OpenAPI is generated from the code and served at `/v3/api-docs`, with Swagger UI
+at `/docs`. **This table and that document are checked against each other in
+both directions** by `ApiSurfaceCatalogTest`: an endpoint here that nothing
+serves fails the build, and a route that appears nowhere here fails it too.
+
+That check exists because this table was wrong for most of Core's life. Between
+v1.0 and v1.4 it listed sixteen endpoints and six were built — Customer and
+Product had no HTTP surface at all, and deposits, withdrawals and reversal were
+tested services with no route to reach them. Nothing detected it, because the
+only surface assertion was a positive spot-check for two known paths, and a
+positive check cannot find an absence. Per-endpoint status markers were
+considered instead and rejected: a marker reading "not yet built" is a fact
+maintained by hand, which is the same category of thing that went stale here in
+the first place.
 
 ## Endpoints
 
-| Method & path | Purpose | Module | Caller |
-|---|---|---|---|
-| `POST /v1/deposits` | cash in: till → customer account | orchestration | teller, API |
-| `POST /v1/withdrawals` | cash out: customer account → till | orchestration | teller, API |
-| `POST /v1/transfers` | intra-tenant book transfer | orchestration | teller, API |
-| `GET  /v1/transactions/{id}` | saga state — **non-mutating recovery read** | orchestration | teller, API, ops |
-| `POST /v1/transactions/{id}/reverse` | **business** reversal of a completed transaction — approval required | orchestration | ops, supervisor |
-| `POST /v1/customers` | create a customer | customer | admin, API |
-| `GET  /v1/customers/{id}` | customer profile, tier, status, linked accounts | customer | teller, API |
-| `POST /v1/customers/{id}/tier` | change KYC tier (attributed) | customer | compliance, admin |
-| `POST /v1/customers/{id}/accounts` | link a ledger account to a customer | customer | admin |
-| `GET  /v1/products` | list products and live versions | product | teller, admin |
-| `POST /v1/products` | create a product (DRAFT) | product | admin |
-| `POST /v1/products/{id}/versions/{v}/publish` | publish a version (attributed; maker-checker) | product | admin |
-| `POST /v1/approvals` | raise a maker-checker approval, bound to a target and amount | orchestration | supervisor |
-| `POST /v1/approvals/{id}/check` | approve or reject (checker ≠ maker, enforced) | orchestration | supervisor |
-| `GET  /v1/ops/cases` | unresolved-outcome cases | orchestration | ops |
-| `POST /v1/ops/cases/{id}/resolve` | **re-attempt resolution now.** Does not accept an outcome | orchestration | ops |
+| Method & path | Purpose | Module | Permission | Caller |
+|---|---|---|---|---|
+| `POST /v1/deposits` | cash in: till → customer account | orchestration | `cash:transact` | teller, API |
+| `POST /v1/withdrawals` | cash out: customer account → till | orchestration | `cash:transact` | teller, API |
+| `POST /v1/transfers` | intra-tenant book transfer | orchestration | `transfers:create` | teller, API |
+| `GET  /v1/transactions/{id}` | saga state — **non-mutating recovery read** | orchestration | `transfers:read` | teller, API, ops |
+| `POST /v1/transactions/{id}/reverse` | **business** reversal of a completed transaction — approval required | orchestration | `transfers:reverse` | ops, supervisor |
+| `POST /v1/customers` | create a customer | customer | `customers:create` | admin, API |
+| `GET  /v1/customers/{id}` | customer profile, tier, status, linked accounts | customer | `customers:read` | teller, API |
+| `POST /v1/customers/{id}/tier` | change KYC tier (attributed, reason required) | customer | `customers:tier` | compliance, admin |
+| `POST /v1/customers/{id}/accounts` | link a ledger account to a customer | customer | `customers:link` | admin |
+| `GET  /v1/products` | list products and their versions | product | `products:read` | teller, admin |
+| `POST /v1/products` | create a product with a DRAFT version 1 | product | `products:create` | admin |
+| `POST /v1/products/{id}/versions/{v}/publish` | publish a version (attributed; maker-checker) | product | `products:publish` | admin |
+| `POST /v1/approvals` | raise a maker-checker approval, bound to a target and amount | orchestration | `approvals:make` | supervisor |
+| `POST /v1/approvals/{id}/check` | approve or reject (checker ≠ maker, enforced) | orchestration | `approvals:check` | supervisor |
+| `GET  /v1/ops/cases` | unresolved-outcome cases | orchestration | `ops:read` | ops |
+| `POST /v1/ops/cases/{id}/resolve` | **re-attempt resolution now.** Does not accept an outcome | orchestration | `ops:resolve` | ops |
+
+`GET /` answers with the service identity and its documentation links, and
+`/actuator/health` with liveness. Neither is part of the v1 contract, and both
+are open by design so a load balancer need not hold a token.
+
+### Two administrative controls worth stating plainly
+
+**A KYC tier change requires a reason and is recorded append-only.** A tier is
+the ceiling on what a customer may move, so changing one is changing a limit.
+`customer.customer_tier_changes` holds who, when, from, to and why, and a
+database trigger refuses to update or delete it — an audit trail that
+application code is trusted not to rewrite is one deployment away from being
+wrong. A change to the tier already in force is refused rather than recorded, so
+the trail is not padded with entries that look like activity.
+
+**The author of a product version may not publish it.** Fees and limits live in
+a product version, so one person drafting and publishing alone can raise a
+ceiling and price against it unsupervised — a money control wearing
+configuration's clothes. The publisher is taken from the token, never the body,
+and `product_versions.publisher_differs_from_author` refuses the write
+regardless. This is the same rule as `checker_differs_from_maker` on
+`orchestration.approvals`, applied to a different subject; Product cannot use
+that table, both because it may not depend on Orchestration and because an
+approval there is bound to a saga id and an amount, neither of which a product
+version has.
 
 **There is no endpoint for a compensating reversal, deliberately.** A saga
 undoing its own posting after a downstream `DEFINITE_FAILURE` is automated and
@@ -113,7 +154,21 @@ forever by every caller.
 | `TRANSACTION_NOT_FOUND` | unknown saga, or another tenant's | no |
 | `NOT_REVERSIBLE` | target is not `COMPLETED`, or is itself a reversal | no |
 | `APPROVAL_REQUIRED` | reversal without a valid maker-checker approval reference | no — obtain approval |
+| `APPROVAL_INVALID` | the approval is unapproved, already spent, or bound to a different target or amount → 403 | no — obtain approval |
 | `ALREADY_REVERSED` | a reversal exists; the response carries its id | converge on the returned id |
+| `EXTERNAL_REF_TAKEN` | the tenant already numbered a customer with this reference → 409 | no — caller bug |
+| `ACCOUNT_ALREADY_HELD` | that ledger account is already live-linked to a customer → 409 | no |
+| `REASON_REQUIRED` | a tier change carried no reason → 422 | no |
+| `TIER_UNCHANGED` | the customer already holds that tier → 422 | no |
+| `PRODUCT_CODE_TAKEN` | the tenant already has a product with this code → 409 | no — caller bug |
+| `INVALID_PRODUCT_TYPE` | not one of the supported product types → 422 | no |
+| `PRODUCT_VERSION_NOT_FOUND` | no such version, or another tenant's → 404 | no |
+| `VERSION_ALREADY_PUBLISHED` | that version is live already → 409 | no |
+| `PUBLISHER_IS_AUTHOR` | the principal wrote this version and may not publish it → 403 | no — a colleague must publish |
+
+`NOT_REVERSIBLE` is checked **before** the approval is examined. A transaction
+that has already been reversed is refused no matter what authority accompanies
+the request, so collecting signatures is never a route around it.
 
 **`PENDING_RESOLUTION` is a state, not an error code.** It appears in
 `GET /v1/transactions/{id}` and never as a rejection — a transaction whose

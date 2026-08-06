@@ -2,6 +2,8 @@ package org.elyonar.fincore.core.orchestration.internal.api;
 
 import org.elyonar.fincore.auth.NotAuthenticatedException;
 import org.elyonar.fincore.auth.NotAuthorizedException;
+import org.elyonar.fincore.core.orchestration.internal.approval.ApprovalRecords;
+import org.elyonar.fincore.core.orchestration.internal.saga.ReversalService;
 import org.elyonar.fincore.core.orchestration.internal.saga.TransferService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,6 +37,27 @@ public class ApiErrors {
     public ResponseEntity<ApiError> keyReused(TransferService.IdempotencyKeyReused e) {
         return ResponseEntity.status(HttpStatus.CONFLICT)
                 .body(new ApiError("IDEMPOTENCY_KEY_REUSED", null));
+    }
+
+    /**
+     * The transaction cannot be reversed: not completed, already a reversal, or another tenant's.
+     *
+     * <p>One status for all three, as {@code ReversalService} raises one exception for all three.
+     * Telling a caller which case they hit tells them what exists in a tenant they cannot see.
+     */
+    @ExceptionHandler(ReversalService.NotReversible.class)
+    public ResponseEntity<ApiError> notReversible() {
+        return ResponseEntity.unprocessableEntity().body(new ApiError("NOT_REVERSIBLE", null));
+    }
+
+    /**
+     * The approval does not authorise this reversal — wrong target, wrong amount, unapproved, or
+     * already spent. A 403: the request is well formed, the authority is not there.
+     */
+    @ExceptionHandler(ApprovalRecords.ApprovalRejected.class)
+    public ResponseEntity<ApiError> approvalRejected(ApprovalRecords.ApprovalRejected e) {
+        log.debug("approval refused: {}", e.getMessage());
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(new ApiError("APPROVAL_INVALID", null));
     }
 
     @ExceptionHandler(NotAuthenticatedException.class)

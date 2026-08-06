@@ -66,7 +66,28 @@ psql -d postgres -c "DROP DATABASE $DB WITH (FORCE);" >/dev/null
 psql -d postgres -c "CREATE DATABASE $DB OWNER fincore;" >/dev/null
 
 say "4/5  restoring"
-docker compose exec -T postgres pg_restore -U fincore -d "$DB" --no-owner < "$BACKUP" >/dev/null 2>&1 || true
+# Errors are surfaced, not swallowed. This previously ended in `|| true` with stderr sent to
+# /dev/null, which is the exact defect a restore drill exists to find: a restore that failed
+# halfway would have printed nothing and the drill would have gone on to report success against a
+# half-empty database. A drill that cannot fail is theatre.
+#
+# pg_restore's exit status is not a clean boolean — it warns about objects it cannot recreate
+# (roles, extensions owned by others) on restores that are otherwise complete. So the output is
+# kept and shown, and only a hard failure stops the drill.
+RESTORE_LOG=$(mktemp)
+trap 'rm -f "$RESTORE_LOG"' EXIT
+if ! docker compose exec -T postgres pg_restore -U fincore -d "$DB" --no-owner \
+        < "$BACKUP" > "$RESTORE_LOG" 2>&1; then
+    echo "        pg_restore reported problems:"
+    sed 's/^/          /' "$RESTORE_LOG" | head -20
+    # Anything that left the ledger's own tables absent is fatal; the drill has nothing left to
+    # measure and must say so rather than press on and produce a reassuring number.
+    if ! psql -d "$DB" -tAc "SELECT to_regclass('public.entries');" | grep -q entries; then
+        echo "        FATAL: the restore did not recreate the ledger schema."
+        exit 1
+    fi
+    echo "        continuing: the ledger schema is present, so the comparison below is meaningful."
+fi
 
 AFTER_TX=$(psql -d "$DB" -tAc "SELECT count(*) FROM ledger_transactions;")
 AFTER_ENTRIES=$(psql -d "$DB" -tAc "SELECT count(*) FROM entries;")

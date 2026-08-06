@@ -147,8 +147,8 @@ class TransferEndToEndTest {
                                     UUID.class, tenantId);
                     UUID versionId =
                             productDb.queryForObject(
-                                    "INSERT INTO product.product_versions (tenant_id, product_id, version, status, published_by)"
-                                            + " VALUES (?,?,1,'PUBLISHED','user:admin') RETURNING id",
+                                    "INSERT INTO product.product_versions (tenant_id, product_id, version, status, created_by, published_by)"
+                                            + " VALUES (?,?,1,'PUBLISHED','user:author','user:admin') RETURNING id",
                                     UUID.class, tenantId, productId);
                     // 2.50% capped at ₦500 — integer basis points throughout.
                     productDb.update(
