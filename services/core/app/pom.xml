@@ -36,6 +36,16 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
+        <!--
+            The OpenAPI document is generated from the code. docs/api.md stays the agreed design;
+            this is its executable reflection, and it cannot describe an endpoint the service does
+            not serve — which is the failure mode of every hand-written API document eventually.
+        -->
+        <dependency>
+            <groupId>org.springdoc</groupId>
+            <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+            <version>3.1.0</version>
+        </dependency>
         <dependency>
             <groupId>org.flywaydb</groupId>
             <artifactId>flyway-core</artifactId>

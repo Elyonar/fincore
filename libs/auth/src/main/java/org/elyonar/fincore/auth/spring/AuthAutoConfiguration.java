@@ -31,9 +31,6 @@ public class AuthAutoConfiguration {
 
     private static final Logger log = LoggerFactory.getLogger(AuthAutoConfiguration.class);
 
-    /** Paths served before a caller is known. Health and readiness must answer unauthenticated. */
-    private static final String[] OPEN_PATHS = {"/actuator/health/**", "/actuator/info"};
-
     /**
      * Only defined in JWT mode.
      *
@@ -77,9 +74,9 @@ public class AuthAutoConfiguration {
     }
 
     @Bean
-    public FilterRegistrationBean<Filter> identityFilter(IdentityResolver resolver) {
+    public FilterRegistrationBean<Filter> identityFilter(IdentityResolver resolver, AuthProperties properties) {
         FilterRegistrationBean<Filter> registration =
-                new FilterRegistrationBean<>(new IdentityFilter(resolver, OPEN_PATHS));
+                new FilterRegistrationBean<>(new IdentityFilter(resolver, properties.getOpenPaths()));
         // Ahead of anything that might want the identity context.
         registration.setOrder(Ordered.HIGHEST_PRECEDENCE + 10);
         return registration;

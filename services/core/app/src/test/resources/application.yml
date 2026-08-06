@@ -1,5 +1,11 @@
 # Tests run against real PostgreSQL — never an in-memory substitute. The trigger,
 # constraint and row-level-security behaviour under test is PostgreSQL's.
+#
+# NOTE: this file *replaces* src/main/resources/application.yml rather than overlaying it —
+# test-classes come first on the classpath and Boot loads one application.yml. Anything the tests
+# need to behave like production has to be repeated here. That has already caused two silent
+# failures (the ledger base URL, then Swagger's path 404ing), so treat a setting's absence here as
+# a bug rather than a default.
 spring:
   profiles:
     active: test
@@ -11,6 +17,11 @@ spring:
     url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:55432/core}
     username: ${SPRING_DATASOURCE_USERNAME:fincore}
     password: ${SPRING_DATASOURCE_PASSWORD:fincore}
+
+# Swagger at /docs, matching main. Repeated here because of the shadowing noted above.
+springdoc:
+  swagger-ui:
+    path: /docs
 
 fincore:
   core:
