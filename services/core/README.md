@@ -1,0 +1,135 @@
+# Core Service
+
+> **The conductor.** The Ledger knows *how* money moves and refuses to know
+> *why*. Core knows why: it turns a business intent — "this teller is
+> withdrawing ₦20,000 for customer Ada" — into a balanced, attributed,
+> idempotent posting, and guarantees that a request interrupted at any point
+> ends either completely done or completely undone. Never half.
+
+One deployable, three modules, one database, three schemas, three database
+roles. It is the **only** caller of the Ledger's write API.
+
+**Status: design AGREED v1.0 — no code written yet.** Packaging is decided
+([ADR 0006](../../docs/adr/0006-modular-core.md)) and the design is agreed, so
+implementation may begin. Changes to the design are now amendments in
+[`docs/CHANGELOG.md`](docs/CHANGELOG.md), in their own PR ahead of the code —
+never silent edits.
+
+**Two things land before the first endpoint:** `libs/auth` with a deployed
+Keycloak realm model ([ADR 0010](../../docs/adr/0010-keycloak-realm-per-tenant.md)),
+because retrofitting identity context is the expensive path; and CI provisioning
+this deployable's database and its three module roles.
+
+---
+
+## Memory map — where everything lives
+
+| You want to know… | Read | Status |
+|---|---|---|
+| The design at a glance + the decision log | [`docs/design.md`](docs/design.md) | AGREED v1.0 |
+| **The three-valued outcome model** — the thing this service exists to get right | [`docs/outcome-protocol.md`](docs/outcome-protocol.md) | AGREED v1.0 |
+| How sagas execute, recover, and are claimed across instances | [`docs/saga-protocol.md`](docs/saga-protocol.md) | AGREED v1.0 |
+| Modules, boundaries, the ledger client, events, DR posture | [`docs/architecture.md`](docs/architecture.md) | AGREED v1.0 |
+| Tables per schema, ownership rules, decided edge cases | [`docs/data-model.md`](docs/data-model.md) | AGREED v1.0 |
+| Endpoint surface, error catalog, contract properties | [`docs/api.md`](docs/api.md) | AGREED v1.0 |
+| Core's eight invariants and every test suite | [`docs/testing.md`](docs/testing.md) | AGREED v1.0 |
+| Every amendment since the design was agreed | [`docs/CHANGELOG.md`](docs/CHANGELOG.md) | v1.0 |
+| Platform hard rules | [`AGENTS.md`](../../AGENTS.md) | Standing |
+| What every service must have before it ships | [`service-scaffold.md`](../../docs/conventions/service-scaffold.md) | Standing |
+
+New deep-dive topics get their own file under `docs/` and a row here — the
+README stays the map, never the territory.
+
+## The three modules
+
+| Module | Schema | Owns |
+|---|---|---|
+| `core-customer` | `customer` | Profiles, KYC tier, lifecycle, mandates, customer↔account mapping. **The only schema holding PII.** |
+| `core-product` | `product` | Product catalog, fee rules, limit rules, versioned configuration. Returns *decisions*, never postings. |
+| `core-orchestration` | `orchestration` | Sagas, limit reservations, fee application, the ledger client. **The only module that may call the Ledger's write API.** |
+
+`core-app` assembles them: wiring, the outbox relay, the saga worker. No domain
+logic.
+
+Boundaries are enforced four ways — the classpath (a module's internals are not
+on another's), database privilege (one role per schema), ArchUnit, and the POM
+dependency graph. A boundary defended one way is a boundary that erodes.
+
+## Quick facts
+
+| | |
+|---|---|
+| Language / framework | Java 25 LTS, Spring Boot |
+| Storage | PostgreSQL (own database — three schemas, never shared with another deployable) |
+| Money representation | integer minor units; floats forbidden, percentages are integer basis points |
+| Calls out to | the Ledger, and nothing else in v1 |
+| Events | publishes per module via transactional outbox; consumes **none in v1** |
+| Identity | validated token from day one; tenant from the token, never a header |
+
+## v1 scope
+
+**In:** cash deposit, cash withdrawal, intra-tenant transfer, reversal,
+transaction status lookup. Fees applied in the same ledger transaction as the
+principal. Limits enforced as reservations. Customer and Product as real modules
+with minimal v0 configuration.
+
+**Out, deliberately:** inter-bank transfers and any rails connector, holds,
+standing orders, bulk disbursement, interest accrual, lending, AML rules,
+inbound events. The connector seam is designed in
+[`docs/saga-protocol.md`](docs/saga-protocol.md) and not built.
+
+**v1 places no holds.** A hold reserves funds across an external call whose
+outcome is unknown; every v1 flow is a single atomic ledger posting with no
+external call in between, so a hold would reserve funds against nothing. Said
+plainly here because "we have holds" is the kind of claim that gets assumed
+rather than checked.
+
+## Why the saga machinery exists even for single-step flows
+
+Not because the flow branches — because **the ledger call can time out**. An
+unknown outcome needs persisted state, a deterministic retry key, and a recovery
+worker regardless of how few steps precede it. That is the whole design in one
+sentence, and [`docs/outcome-protocol.md`](docs/outcome-protocol.md) is the
+document that makes it true.
+
+## No human authorizes money movement here
+
+Worth stating as a property of the whole design, because it was arrived at
+rather than assumed. Every path that moves money is either:
+
+- **automated and discretionless** — a saga posting what it decided, or
+  compensating a posting it made itself after a `DEFINITE_FAILURE`; or
+- **human and approved** — a business reversal carrying a single-use,
+  amount-bound maker-checker approval.
+
+There is no third kind. Notably, an operator cannot declare that an uncertain
+transaction posted (`POST /v1/ops/cases/{id}/resolve` takes no outcome), and even
+a Ledger restore is recovered by mechanical replay rather than judgement. An
+earlier draft carried a human-decision path for the restore case; working through
+it showed the reasoning was wrong, and it was removed.
+
+## Open questions
+
+None blocking — the seven carried through drafting are resolved in
+[`docs/design.md`](docs/design.md)'s decision log. New ones land there and, now
+that the design is AGREED, are resolved by amendment in
+[`docs/CHANGELOG.md`](docs/CHANGELOG.md).
+
+One limitation is recorded rather than solved: post-restore reconciliation is
+operator-triggered in v1, because the Ledger stamps its epoch on published events
+only and Core consumes none, so Core cannot detect that a restore happened.
+
+## Contributing here
+
+Start with [`docs/design.md`](docs/design.md), then
+[`docs/outcome-protocol.md`](docs/outcome-protocol.md). The most valuable
+contribution is a concrete scenario the design handles wrongly — particularly one
+involving a partial failure or an unknown outcome. The design is AGREED, so a
+successful challenge lands as an amendment in
+[`docs/CHANGELOG.md`](docs/CHANGELOG.md) rather than a silent edit, and the
+superseded decision is annotated rather than deleted.
+
+Hard rules: [`AGENTS.md`](../../AGENTS.md). Amendment process:
+[`design-changes.md`](../../docs/conventions/design-changes.md). Scaffold
+requirements: [`service-scaffold.md`](../../docs/conventions/service-scaffold.md).
+License: [AGPL-3.0-only](../../LICENSE).
