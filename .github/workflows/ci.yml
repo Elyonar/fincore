@@ -31,15 +31,6 @@ jobs:
           --health-timeout=5s
           --health-retries=5
 
-    env:
-      # Traffic as the restricted role, migrations as the owner — the same
-      # separation the service uses in compose and in production.
-      SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/ledger
-      SPRING_DATASOURCE_USERNAME: ledger_app
-      SPRING_DATASOURCE_PASSWORD: ledger_app
-      SPRING_FLYWAY_USER: fincore
-      SPRING_FLYWAY_PASSWORD: fincore
-
     steps:
       - uses: actions/checkout@v4
 
@@ -88,8 +79,38 @@ jobs:
           java-version: '25'
           cache: maven
 
-      - name: Build & test
-        run: ./mvnw --batch-mode verify
+      # Every deployable owns its own database (AGENTS.md rule 5), so each one is
+      # tested against its own. A single job-wide SPRING_DATASOURCE_URL cannot
+      # express that: both deployables read the same variable with different
+      # defaults, so whichever value CI set, the other connected to the wrong
+      # database. Core did — it resolved the ledger's URL and tried to CREATE
+      # SCHEMA there as ledger_app. Locally the variable is unset, both fall back
+      # to their own defaults, and the collision is invisible. The env belongs to
+      # the deployable, not to the job.
+      - name: Build everything once
+        run: ./mvnw --batch-mode install -DskipTests
+
+      # Traffic as the restricted role, migrations as the owner — the same
+      # separation the service uses in compose and in production.
+      - name: Test — libs and the ledger deployable
+        run: ./mvnw --batch-mode verify -pl libs/auth,services/ledger
+        env:
+          SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/ledger
+          SPRING_DATASOURCE_USERNAME: ledger_app
+          SPRING_DATASOURCE_PASSWORD: ledger_app
+          SPRING_FLYWAY_USER: fincore
+          SPRING_FLYWAY_PASSWORD: fincore
+
+      # Core connects per module role (ADR 0006); the URL is the only thing shared,
+      # and it is Core's database, never the ledger's.
+      - name: Test — the Core deployable
+        run: ./mvnw --batch-mode verify -pl services/core/customer,services/core/product,services/core/orchestration,services/core/app
+        env:
+          SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/core
+          SPRING_DATASOURCE_USERNAME: fincore
+          SPRING_DATASOURCE_PASSWORD: fincore
+          SPRING_FLYWAY_USER: fincore
+          SPRING_FLYWAY_PASSWORD: fincore
 
   # An AGREED design is a contract. If a PR edits one without recording the
   # amendment, the convention in docs/conventions/design-changes.md is being
