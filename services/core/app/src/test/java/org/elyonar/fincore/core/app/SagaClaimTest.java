@@ -164,12 +164,14 @@ class SagaClaimTest {
                                 String.class,
                                 sagaId))
                 .isNull();
+        // The attempt counter belongs to recordUnknownAttempt, not to the scheduler: two writers
+        // on one counter made attempt numbers skip and collide.
         assertThat(
                         jdbc.queryForObject(
                                 "SELECT attempts FROM orchestration.sagas WHERE id = ?",
                                 Integer.class,
                                 sagaId))
-                .isEqualTo(1);
+                .isZero();
         // Immediately claimable again — the backoff governs, not the lease.
         assertThat(claims.claim("worker-2", LEASE, 50)).contains(sagaId);
     }

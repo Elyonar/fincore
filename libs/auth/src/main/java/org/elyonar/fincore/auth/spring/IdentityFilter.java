@@ -73,8 +73,18 @@ public class IdentityFilter extends OncePerRequestFilter {
 
     private boolean isOpen(String path) {
         for (String open : openPaths) {
-            if (path.equals(open) || (open.endsWith("/**") && path.startsWith(open.substring(0, open.length() - 2)))) {
+            if (path.equals(open)) {
                 return true;
+            }
+            if (open.endsWith("/**")) {
+                // The prefix without its trailing slash, so `/actuator/health/**` admits
+                // `/actuator/health` as well as everything beneath it. Matching only the
+                // sub-paths made readiness answer 401 — an orchestrator would never see the
+                // service as up, and the first symptom is a deployment that never goes live.
+                String prefix = open.substring(0, open.length() - 3);
+                if (path.equals(prefix) || path.startsWith(prefix + "/")) {
+                    return true;
+                }
             }
         }
         return false;
