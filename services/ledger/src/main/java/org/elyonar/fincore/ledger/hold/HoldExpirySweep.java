@@ -11,6 +11,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
+import org.elyonar.fincore.ledger.shared.HoldStatus;
 
 /**
  * Expires holds whose time has run out, returning the funds to available balance.
@@ -116,7 +117,7 @@ public class HoldExpirySweep {
                                         String.class,
                                         tenantId,
                                         holdId);
-                        if (!"ACTIVE".equals(status)) {
+                        if (!HoldStatus.of(status).isActive()) {
                             continue;
                         }
 

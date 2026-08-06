@@ -10,6 +10,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.support.SendResult;
 import org.springframework.stereotype.Component;
+import org.elyonar.fincore.ledger.shared.LedgerProperties;
 
 /**
  * Publishes outbox events to Kafka (ADR 0005).
@@ -31,7 +32,7 @@ import org.springframework.stereotype.Component;
  * </ul>
  */
 @Component
-@ConditionalOnProperty(name = "ledger.events.broker", havingValue = "kafka")
+@ConditionalOnProperty(name = LedgerProperties.EVENTS_BROKER, havingValue = LedgerProperties.Broker.KAFKA)
 public class KafkaEventPublisher implements EventPublisher {
 
     private static final Logger log = LoggerFactory.getLogger(KafkaEventPublisher.class);
@@ -41,7 +42,7 @@ public class KafkaEventPublisher implements EventPublisher {
 
     public KafkaEventPublisher(
             KafkaTemplate<String, String> kafka,
-            @Value("${ledger.events.topic-prefix:fincore.ledger}") String topicPrefix) {
+            @Value("${" + LedgerProperties.EVENTS_TOPIC_PREFIX + ":fincore.ledger}") String topicPrefix) {
         this.kafka = kafka;
         this.topicPrefix = topicPrefix;
     }

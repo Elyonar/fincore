@@ -20,9 +20,13 @@ import org.springframework.transaction.annotation.Transactional;
 public class SagaRecords {
 
     private final JdbcTemplate jdbc;
+    private final JdbcTemplate workerJdbc;
 
-    public SagaRecords(@Qualifier("orchestrationJdbcTemplate") JdbcTemplate orchestrationJdbcTemplate) {
+    public SagaRecords(
+            @Qualifier("orchestrationJdbcTemplate") JdbcTemplate orchestrationJdbcTemplate,
+            @Qualifier("workerJdbcTemplate") JdbcTemplate workerJdbcTemplate) {
         this.jdbc = orchestrationJdbcTemplate;
+        this.workerJdbc = workerJdbcTemplate;
     }
 
     private void scopeTo(UUID tenantId) {
@@ -78,8 +82,9 @@ public class SagaRecords {
                         INSERT INTO orchestration.sagas
                             (tenant_id, type, state, channel_idempotency_key, request_fingerprint,
                              subject_customer_id, product_code, product_version, amount_minor,
-                             fee_minor, currency, initiated_by, executed_by)
-                        VALUES (?, 'TRANSFER', 'POSTING', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                             fee_minor, currency, initiated_by, executed_by,
+                             from_account_id, to_account_id, fee_account_id)
+                        VALUES (?, 'TRANSFER', 'POSTING', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         RETURNING id
                         """,
                         UUID.class,
@@ -93,7 +98,10 @@ public class SagaRecords {
                         decision.feeMinor(),
                         command.currency(),
                         command.initiatedBy(),
-                        command.executedBy());
+                        command.executedBy(),
+                        command.fromAccountId(),
+                        command.toAccountId(),
+                        command.feeAccountId());
 
         jdbc.update(
                 """
@@ -212,6 +220,105 @@ public class SagaRecords {
                 sagaId);
     }
 
+    /**
+     * Loads everything a worker needs to finish a saga it did not start.
+     *
+     * <p>Read as the worker's role, which sees across tenants — a worker has no tenant context of
+     * its own, because it serves all of them.
+     */
+    @Transactional(transactionManager = "workerTransactionManager", readOnly = true)
+    public Pending loadPending(UUID sagaId) {
+        return workerJdbc.query(
+                """
+                SELECT tenant_id, from_account_id, to_account_id, fee_account_id, amount_minor,
+                       fee_minor, currency, initiated_by, attempts,
+                       EXTRACT(EPOCH FROM (now() - created_at))::bigint AS age_seconds
+                  FROM orchestration.sagas
+                 WHERE id = ? AND state IN ('RECEIVED', 'POSTING')
+                """,
+                rs ->
+                        rs.next()
+                                ? new Pending(
+                                        rs.getObject("tenant_id", UUID.class),
+                                        rs.getObject("from_account_id", UUID.class),
+                                        rs.getObject("to_account_id", UUID.class),
+                                        rs.getObject("fee_account_id", UUID.class),
+                                        rs.getLong("amount_minor"),
+                                        rs.getLong("fee_minor"),
+                                        rs.getString("currency"),
+                                        rs.getString("initiated_by"),
+                                        rs.getInt("attempts"),
+                                        java.time.Duration.ofSeconds(rs.getLong("age_seconds")))
+                                : null,
+                sagaId);
+    }
+
+    /**
+     * Parks a saga a human must now determine, and opens the case.
+     *
+     * <p>Nothing is compensated and the reservation stays held: the money may have moved, and
+     * releasing the headroom would let a second transfer breach the limit if it did.
+     */
+    @Transactional(transactionManager = "workerTransactionManager")
+    public void escalate(UUID tenantId, UUID sagaId) {
+        workerJdbc.update(
+                "UPDATE orchestration.sagas SET state = 'PENDING_RESOLUTION',"
+                        + " claimed_by = NULL, claim_expires_at = NULL WHERE id = ?",
+                sagaId);
+        workerJdbc.update(
+                "INSERT INTO orchestration.ops_cases (tenant_id, saga_id, kind)"
+                        + " VALUES (?, ?, 'UNRESOLVED_OUTCOME')",
+                tenantId,
+                sagaId);
+    }
+
     /** A saga found by its idempotency key, with the fingerprint that decides replay vs 409. */
     public record Existing(String fingerprint, TransferResult result) {}
+
+    /** Everything needed to re-send a saga's posting exactly as it was first sent. */
+    public record Pending(
+            UUID tenantId,
+            UUID fromAccountId,
+            UUID toAccountId,
+            UUID feeAccountId,
+            long amountMinor,
+            long feeMinor,
+            String currency,
+            String initiatedBy,
+            int attempts,
+            java.time.Duration age) {
+
+        /**
+         * The identical posting, under the given key.
+         *
+         * <p>Identical is the operative word: a retry that rebuilt a different posting would be
+         * rejected as {@code IDEMPOTENCY_KEY_REUSED}, turning a recoverable unknown into a
+         * permanent one.
+         */
+        public org.elyonar.fincore.core.orchestration.api.LedgerPosting postingUnder(String key) {
+            var entries =
+                    new java.util.ArrayList<>(
+                            java.util.List.of(
+                                    new org.elyonar.fincore.core.orchestration.api.LedgerPosting.Entry(
+                                            fromAccountId,
+                                            org.elyonar.fincore.core.orchestration.api.LedgerPosting.Direction.DEBIT,
+                                            amountMinor + feeMinor,
+                                            currency),
+                                    new org.elyonar.fincore.core.orchestration.api.LedgerPosting.Entry(
+                                            toAccountId,
+                                            org.elyonar.fincore.core.orchestration.api.LedgerPosting.Direction.CREDIT,
+                                            amountMinor,
+                                            currency)));
+            if (feeMinor > 0) {
+                entries.add(
+                        new org.elyonar.fincore.core.orchestration.api.LedgerPosting.Entry(
+                                feeAccountId,
+                                org.elyonar.fincore.core.orchestration.api.LedgerPosting.Direction.CREDIT,
+                                feeMinor,
+                                currency));
+            }
+            return new org.elyonar.fincore.core.orchestration.api.LedgerPosting(
+                    key, initiatedBy, "retry", entries);
+        }
+    }
 }

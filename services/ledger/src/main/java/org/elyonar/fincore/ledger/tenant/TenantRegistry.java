@@ -5,6 +5,7 @@ import org.elyonar.fincore.ledger.shared.ErrorCode;
 import org.elyonar.fincore.ledger.shared.LedgerException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
+import org.elyonar.fincore.ledger.shared.ErrorReason;
 
 /**
  * Answers whether a tenant exists at all.
@@ -40,10 +41,12 @@ public class TenantRegistry {
             // Not-found rather than a distinct "unknown tenant" code: telling a caller which
             // tenant ids exist is an enumeration oracle, and a caller with no valid tenant has
             // nothing legitimate to do with the answer.
-            throw new LedgerException(ErrorCode.ACCOUNT_NOT_FOUND, "unknown tenant");
+            throw LedgerException.of(ErrorCode.ACCOUNT_NOT_FOUND, ErrorReason.UNKNOWN_TENANT)
+                    .message("unknown tenant");
         }
-        if (!"ACTIVE".equals(status)) {
-            throw new LedgerException(ErrorCode.ACCOUNT_NOT_FOUND, "unknown tenant");
+        if (!TenantStatus.ACTIVE.name().equals(status)) {
+            throw LedgerException.of(ErrorCode.ACCOUNT_NOT_FOUND, ErrorReason.UNKNOWN_TENANT)
+                    .message("unknown tenant");
         }
     }
 

@@ -3,6 +3,7 @@ package org.elyonar.fincore.ledger.hold;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import org.elyonar.fincore.ledger.shared.LedgerProperties;
 
 /**
  * Runs the hold expiry sweep on a timer.
@@ -11,7 +12,7 @@ import org.springframework.stereotype.Component;
  * off in tests silences the timer without removing the code under test.
  */
 @Component
-@ConditionalOnProperty(name = "ledger.holds.expiry.enabled", havingValue = "true", matchIfMissing = true)
+@ConditionalOnProperty(name = LedgerProperties.HOLDS_EXPIRY_ENABLED, havingValue = "true", matchIfMissing = true)
 public class HoldExpiryScheduler {
 
     private final HoldExpirySweep sweep;
@@ -20,7 +21,7 @@ public class HoldExpiryScheduler {
         this.sweep = sweep;
     }
 
-    @Scheduled(fixedDelayString = "${ledger.holds.expiry.interval-ms:30000}")
+    @Scheduled(fixedDelayString = "${" + LedgerProperties.HOLDS_EXPIRY_INTERVAL_MS + ":30000}")
     public void run() {
         sweep.sweep();
     }

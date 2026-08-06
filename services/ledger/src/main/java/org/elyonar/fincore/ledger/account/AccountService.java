@@ -9,6 +9,7 @@ import org.elyonar.fincore.ledger.shared.LedgerException;
 import org.elyonar.fincore.ledger.tenant.TenantScope;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.elyonar.fincore.ledger.shared.AccountStatus;
 
 /**
  * Opening, reading and closing accounts.
@@ -137,7 +138,7 @@ public class AccountService {
                     }
 
                     AccountView account = read(tenantId, accountId);
-                    if ("CLOSED".equals(account.status())) {
+                    if (!AccountStatus.of(account.status()).isOpen()) {
                         throw new LedgerException(ErrorCode.CLOSE_BLOCKED, "account is already closed");
                     }
                     if (account.currentMinor() != 0L) {

@@ -6,6 +6,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import org.elyonar.fincore.ledger.shared.LedgerProperties;
 
 /**
  * Drains the outbox on a timer, and reports when it stops draining.
@@ -14,7 +15,7 @@ import org.springframework.stereotype.Component;
  * racing a background thread.
  */
 @Component
-@ConditionalOnProperty(name = "ledger.outbox.relay.enabled", havingValue = "true", matchIfMissing = true)
+@ConditionalOnProperty(name = LedgerProperties.OUTBOX_RELAY_ENABLED, havingValue = "true", matchIfMissing = true)
 public class OutboxRelayScheduler {
 
     private static final Logger log = LoggerFactory.getLogger(OutboxRelayScheduler.class);
@@ -31,12 +32,12 @@ public class OutboxRelayScheduler {
     private final OutboxRelay relay;
     private final int batchSize;
 
-    public OutboxRelayScheduler(OutboxRelay relay, @Value("${ledger.outbox.relay.batch-size:100}") int batchSize) {
+    public OutboxRelayScheduler(OutboxRelay relay, @Value("${" + LedgerProperties.OUTBOX_RELAY_BATCH_SIZE + ":100}") int batchSize) {
         this.relay = relay;
         this.batchSize = batchSize;
     }
 
-    @Scheduled(fixedDelayString = "${ledger.outbox.relay.interval-ms:1000}")
+    @Scheduled(fixedDelayString = "${" + LedgerProperties.OUTBOX_RELAY_INTERVAL_MS + ":1000}")
     public void drain() {
         try {
             while (relay.relayBatch(batchSize) > 0) {
@@ -53,7 +54,7 @@ public class OutboxRelayScheduler {
     }
 
     /** Published rows are a delivery queue, not an archive: entries are the seven-year record. */
-    @Scheduled(cron = "${ledger.outbox.purge.cron:0 30 3 * * *}")
+    @Scheduled(cron = "${" + LedgerProperties.OUTBOX_PURGE_CRON + ":0 30 3 * * *}")
     public void purge() {
         int deleted = relay.purgePublishedOlderThanDays(30);
         if (deleted > 0) {
