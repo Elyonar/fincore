@@ -27,8 +27,14 @@ bot.
   touching a money value fails review, no exceptions.
 - Ledger entries are **append-only**. Corrections are reversing entries.
 - Every posting path must be **idempotent** and covered by the invariant,
-  property-based, and concurrency test suites. No merge to the ledger with any
-  of those suites red.
+  property-based, concurrency and failure-injection suites. No merge to the
+  ledger or to `core-orchestration` with any of those suites red. (`AGENTS.md`
+  hard rule 7 is the authority; if this list and that rule ever disagree, the
+  rule wins.)
+- **Modules never read each other's tables.** Cross-module calls go through the
+  published interface, and only `core-orchestration` holds the ledger client.
+- **Starting a new service?** `docs/conventions/service-scaffold.md` is the
+  checklist — tenancy, database roles, migrations, idempotency, outbox, tests.
 - **Never publish security-sensitive specifics** in code comments, docs, or
   issues: real auth flows, fraud thresholds, or infrastructure details of any
   deployment.

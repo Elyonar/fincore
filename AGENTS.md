@@ -13,9 +13,15 @@ so the guardrails cannot drift apart per tool.
 
 `fincore` — open-source (AGPL-3.0) core banking platform for Africa,
 Nigeria-first. Maven multi-module monorepo, Java 25 LTS, Spring Boot.
-Each module under `services/` is an independently deployable service owning its
-own database. A monorepo is NOT a monolith: never share databases or import
-across service boundaries.
+
+Each directory under `services/` is a **deployable**: its own process, its own
+database, its own release cycle. A deployable may hold several **modules** — one
+domain each, one schema each, reached only through their published interfaces.
+
+A monorepo is NOT a monolith: never share a database across deployables, never
+import across a deployable boundary, and never read another module's tables.
+Vocabulary and the rules that follow: PRD §3.4. Current packaging:
+[ADR 0006](docs/adr/0006-modular-core.md).
 
 ## Where truth lives (read in this order)
 
@@ -37,6 +43,12 @@ across service boundaries.
 
 ## Documentation convention
 
+- **Starting a service? Read
+  [`docs/conventions/service-scaffold.md`](docs/conventions/service-scaffold.md)
+  first.** It is the checklist of what every service must have — tenancy,
+  roles, migrations, idempotency, outbox, tests — promoted from what building
+  the ledger taught. Skipping an item is a decision to be stated, not an
+  omission to be discovered.
 - Every service has its own `README.md`. Large services split into
   `docs/<topic>.md` files referenced from that README — one README never holds
   everything, and the root is never littered with service detail.
@@ -72,14 +84,23 @@ not, that gap is a bug in the guardrails.
 1. Money amounts are integer minor units (kobo/cents). No float/double ever
    touches a money value.
 2. Ledger entries are append-only; corrections are reversing entries.
-3. Only the Ledger Service writes balances. Only Orchestration calls the
-   ledger's write API.
+3. Only the Ledger Service writes balances. Only the Orchestration domain calls
+   the ledger's write API — today that is the `core-orchestration` module, the
+   only module permitted to declare the ledger client. Enforced by the
+   classpath, by ArchUnit, and by the ledger's own caller allowlist
+   ([ADR 0009](docs/adr/0009-service-to-service-identity.md)).
 4. Every money-writing operation is idempotent via caller-supplied idempotency
    keys.
-5. Database per service. No cross-service imports; services talk via APIs and
-   events only.
-6. Multi-tenancy: `tenant_id` scoping on every query.
-7. AI advises, humans decide. No change to ledger or orchestration code merges
+5. A deployable owns its database; a module owns a schema. No shared databases
+   and no imports across a deployable boundary — deployables integrate via APIs
+   and events. No module reads another module's tables — modules integrate via
+   interfaces, and the boundary is enforced by per-module database roles
+   ([ADR 0006](docs/adr/0006-modular-core.md)).
+6. Multi-tenancy: `tenant_id` scoping on every query, with forced row-level
+   security under a restricted role and `SET LOCAL` tenant context as the
+   backstop ([ADR 0007](docs/adr/0007-tenant-isolation-pattern.md)).
+7. AI advises, humans decide. No change to the ledger or to `core-orchestration`
+   merges
    without the invariant, property-based, concurrency and failure-injection
    suites green, and money-touching changes ship with the tests that prove them.
    All four exist and run; `testing.md` marks every suite IMPLEMENTED, PARTIAL
@@ -128,5 +149,23 @@ ever disagree, the changelog is right and this section is stale.
     rehearsal, restore drills, and two cross-tenant probes
   - no performance, soak or disaster-recovery evidence exists
 
-- `libs/` — intentionally empty; extract a lib only when a second consumer
-  exists.
+- `services/core` — **design AGREED v1.0; no code written yet.**
+  [ADR 0006](docs/adr/0006-modular-core.md) packages it as one deployable holding
+  three modules — `core-customer`, `core-product`, `core-orchestration` — with a
+  schema and a database role each. v1 scope: book transfers only (deposit,
+  withdrawal, intra-tenant transfer, business reversal, status lookup); no rails
+  connectors, no holds, no consumed events. Read
+  `services/core/docs/design.md` and then `outcome-protocol.md` before touching
+  anything here; the design is a contract and code contradicting it is a bug.
+
+  Two things land **before Core's first endpoint**, both tracked in
+  `services/core/docs/CHANGELOG.md`:
+  - `libs/auth` plus a deployed Keycloak realm model
+    ([ADR 0010](docs/adr/0010-keycloak-realm-per-tenant.md)) — retrofitting
+    identity context is the expensive path, so it is not deferred
+  - CI provisioning Core's database and its three module roles; the workflow's
+    lists are already generalised for it
+
+- `libs/` — empty today. Extract a lib only when a second consumer exists; the
+  shared authorization library ([ADR 0009](docs/adr/0009-service-to-service-identity.md))
+  is the first to meet that bar, since Core and the ledger both need it.

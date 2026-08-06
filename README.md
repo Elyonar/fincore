@@ -11,19 +11,24 @@ regulatory licenses and banking relationships; money never moves through us.
 
 ## Status
 
-🚧 **Early build — being developed in public.** The Ledger design is **AGREED
-v1.0** and implementation has begun, starting with the schema and its test
-suite. Nothing here processes real money yet.
+🚧 **Early build — being developed in public.** The Ledger is designed,
+implemented, and tested against real PostgreSQL. It is pre-1.0 and **not
+production-ready** — its own README carries the honest list of what is still
+missing. Core, which holds customer, product and transaction orchestration, is
+decided but not yet designed. Nothing here processes real money yet.
 
-Watch the journey, read the [ADRs](docs/adr/), and when the ledger lands, try
-to break it — [the test suite is the point](services/ledger/docs/testing.md).
+Per-service status lives in the table below, and canonically in each service's
+`docs/CHANGELOG.md` — if the two ever disagree, the changelog is right.
+
+Read the [ADRs](docs/adr/), then try to break the ledger —
+[the test suite is the point](services/ledger/docs/testing.md).
 
 ## The constitution (short form)
 
 1. **The ledger owns truth.** No service writes balances except the Ledger Service.
 2. **Double-entry, immutable, idempotent.** Corrections via reversing entries only.
 3. **Customers' money moves under customers' licenses.**
-4. **Database per service. No shared databases, ever.**
+4. **A deployable owns its database. No shared databases, ever.** Modules inside one own schemas.
 5. **Event-driven backbone.** Services publish domain events; consumers subscribe.
 6. **Configuration over code.** Products, fees, interest, limits are tenant config.
 7. **Multi-tenant by default.**
@@ -51,12 +56,13 @@ to break it — [the test suite is the point](services/ledger/docs/testing.md).
 | Service | What it does | Status | Docs |
 |---|---|---|---|
 | **Ledger** | Double-entry posting engine — the single source of monetary truth. Accounts, entries, balances, holds. | ✅ Design AGREED v1.4 · implemented (pre-1.0) | [README](services/ledger/README.md) · [design](services/ledger/docs/design.md) · [data model](services/ledger/docs/data-model.md) · [architecture](services/ledger/docs/architecture.md) · [API](services/ledger/docs/api.md) · [posting algorithm](services/ledger/docs/posting-algorithm.md) · [testing](services/ledger/docs/testing.md) |
-| Transaction Orchestration | The only writer to the Ledger; owns sagas and workflow. | Planned | — |
-| Identity | Auth, tenants, roles, maker-checker. | Planned | — |
-| Product · Lending · Customer · Compliance | Domain services around the ledger. | Planned | — |
+| **Core** | One deployable, three modules — `core-customer`, `core-product`, `core-orchestration`. Owns sagas, fee application and limits; the only caller of the Ledger's write API. | 🔜 Design AGREED v1.0 · not yet implemented | [README](services/core/README.md) · [design](services/core/docs/design.md) · [outcome protocol](services/core/docs/outcome-protocol.md) · [saga protocol](services/core/docs/saga-protocol.md) · [data model](services/core/docs/data-model.md) · [API](services/core/docs/api.md) · [testing](services/core/docs/testing.md) |
+| Identity | Keycloak, self-hosted: auth, tenants, roles, maker-checker. Configured, not built. | Planned | — |
+| Lending · Compliance · Connectors · Notification | Further domains around the ledger. | Planned | — |
 
-Each service is independently deployable and owns its own database. New
-services get a row here when they land.
+A **deployable** owns its own process and database; a **module** inside one owns
+a schema and is reached only through its interface, never its tables
+(PRD §3.4). New deployables get a row here when they land.
 
 ### Decision records
 
@@ -67,20 +73,27 @@ services get a row here when they land.
 | [0003](docs/adr/0003-agpl-cla-open-from-day-one.md) | AGPL-3.0 + CLA, open from day one |
 | [0004](docs/adr/0004-ledger-first.md) | Build the ledger first |
 | [0005](docs/adr/0005-kafka-event-backbone.md) | Broker-agnostic event backbone, Kafka recommended |
+| [0006](docs/adr/0006-modular-core.md) | Customer, Product and Orchestration ship as one Core deployable |
+| [0007](docs/adr/0007-tenant-isolation-pattern.md) | Tenant isolation is a platform pattern, not a per-service invention |
+| [0008](docs/adr/0008-event-contract.md) | One event envelope for the whole platform |
+| [0009](docs/adr/0009-service-to-service-identity.md) | Authenticated service callers; the ledger enforces its own allowlist |
+| [0010](docs/adr/0010-keycloak-realm-per-tenant.md) | One Keycloak realm per tenant, and identity lands before Core |
 
 ## Repository layout
 
 ```
 fincore/
 ├── services/          # independently deployable Spring Boot services
-│   └── ledger/        # the first service — double-entry posting engine
-│       ├── README.md  # the service's own map: purpose, boundaries, doc index
-│       └── docs/      # the service's design & deep-dive docs
+│   ├── ledger/        # the first deployable — double-entry posting engine
+│   │   ├── README.md  # the service's own map: purpose, boundaries, doc index
+│   │   └── docs/      # the service's design & deep-dive docs
+│   └── core/          # (planned) one deployable, three modules:
+│                      #   core-customer · core-product · core-orchestration
 ├── libs/              # shared internal libraries (auth, events) — arrive when needed
 ├── docs/
 │   ├── prd.md         # product requirements
 │   ├── adr/           # Architecture Decision Records (cross-cutting only)
-│   ├── conventions/   # commit format and other shared conventions
+│   ├── conventions/   # commits, design amendments, the service scaffold
 │   └── README.md      # documentation conventions
 ├── .github/           # CONTRIBUTING, CLA, SECURITY, CI workflows
 ├── AGENTS.md          # memory map for AI agents & new contributors
@@ -88,9 +101,11 @@ fincore/
 └── compose.yaml       # local dev dependencies (PostgreSQL)
 ```
 
-A monorepo is not a monolith: each module under `services/` builds its own
-deployable jar/container and owns its own database. Module boundaries are the
-service boundaries. Every service documents itself (`README.md` + `docs/`
+A monorepo is not a monolith: each directory under `services/` builds its own
+container and owns its own database. Where a deployable holds several modules,
+each module owns a schema and its own database role and reaches the others only
+through their published interfaces — never their tables (PRD §3.4,
+[ADR 0006](docs/adr/0006-modular-core.md)). Every service documents itself (`README.md` + `docs/`
 inside the module); the root `docs/` holds only cross-cutting material. The
 service README is the navigator for its own docs — this README links to the
 service, not past it.

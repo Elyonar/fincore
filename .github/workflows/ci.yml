@@ -43,16 +43,41 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # RLS cannot constrain a superuser, so the suite connects as a restricted
-      # role. Locally this role comes from db/init; service containers cannot
-      # mount init scripts, so CI creates it here.
-      - name: Create the restricted application role
+      # RLS cannot constrain a SUPERUSER or a BYPASSRLS role, and exempts a
+      # table's owner unless the table is FORCEd — so every service connects as
+      # a restricted role and migrations run as the owner (ADR 0007). Locally
+      # these come from db/init; service containers cannot mount init scripts,
+      # so CI creates them here.
+      #
+      # Adding a service is a one-line change to each list below. A deployable
+      # holding several modules needs one role per module, each granted only on
+      # its own schema (ADR 0006) — Core will add core_customer, core_product
+      # and core_orchestration alongside a "core" database.
+      - name: Create databases and restricted application roles
         env:
           PGPASSWORD: fincore
         run: |
-          psql -h localhost -U fincore -d ledger -v ON_ERROR_STOP=1 -c \
-            "CREATE ROLE ledger_app LOGIN PASSWORD 'ledger_app' \
-             NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;"
+          set -euo pipefail
+
+          # Databases beyond POSTGRES_DB, which already created "ledger".
+          DATABASES=""
+
+          # Restricted roles. The password matches the role name in CI only;
+          # deployments provision real secrets.
+          ROLES="ledger_app"
+
+          for db in $DATABASES; do
+            echo "creating database $db"
+            psql -h localhost -U fincore -d ledger -v ON_ERROR_STOP=1 \
+              -c "CREATE DATABASE \"$db\";"
+          done
+
+          for role in $ROLES; do
+            echo "creating restricted role $role"
+            psql -h localhost -U fincore -d ledger -v ON_ERROR_STOP=1 \
+              -c "CREATE ROLE \"$role\" LOGIN PASSWORD '$role' \
+                  NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;"
+          done
 
       - name: Set up Java 25
         uses: actions/setup-java@v4
