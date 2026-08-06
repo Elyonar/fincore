@@ -116,14 +116,17 @@ public class SagaClaims {
      *
      * <p>Releases the lease at the same time: the saga is no longer being worked, and holding the
      * claim until expiry would delay the retry by the lease duration for no reason.
+     *
+     * <p>Does <em>not</em> touch the attempt counter — {@code recordUnknownAttempt} owns it. Two
+     * writers on one counter made attempt numbers skip, and a re-resolve then collided on
+     * {@code (saga_id, attempt_no)}.
      */
     @Transactional(transactionManager = "workerTransactionManager")
     public void scheduleRetry(UUID sagaId, String worker, Duration backoff) {
         jdbc.update(
                 """
                 UPDATE orchestration.sagas
-                   SET attempts = attempts + 1,
-                       next_attempt_at = now() + (? * INTERVAL '1 second'),
+                   SET next_attempt_at = now() + (? * INTERVAL '1 second'),
                        claimed_by = NULL,
                        claim_expires_at = NULL
                  WHERE id = ? AND claimed_by = ?
