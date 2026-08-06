@@ -145,6 +145,79 @@ public class SagaRecords {
         return sagaId;
     }
 
+    /**
+     * Phase A for cash: the saga, the reservation, and the event, together.
+     *
+     * <p>Accounts are recorded from the till's point of view — for a deposit the money comes from
+     * the till, for a withdrawal it goes to it — so the recovery worker can rebuild the identical
+     * posting without knowing anything the saga does not carry.
+     */
+    @Transactional
+    public UUID openCash(
+            org.elyonar.fincore.core.orchestration.api.CashCommand command,
+            ProductDecision decision,
+            TillRecords.Till till,
+            String windowKey) {
+        scopeTo(command.tenantId());
+
+        boolean deposit =
+                command.operation()
+                        == org.elyonar.fincore.core.orchestration.api.CashCommand.Operation.DEPOSIT;
+        UUID from = deposit ? till.ledgerAccountId() : command.customerAccountId();
+        UUID to = deposit ? command.customerAccountId() : till.ledgerAccountId();
+
+        UUID sagaId =
+                jdbc.queryForObject(
+                        """
+                        INSERT INTO orchestration.sagas
+                            (tenant_id, type, state, channel_idempotency_key, request_fingerprint,
+                             subject_customer_id, product_code, product_version, amount_minor,
+                             fee_minor, currency, initiated_by, executed_by,
+                             from_account_id, to_account_id, fee_account_id, till_id)
+                        VALUES (?, ?, 'POSTING', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        RETURNING id
+                        """,
+                        UUID.class,
+                        command.tenantId(),
+                        command.operation().name(),
+                        command.idempotencyKey(),
+                        command.fingerprint(),
+                        command.customerId(),
+                        command.productCode(),
+                        decision.productVersion(),
+                        command.amountMinor(),
+                        decision.feeMinor(),
+                        command.currency(),
+                        command.initiatedBy(),
+                        command.executedBy(),
+                        from,
+                        to,
+                        command.feeAccountId(),
+                        till.id());
+
+        jdbc.update(
+                """
+                INSERT INTO orchestration.limit_reservations
+                    (tenant_id, saga_id, subject_id, limit_type, window_key, amount_minor,
+                     currency, expires_at)
+                VALUES (?, ?, ?, 'DAILY', ?, ?, ?, now() + INTERVAL '1 day')
+                """,
+                command.tenantId(),
+                sagaId,
+                command.customerId(),
+                windowKey,
+                command.amountMinor() + decision.feeMinor(),
+                command.currency());
+
+        outbox.append(
+                command.tenantId(),
+                deposit ? "cash.deposit_initiated" : "cash.withdrawal_initiated",
+                sagaId,
+                payload(sagaId, command.amountMinor(), decision.feeMinor(), command.currency()));
+
+        return sagaId;
+    }
+
     /** Phase C, success: the saga completes and its reservation is consumed. */
     @Transactional
     public TransferResult complete(UUID tenantId, UUID sagaId, UUID ledgerTransactionId) {
@@ -267,7 +340,7 @@ public class SagaRecords {
     public Pending loadPending(UUID sagaId) {
         return workerJdbc.query(
                 """
-                SELECT tenant_id, from_account_id, to_account_id, fee_account_id, amount_minor,
+                SELECT tenant_id, type, from_account_id, to_account_id, fee_account_id, amount_minor,
                        fee_minor, currency, initiated_by, attempts,
                        EXTRACT(EPOCH FROM (now() - created_at))::bigint AS age_seconds
                   FROM orchestration.sagas
@@ -277,6 +350,7 @@ public class SagaRecords {
                         rs.next()
                                 ? new Pending(
                                         rs.getObject("tenant_id", UUID.class),
+                                        rs.getString("type"),
                                         rs.getObject("from_account_id", UUID.class),
                                         rs.getObject("to_account_id", UUID.class),
                                         rs.getObject("fee_account_id", UUID.class),
@@ -396,6 +470,7 @@ public class SagaRecords {
     /** Everything needed to re-send a saga's posting exactly as it was first sent. */
     public record Pending(
             UUID tenantId,
+            String type,
             UUID fromAccountId,
             UUID toAccountId,
             UUID feeAccountId,
@@ -414,18 +489,31 @@ public class SagaRecords {
          * permanent one.
          */
         public org.elyonar.fincore.core.orchestration.api.LedgerPosting postingUnder(String key) {
+            // The shapes differ per operation, and a retry that rebuilt the wrong one would be
+            // rejected as key reuse — turning a recoverable unknown into a permanent one.
+            long debit;
+            long credit;
+            if ("DEPOSIT".equals(type)) {
+                // Cash in: the till takes the notes; the customer is credited net of the fee.
+                debit = amountMinor;
+                credit = amountMinor - feeMinor;
+            } else {
+                // Transfers and withdrawals alike: the payer covers the amount and the fee.
+                debit = amountMinor + feeMinor;
+                credit = amountMinor;
+            }
             var entries =
                     new java.util.ArrayList<>(
                             java.util.List.of(
                                     new org.elyonar.fincore.core.orchestration.api.LedgerPosting.Entry(
                                             fromAccountId,
                                             org.elyonar.fincore.core.orchestration.api.LedgerPosting.Direction.DEBIT,
-                                            amountMinor + feeMinor,
+                                            debit,
                                             currency),
                                     new org.elyonar.fincore.core.orchestration.api.LedgerPosting.Entry(
                                             toAccountId,
                                             org.elyonar.fincore.core.orchestration.api.LedgerPosting.Direction.CREDIT,
-                                            amountMinor,
+                                            credit,
                                             currency)));
             if (feeMinor > 0) {
                 entries.add(
