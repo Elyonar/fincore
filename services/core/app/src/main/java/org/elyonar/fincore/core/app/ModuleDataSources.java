@@ -92,6 +92,28 @@ public class ModuleDataSources {
         return new DataSourceTransactionManager(ds);
     }
 
+    /**
+     * The relay's connection.
+     *
+     * <p>Granted on the outbox tables only. It is delivery infrastructure rather than a module, and
+     * it has no business reading a saga — which is also why it gets a policy rather than BYPASSRLS.
+     */
+    @Bean
+    @ConfigurationProperties("fincore.core.datasource.relay")
+    public DataSource relayDataSource() {
+        return DataSourceBuilder.create().type(HikariDataSource.class).build();
+    }
+
+    @Bean
+    public JdbcTemplate relayJdbcTemplate(@Qualifier("relayDataSource") DataSource ds) {
+        return new JdbcTemplate(ds);
+    }
+
+    @Bean
+    public PlatformTransactionManager relayTransactionManager(@Qualifier("relayDataSource") DataSource ds) {
+        return new DataSourceTransactionManager(ds);
+    }
+
     @Bean
     public JdbcTemplate customerJdbcTemplate(@Qualifier("customerDataSource") DataSource ds) {
         return new JdbcTemplate(ds);

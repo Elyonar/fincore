@@ -4,6 +4,7 @@ import java.util.UUID;
 import org.elyonar.fincore.core.orchestration.api.TransferCommand;
 import org.elyonar.fincore.core.orchestration.api.TransferResult;
 import org.elyonar.fincore.core.product.api.ProductDecision;
+import org.elyonar.fincore.core.orchestration.internal.outbox.OutboxWriter;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -21,12 +22,28 @@ public class SagaRecords {
 
     private final JdbcTemplate jdbc;
     private final JdbcTemplate workerJdbc;
+    private final OutboxWriter outbox;
 
     public SagaRecords(
             @Qualifier("orchestrationJdbcTemplate") JdbcTemplate orchestrationJdbcTemplate,
-            @Qualifier("workerJdbcTemplate") JdbcTemplate workerJdbcTemplate) {
+            @Qualifier("workerJdbcTemplate") JdbcTemplate workerJdbcTemplate,
+            OutboxWriter outbox) {
         this.jdbc = orchestrationJdbcTemplate;
         this.workerJdbc = workerJdbcTemplate;
+        this.outbox = outbox;
+    }
+
+    /**
+     * A thin payload: identifiers plus the minimum a consumer needs to decide whether to care.
+     *
+     * <p>Money as a decimal string, matching every other JSON this platform emits — balances and
+     * sums elsewhere exceed exact JSON number range, and one rule everywhere means no consumer
+     * silently loses precision. Never database-shaped: a payload is a published contract.
+     */
+    private static String payload(UUID sagaId, long amountMinor, long feeMinor, String currency) {
+        return """
+               {"transactionId":"%s","amountMinor":"%d","feeMinor":"%d","currency":"%s"}"""
+                .formatted(sagaId, amountMinor, feeMinor, currency);
     }
 
     private void scopeTo(UUID tenantId) {
@@ -117,6 +134,14 @@ public class SagaRecords {
                 command.amountMinor() + decision.feeMinor(),
                 command.currency());
 
+        // Same transaction as the saga and the reservation: the event exists if and only if the
+        // saga does.
+        outbox.append(
+                command.tenantId(),
+                "transfer.initiated",
+                sagaId,
+                payload(sagaId, command.amountMinor(), decision.feeMinor(), command.currency()));
+
         return sagaId;
     }
 
@@ -137,7 +162,13 @@ public class SagaRecords {
                 "UPDATE orchestration.limit_reservations SET status = 'CONSUMED', resolved_at = now()"
                         + " WHERE saga_id = ?",
                 sagaId);
-        return readScoped(sagaId);
+        TransferResult result = readScoped(sagaId);
+        outbox.append(
+                tenantId,
+                "transfer.completed",
+                sagaId,
+                payload(sagaId, result.amountMinor(), result.feeMinor(), result.currency()));
+        return result;
     }
 
     /**
@@ -162,6 +193,12 @@ public class SagaRecords {
                 "UPDATE orchestration.limit_reservations SET status = 'RELEASED', resolved_at = now()"
                         + " WHERE saga_id = ?",
                 sagaId);
+        TransferResult result = readScoped(sagaId);
+        outbox.append(
+                tenantId,
+                "transfer.failed",
+                sagaId,
+                payload(sagaId, result.amountMinor(), result.feeMinor(), result.currency()));
     }
 
     /**
