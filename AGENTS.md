@@ -136,49 +136,65 @@ CI: `.github/workflows/ci.yml` — every push/PR runs `./mvnw verify`.
 
 **Canonical status lives in `services/<name>/docs/CHANGELOG.md`.** This section
 says where things stand; the changelog says what changed and when. If the two
-ever disagree, the changelog is right and this section is stale.
+ever disagree, the changelog is right and this section is stale — and it has
+been stale twice, both times claiming less had been built than actually had. If
+you are about to build something this section says does not exist, check the
+service directory first.
 
-- `services/ledger` — **design AGREED v1.4; implemented and merged to main.**
-  All sixteen documented endpoints exist, 203 tests pass on CI against real
-  PostgreSQL. Do not re-implement the schema, posting engine, holds, reversal,
-  outbox, value dating, statements or invariants: they are done. Read
-  `services/ledger/docs/CHANGELOG.md` before assuming anything about state.
+Verified by running the suites, not by reading the docs: **457 tests green** —
+26 `libs/auth`, 9 `libs/events`, 231 ledger, 191 Core.
+
+- `services/ledger` — **design AGREED v1.8; implemented and merged to main.**
+  Every documented endpoint exists. Do not re-implement the schema, posting
+  engine, holds, reversal, outbox, value dating, statements or invariants: they
+  are done.
 
   Known gaps, all tracked in `services/ledger/docs/testing.md` with explicit
   status markers — these are the honest edges, not hidden work:
-  - property-based (jqwik), failure-injection, invariant and concurrency suites
-    are all green, so ADR 0004's precondition for starting a second service is
-    **met** — see that ADR's precondition status section
+  - the invariant, property-based, concurrency and failure-injection suites are
+    green, so ADR 0004's precondition for starting a second service is **met**
   - events are delivered for real: Kafka by default, RabbitMQ supported,
     selected by `ledger.events.broker` (ADR 0005). The `log` adapter delivers
     nothing and the startup banner says so
   - tenant identity arrives in a header until Identity exists; it is **not
     authentication**, and the ledger does not enforce the caller roles `api.md`
     names
-  - deferred with reasons in `services/ledger/docs/testing.md`: hot-account
-    throughput benchmark, migration equivalence, expand/migrate/contract
-    rehearsal, restore drills, and two cross-tenant probes
+  - deferred with reasons in `testing.md`: hot-account throughput benchmark,
+    migration equivalence, expand/migrate/contract rehearsal, restore drills,
+    and two cross-tenant probes
   - no performance, soak or disaster-recovery evidence exists
 
-- `services/core` — **design AGREED v1.0; no code written yet.**
-  [ADR 0006](docs/adr/0006-modular-core.md) packages it as one deployable holding
-  three modules — `core/customer`, `core/product`, `core/orchestration` — with a
-  schema and a database role each. v1 scope: book transfers only (deposit,
-  withdrawal, intra-tenant transfer, business reversal, status lookup); no rails
-  connectors, no holds, no consumed events. Read
-  `services/core/docs/design.md` and then `outcome-protocol.md` before touching
-  anything here; the design is a contract and code contradicting it is a bug.
+- `services/core` — **design AGREED v1.10; implemented, merged, and running.**
+  One deployable holding four modules ([ADR 0006](docs/adr/0006-modular-core.md)):
+  `customer`, `product`, `orchestration` and `app`, with a schema and a database
+  role each. Transfers, cash in and out, business reversal with maker-checker
+  approval, customer contact and consent, product versioning with publish
+  control. It has its own image and compose service, and calls the ledger over
+  HTTP.
 
-  Two things land **before Core's first endpoint**, both tracked in
-  `services/core/docs/CHANGELOG.md`:
-  - `libs/auth` plus a deployed Keycloak realm model
-    ([ADR 0010](docs/adr/0010-keycloak-realm-per-tenant.md)) — retrofitting
-    identity context is the expensive path, so it is not deferred
-  - CI provisioning Core's database and its three module roles; the workflow's
-    lists are already generalised for it
+  `customer` and `product` carry no unit tests of their own; both are covered by
+  `app`'s integration suite, which is why Core's 191 sit in two modules.
+
+  Read `services/core/docs/design.md` and then `outcome-protocol.md` before
+  touching anything here. The rule that matters most: **an unknown outcome is
+  never compensated and never reported as success** — it is a 503, the same key
+  is retried, and the worker resolves it.
+
+- `services/notification` — **design AGREED v1.1; no code committed yet.**
+  The platform's first event *consumer*, taken ahead of its PRD phase for the
+  reasons in [ADR 0011](docs/adr/0011-first-consumer-before-phase-three.md):
+  nothing had ever consumed an event, and designing a consumer immediately found
+  that the two publishers were emitting different envelopes despite ADR 0008
+  mandating one. Its Core dependency — `GET /v1/customers/by-account/{id}` for
+  contact and consent — **is built** (Core v1.7), so it is unblocked.
 
 - `libs/` — two libraries, each extracted only once a second consumer existed:
   `auth` (token validation, identity context, `require` helpers — ADR 0009) and
-  `events` (the Kafka/RabbitMQ/logging publishers behind one seam — ADR 0005,
-  0008). Both are linked in; neither owns a database or a process, which is what
-  makes them libraries rather than deployables (PRD §3.4).
+  `events` (the Kafka/RabbitMQ/logging publishers behind one seam, and ADR 0008's
+  envelope renderer — ADR 0005, 0008). Neither owns a database or a process,
+  which is what makes them libraries rather than deployables (PRD §3.4).
+
+  Consumer-side machinery — dedupe on `(publisher, eventId)`, epoch fencing,
+  stale-event rejection — is being built in Notification first and moves here
+  when a second consumer arrives, per the standing rule that a library follows
+  the second consumer rather than anticipating it.

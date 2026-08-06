@@ -5,6 +5,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.elyonar.fincore.core.customer.api.CustomerErrorCode;
 
 /**
  * Customer's own error mapping.
@@ -27,17 +28,17 @@ public class CustomerApiErrors {
      */
     @ExceptionHandler(CustomerRecords.NoSuchCustomer.class)
     public ResponseEntity<Error> notFound() {
-        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(new Error("CUSTOMER_NOT_FOUND"));
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(new Error(CustomerErrorCode.CUSTOMER_NOT_FOUND.code()));
     }
 
     @ExceptionHandler(CustomerRecords.ExternalRefTaken.class)
     public ResponseEntity<Error> refTaken() {
-        return ResponseEntity.status(HttpStatus.CONFLICT).body(new Error("EXTERNAL_REF_TAKEN"));
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(new Error(CustomerErrorCode.EXTERNAL_REF_TAKEN.code()));
     }
 
     @ExceptionHandler(CustomerRecords.AccountAlreadyHeld.class)
     public ResponseEntity<Error> alreadyHeld() {
-        return ResponseEntity.status(HttpStatus.CONFLICT).body(new Error("ACCOUNT_ALREADY_HELD"));
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(new Error(CustomerErrorCode.ACCOUNT_ALREADY_HELD.code()));
     }
 
     public record Error(String code) {}

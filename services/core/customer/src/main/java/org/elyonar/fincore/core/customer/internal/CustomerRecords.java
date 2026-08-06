@@ -10,6 +10,7 @@ import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
+import org.elyonar.fincore.core.customer.api.CustomerErrorCode;
 
 /**
  * Customer's administrative writes — the surface {@code api.md} always described and nothing ever
@@ -146,7 +147,7 @@ public class CustomerRecords {
         if (fromTier.equals(toTier)) {
             // Refused rather than recorded. An audit trail padded with changes that changed nothing
             // is harder to read, and reading it is the entire point.
-            throw new IllegalArgumentException("TIER_UNCHANGED");
+            throw new IllegalArgumentException(CustomerErrorCode.TIER_UNCHANGED.code());
         }
 
         jdbc.update("UPDATE customer.customers SET kyc_tier = ?, updated_at = now() WHERE id = ?", toTier, customerId);

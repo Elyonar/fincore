@@ -12,6 +12,9 @@ import org.springframework.context.annotation.Primary;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.elyonar.fincore.core.orchestration.api.CoreProperties;
+import org.elyonar.fincore.core.customer.api.CustomerBeans;
+import org.elyonar.fincore.core.product.api.ProductBeans;
 
 /**
  * One DataSource per module, each connecting as that module's own database role.
@@ -83,12 +86,12 @@ public class ModuleDataSources {
     }
 
     @Bean
-    public JdbcTemplate workerJdbcTemplate(@Qualifier("workerDataSource") DataSource ds) {
+    public JdbcTemplate workerJdbcTemplate(@Qualifier(CoreProperties.Beans.WORKER_DATA_SOURCE) DataSource ds) {
         return new JdbcTemplate(ds);
     }
 
     @Bean
-    public PlatformTransactionManager workerTransactionManager(@Qualifier("workerDataSource") DataSource ds) {
+    public PlatformTransactionManager workerTransactionManager(@Qualifier(CoreProperties.Beans.WORKER_DATA_SOURCE) DataSource ds) {
         return new DataSourceTransactionManager(ds);
     }
 
@@ -105,28 +108,28 @@ public class ModuleDataSources {
     }
 
     @Bean
-    public JdbcTemplate relayJdbcTemplate(@Qualifier("relayDataSource") DataSource ds) {
+    public JdbcTemplate relayJdbcTemplate(@Qualifier(CoreProperties.Beans.RELAY_DATA_SOURCE) DataSource ds) {
         return new JdbcTemplate(ds);
     }
 
     @Bean
-    public PlatformTransactionManager relayTransactionManager(@Qualifier("relayDataSource") DataSource ds) {
+    public PlatformTransactionManager relayTransactionManager(@Qualifier(CoreProperties.Beans.RELAY_DATA_SOURCE) DataSource ds) {
         return new DataSourceTransactionManager(ds);
     }
 
     @Bean
-    public JdbcTemplate customerJdbcTemplate(@Qualifier("customerDataSource") DataSource ds) {
+    public JdbcTemplate customerJdbcTemplate(@Qualifier(CustomerBeans.DATA_SOURCE) DataSource ds) {
         return new JdbcTemplate(ds);
     }
 
     @Bean
-    public JdbcTemplate productJdbcTemplate(@Qualifier("productDataSource") DataSource ds) {
+    public JdbcTemplate productJdbcTemplate(@Qualifier(ProductBeans.DATA_SOURCE) DataSource ds) {
         return new JdbcTemplate(ds);
     }
 
     @Bean
     @Primary
-    public JdbcTemplate orchestrationJdbcTemplate(@Qualifier("orchestrationDataSource") DataSource ds) {
+    public JdbcTemplate orchestrationJdbcTemplate(@Qualifier(CoreProperties.Beans.ORCHESTRATION_DATA_SOURCE) DataSource ds) {
         return new JdbcTemplate(ds);
     }
 
@@ -141,19 +144,19 @@ public class ModuleDataSources {
     @Bean
     @Primary
     public PlatformTransactionManager orchestrationTransactionManager(
-            @Qualifier("orchestrationDataSource") DataSource ds) {
+            @Qualifier(CoreProperties.Beans.ORCHESTRATION_DATA_SOURCE) DataSource ds) {
         return new DataSourceTransactionManager(ds);
     }
 
     @Bean
     public PlatformTransactionManager customerTransactionManager(
-            @Qualifier("customerDataSource") DataSource ds) {
+            @Qualifier(CustomerBeans.DATA_SOURCE) DataSource ds) {
         return new DataSourceTransactionManager(ds);
     }
 
     @Bean
     public PlatformTransactionManager productTransactionManager(
-            @Qualifier("productDataSource") DataSource ds) {
+            @Qualifier(ProductBeans.DATA_SOURCE) DataSource ds) {
         return new DataSourceTransactionManager(ds);
     }
 }

@@ -10,6 +10,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import org.elyonar.fincore.core.orchestration.api.CoreProperties;
 
 /**
  * Resolves sagas whose outcome is still unknown.
@@ -40,10 +41,10 @@ public class SagaWorker {
             SagaRecords sagas,
             LedgerClient ledger,
             @Value("${fincore.core.worker.id:#{T(java.util.UUID).randomUUID().toString()}}") String workerId,
-            @Value("${fincore.core.worker.lease-seconds:30}") long leaseSeconds,
+            @Value("${" + CoreProperties.WORKER_LEASE_SECONDS + ":30}") long leaseSeconds,
             // The escalation bound from design.md: 12 attempts or 15 minutes, whichever first.
-            @Value("${fincore.core.worker.escalate-after-attempts:12}") int escalateAfterAttempts,
-            @Value("${fincore.core.worker.escalate-after-minutes:15}") long escalateAfterMinutes) {
+            @Value("${" + CoreProperties.WORKER_ESCALATE_AFTER_ATTEMPTS + ":12}") int escalateAfterAttempts,
+            @Value("${" + CoreProperties.WORKER_ESCALATE_AFTER_MINUTES + ":15}") long escalateAfterMinutes) {
         this.claims = claims;
         this.sagas = sagas;
         this.ledger = ledger;
@@ -59,7 +60,7 @@ public class SagaWorker {
      * <p>Claiming is what keeps several instances from working one saga at once, and the lease is
      * what keeps a dead instance's work from being stranded.
      */
-    @Scheduled(fixedDelayString = "${fincore.core.worker.interval-ms:1000}")
+    @Scheduled(fixedDelayString = "${" + CoreProperties.WORKER_INTERVAL_MS + ":1000}")
     public void resolveOutstanding() {
         List<UUID> claimed;
         try {

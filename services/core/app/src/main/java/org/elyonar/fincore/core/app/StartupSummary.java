@@ -12,6 +12,9 @@ import org.springframework.context.event.EventListener;
 import org.springframework.core.env.Environment;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
+import org.elyonar.fincore.core.orchestration.api.CoreProperties;
+import org.elyonar.fincore.core.customer.api.CustomerBeans;
+import org.elyonar.fincore.core.product.api.ProductBeans;
 
 /**
  * Prints what this instance actually is, once it is genuinely serving.
@@ -43,10 +46,10 @@ public class StartupSummary {
     public StartupSummary(
             Environment environment,
             IdentityResolver identity,
-            @Qualifier("customerJdbcTemplate") JdbcTemplate customerJdbc,
-            @Qualifier("productJdbcTemplate") JdbcTemplate productJdbc,
-            @Qualifier("orchestrationJdbcTemplate") JdbcTemplate orchestrationJdbc,
-            @Value("${fincore.core.ledger.base-url:unset}") String ledgerUrl) {
+            @Qualifier(CustomerBeans.JDBC) JdbcTemplate customerJdbc,
+            @Qualifier(ProductBeans.JDBC) JdbcTemplate productJdbc,
+            @Qualifier(CoreProperties.Beans.ORCHESTRATION_JDBC) JdbcTemplate orchestrationJdbc,
+            @Value("${" + CoreProperties.LEDGER_BASE_URL + ":unset}") String ledgerUrl) {
         this.environment = environment;
         this.identity = identity;
         this.customerJdbc = customerJdbc;

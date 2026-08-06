@@ -14,6 +14,9 @@ import org.elyonar.fincore.core.product.api.ProductDecision;
 import org.elyonar.fincore.core.product.api.ProductDecisions;
 import org.elyonar.fincore.core.product.api.ProductRequest;
 import org.springframework.stereotype.Service;
+import org.elyonar.fincore.core.orchestration.api.CoreException;
+import org.elyonar.fincore.core.orchestration.api.DetailKey;
+import org.elyonar.fincore.core.orchestration.api.ErrorCode;
 
 /**
  * A transfer, executed in the three phases {@code saga-protocol.md} specifies.
@@ -62,11 +65,11 @@ public class TransferService {
         if (!eligibility.eligible()) {
             throw new TransferRefused(
                     eligibility.reason() == EligibilityResult.Reason.NOT_FOUND
-                            ? "CUSTOMER_NOT_FOUND"
-                            : "CUSTOMER_NOT_ACTIVE");
+                            ? ErrorCode.CUSTOMER_NOT_FOUND
+                            : ErrorCode.CUSTOMER_NOT_ACTIVE);
         }
         if (!customers.holdsAccount(command.tenantId(), command.customerId(), command.fromAccountId())) {
-            throw new TransferRefused("ACCOUNT_NOT_LINKED");
+            throw new TransferRefused(ErrorCode.ACCOUNT_NOT_LINKED);
         }
 
         ProductDecision decision =
@@ -80,7 +83,7 @@ public class TransferService {
                                 command.amountMinor(),
                                 command.currency()));
         if (!decision.permitted()) {
-            throw new TransferRefused(decision.refusal().name());
+            throw new TransferRefused(ErrorCode.valueOf(decision.refusal().name()));
         }
 
         UUID sagaId =
@@ -104,7 +107,7 @@ public class TransferService {
                 // Provably did not happen, so the reservation is released and the saga fails. This
                 // is the only outcome from which compensation is legal.
                 sagas.fail(command.tenantId(), sagaId, failure.errorCode());
-                throw new TransferRefused(failure.errorCode());
+                throw TransferRefused.fromLedger(failure.errorCode());
             }
 
             // Not known, and possibly true. The reservation is untouched, the saga stays claimable,
@@ -157,16 +160,33 @@ public class TransferService {
     }
 
     /** A definite refusal. Terminal for this key; a new logical attempt mints a new one. */
-    public static class TransferRefused extends RuntimeException {
-        private final String code;
+    public static class TransferRefused extends CoreException {
 
-        public TransferRefused(String code) {
-            super(code);
-            this.code = code;
+        public TransferRefused(ErrorCode code) {
+            this(code, null, code.name(), java.util.Map.of());
+        }
+
+        public TransferRefused(ErrorCode code, String reason, String message, java.util.Map<String, String> details) {
+            super(code, reason, message, details);
+        }
+
+        /**
+         * A refusal the Ledger decided.
+         *
+         * <p>The Ledger's code is mapped onto Core's catalog rather than forwarded, and travels in
+         * {@code details} for an operator. Forwarding it would put codes in Core's responses that
+         * Core's own {@code api.md} does not document, which is a contract nobody agreed to.
+         */
+        public static TransferRefused fromLedger(String ledgerCode) {
+            return new TransferRefused(
+                    ErrorCode.fromLedger(ledgerCode),
+                    null,
+                    "the Ledger refused: " + ledgerCode,
+                    ledgerCode == null ? java.util.Map.of() : java.util.Map.of(DetailKey.LEDGER_CODE, ledgerCode));
         }
 
         public String code() {
-            return code;
+            return errorCode().name();
         }
     }
 

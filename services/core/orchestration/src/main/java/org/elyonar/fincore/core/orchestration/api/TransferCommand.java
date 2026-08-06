@@ -31,12 +31,16 @@ public record TransferCommand(
 
     public TransferCommand {
         if (amountMinor <= 0) {
-            throw new IllegalArgumentException("amountMinor must be positive");
+            throw CoreException.of(ErrorCode.AMOUNT_INVALID, ErrorReason.AMOUNT_NOT_POSITIVE)
+                    .with(DetailKey.FIELD, "amountMinor")
+                    .with(DetailKey.SUPPLIED, amountMinor)
+                    .message("amountMinor must be positive");
         }
         if (fromAccountId != null && fromAccountId.equals(toAccountId)) {
             // Caught here rather than by the Ledger: a wash transfer is a caller mistake, and the
             // error is more useful naming the request than naming an entry.
-            throw new IllegalArgumentException("WASH_TRANSACTION");
+            throw new CoreException(
+                    ErrorCode.WASH_TRANSACTION, "source and destination are the same account");
         }
     }
 }

@@ -1,6 +1,6 @@
 # Core — Invariants & Test Strategy
 
-**Status:** AGREED v1.9 (2026-08-06) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
+**Status:** AGREED v1.10 (2026-08-06) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
 
 **Suites are marked `IMPLEMENTED` / `PARTIAL` / `DEFERRED` individually, and only
 `IMPLEMENTED` ones gate merges.** An unmarked suite is not yet written. This

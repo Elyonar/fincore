@@ -33,7 +33,10 @@ public record CashCommand(
 
     public CashCommand {
         if (amountMinor <= 0) {
-            throw new IllegalArgumentException("amountMinor must be positive");
+            throw CoreException.of(ErrorCode.AMOUNT_INVALID, ErrorReason.AMOUNT_NOT_POSITIVE)
+                    .with(DetailKey.FIELD, "amountMinor")
+                    .with(DetailKey.SUPPLIED, amountMinor)
+                    .message("amountMinor must be positive");
         }
     }
 }

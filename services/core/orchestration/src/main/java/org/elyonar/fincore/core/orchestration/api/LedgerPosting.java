@@ -19,10 +19,15 @@ public record LedgerPosting(String idempotencyKey, String initiatedBy, String de
 
     public LedgerPosting {
         if (idempotencyKey == null || idempotencyKey.isBlank()) {
-            throw new IllegalArgumentException("a posting without an idempotency key is not retryable");
+            throw CoreException.of(ErrorCode.COMMAND_INVALID, ErrorReason.IDEMPOTENCY_KEY_REQUIRED)
+                    .with(DetailKey.FIELD, "idempotencyKey")
+                    .message("a posting without an idempotency key is not retryable");
         }
         if (entries == null || entries.size() < 2) {
-            throw new IllegalArgumentException("a transaction needs at least two entries");
+            throw CoreException.of(ErrorCode.COMMAND_INVALID, ErrorReason.TOO_FEW_ENTRIES)
+                    .with(DetailKey.LIMIT, 2)
+                    .with(DetailKey.SUPPLIED, entries == null ? 0 : entries.size())
+                    .message("a transaction needs at least two entries");
         }
         entries = List.copyOf(entries);
     }
@@ -37,7 +42,9 @@ public record LedgerPosting(String idempotencyKey, String initiatedBy, String de
     public record Entry(UUID accountId, Direction direction, long amountMinor, String currency) {
         public Entry {
             if (amountMinor <= 0) {
-                throw new IllegalArgumentException("entry amounts are positive; direction carries the sign");
+                throw CoreException.of(ErrorCode.AMOUNT_INVALID, ErrorReason.AMOUNT_SIGN_ON_ENTRY)
+                        .with(DetailKey.SUPPLIED, amountMinor)
+                        .message("entry amounts are positive; direction carries the sign");
             }
         }
     }
