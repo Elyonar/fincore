@@ -1,10 +1,12 @@
 package org.elyonar.fincore.core.orchestration.internal.api;
 
+import io.swagger.v3.oas.annotations.tags.Tag;
 import java.time.ZoneId;
 import java.util.UUID;
 import org.elyonar.fincore.auth.Authorization;
 import org.elyonar.fincore.core.orchestration.api.TransferCommand;
 import org.elyonar.fincore.core.orchestration.api.TransferResult;
+import org.elyonar.fincore.core.orchestration.internal.saga.ReversalService;
 import org.elyonar.fincore.core.orchestration.internal.saga.SagaRecords;
 import org.elyonar.fincore.core.orchestration.internal.saga.TransferService;
 import org.springframework.http.HttpStatus;
@@ -17,6 +19,7 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 /** The money-path endpoints. Every one denies by default and takes its tenant from the token. */
+@Tag(name = "Transfers", description = "Book transfers and the non-mutating status read")
 @RestController
 @RequestMapping("/v1")
 public class TransferController {
@@ -25,10 +28,12 @@ public class TransferController {
     private static final ZoneId BUSINESS_ZONE = ZoneId.of("Africa/Lagos");
 
     private final TransferService transfers;
+    private final ReversalService reversals;
     private final SagaRecords sagas;
 
-    public TransferController(TransferService transfers, SagaRecords sagas) {
+    public TransferController(TransferService transfers, ReversalService reversals, SagaRecords sagas) {
         this.transfers = transfers;
+        this.reversals = reversals;
         this.sagas = sagas;
     }
 
@@ -68,6 +73,29 @@ public class TransferController {
         var identity = Authorization.require("transfers:read");
         return sagas.read(identity.tenantId(), id);
     }
+
+    /**
+     * Reverses a completed transaction.
+     *
+     * <p>A <strong>business</strong> reversal: an operator undoing something that succeeded, which
+     * is judgement, so it needs a second signature. Distinct from the saga's own compensation,
+     * which undoes a step that definitely failed and needs no approval — mechanism, not judgement.
+     * Conflating the two is how an approval requirement ends up on the recovery path, where it
+     * would leave money reserved until a human woke up.
+     *
+     * <p>The approval is spent here and spendable once. Nothing about it is taken on the caller's
+     * word: it is looked up by id and must be bound to this transaction and this amount.
+     */
+    @PostMapping("/transactions/{id}/reverse")
+    @ResponseStatus(HttpStatus.CREATED)
+    public TransferResult reverse(@PathVariable UUID id, @RequestBody ReverseRequest request) {
+        var identity = Authorization.require("transfers:reverse");
+        return reversals.reverse(
+                identity.tenantId(), id, request.approvalId(), request.idempotencyKey(), Authorization.initiatedBy());
+    }
+
+    /** @param approvalId a maker-checker approval bound to this transaction and its amount */
+    public record ReverseRequest(String idempotencyKey, UUID approvalId) {}
 
     /**
      * The request body.

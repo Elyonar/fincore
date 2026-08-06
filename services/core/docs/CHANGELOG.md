@@ -8,7 +8,7 @@ entry first.
 
 ---
 
-## [1.3.0] — 2026-08-06 · MINOR
+## [1.8.0] — 2026-08-06 · MINOR
 
 **An error contract a non-anglophone caller can render from.**
 
@@ -43,7 +43,243 @@ entry first.
   asserts every `ProductDecision.Refusal` has a matching `ErrorCode`, because
   `TransferService` maps them by `valueOf` and a drift there is a runtime
   failure on a money path.
+- **Also:** `EXTERNAL_REF_TAKEN`, `ACCOUNT_ALREADY_HELD`, `REASON_REQUIRED`,
+  `TIER_UNCHANGED`, `CONSENT_INCOMPLETE`, `PRODUCT_CODE_TAKEN`,
+  `INVALID_PRODUCT_TYPE`, `PRODUCT_VERSION_NOT_FOUND`,
+  `VERSION_ALREADY_PUBLISHED` and `PUBLISHER_IS_AUTHOR` — added in v1.7 as
+  string literals in Customer's and Product's HTTP layers — become
+  `CustomerErrorCode` and `ProductErrorCode`. Each module owns its own
+  catalog: a single platform-wide enum would make every module compile
+  against Orchestration, which is the cross-module dependency ADR 0006
+  exists to prevent.
 - **Migration:** none — no schema change.
+
+---
+
+## [1.7.0] — 2026-08-06 · MINOR
+
+**Customer gains contact addresses and communication consent, and one lookup
+that runs from an account.**
+
+- **Docs:** `api.md` (v1.6)
+- **Why:** Notification is the platform's first event consumer
+  ([ADR 0011](../../../docs/adr/0011-first-consumer-before-phase-three.md)), and
+  a domain event carries no PII by design (ADR 0008). A service that sends to
+  customers therefore has to ask, on every send — and Customer could not answer.
+  It held `phone` and nothing else: no second address kind, no consent records
+  despite PRD §4.2 assigning them here, and **no way in from an account id**,
+  which is the only identifier an event carries. `GET /v1/customers/{id}` needs
+  a customer id, so the send path had no entry point at all.
+- **Impact:** additive. Two routes —
+  `GET /v1/customers/by-account/{ledgerAccountId}` and
+  `POST /v1/customers/{id}/consent` — two permissions (`customers:contact`,
+  `customers:consent`), one new error code, and `email` on the create request
+  and the profile response. No existing endpoint or shape changes.
+- **Design decisions worth recording:**
+  - **The lookup carries its own permission and returns no name and no tier.**
+    It exists for a machine, and a machine that sends messages should be able to
+    hold exactly that grant. Reusing `customers:read` would have meant "let the
+    notifier read contacts" implying "let it read everything".
+  - **Addresses are returned keyed by address *kind*** (`PHONE`, `EMAIL`), not
+    by channel. Several channels share a kind — SMS and WhatsApp are both
+    `PHONE` — so a new channel on an existing kind needs nothing from Core at
+    all. Only a genuinely new kind, such as a device token for push, is a change
+    here. That is what keeps the channel registry on Notification's side cheap.
+  - **Consent is per `(category, channel)`, never one flag.** "Accepts
+    transaction alerts by SMS, refuses marketing, never asked about email" is
+    one customer and three answers, and a single flag collapses them in the
+    direction that sends.
+  - **Absence is not denial.** Only explicit answers are stored, and the
+    response carries them unchanged. What an *absent* answer permits is delivery
+    policy — a transactional alert is a fraud control nobody opts out of,
+    marketing is opt-in — and that belongs to the sending service. A default
+    stored here would dress an assumption up as a customer's answer, which is
+    also why `granted` is boxed and an omitted one is a `422`, not a `false`.
+  - **`category` and `channel` are TEXT, not CHECK lists.** Notification adds
+    channels as data; a CHECK here would mean a Core migration every time
+    another service gained a delivery channel.
+- **Tests:** `ContactAndConsentApiTest` (12) — addresses keyed by kind, absent
+  addresses omitted rather than null, the narrow response, unknown and
+  foreign accounts both 404, unlinking ending the lookup, the endpoint's own
+  permission, consent per category and channel, `UNSET → GRANTED → DENIED`
+  history with attribution, and the append-only trigger refusing both UPDATE and
+  DELETE. `ApiSurfaceCatalogTest` and `CustomerApiTest` stay green.
+- **Migration:** customer `V5__contact_and_consent.sql` — `email` on
+  `customers`; `communication_consent` (current state, unique per customer,
+  category and channel); `consent_changes` (append-only, trigger-enforced);
+  RLS enabled and forced on both with the module's grants; and a partial index
+  on `(tenant_id, ledger_account_id) WHERE unlinked_at IS NULL`, because the new
+  lookup runs in the opposite direction from every existing query on that table
+  and would otherwise scan on every send.
+
+*Known gap, stated rather than left to be found: there is no endpoint that
+**changes** a customer's phone or email after creation. Contact details do
+change, and that is a real omission — but it is an administrative surface with
+its own attribution and audit questions, not something to bolt onto a migration
+whose purpose was to let a sender find an address.*
+
+---
+
+## [1.6.0] — 2026-08-06 · MINOR
+
+**Every endpoint `api.md` documents now exists, and the document can no longer
+drift from the code.**
+
+- **Docs:** `api.md` (v1.5)
+- **Why:** `api.md` was stamped AGREED and listed sixteen endpoints. Six were
+  built. Customer had no HTTP surface at all and neither did Product — their
+  modules held only the two narrow ports Orchestration reads through, so
+  `customer.customers` and `product.products` were populated exclusively by
+  tests issuing raw INSERTs. Deposits, withdrawals and business reversal were
+  worse: all three are named in this CHANGELOG's own v1 scope, and
+  `CashService` and `ReversalService` were built, tested and passing with no
+  route to reach them. Logic without a route is not a feature, it is a plan, and
+  a document that lists it beside working endpoints is telling an integrator
+  something untrue.
+- **Impact:** additive. Ten new routes — three wiring existing orchestration
+  services (`POST /v1/deposits`, `POST /v1/withdrawals`,
+  `POST /v1/transactions/{id}/reverse`), four for Customer, three for Product.
+  Twelve new error codes. No existing endpoint, request shape or response shape
+  changes. `api.md` gains a permission column, which had never been written down
+  anywhere but the code.
+- **Design decisions worth recording:**
+  - Administration lives in each module's `internal` package, not its `api`
+    package. `customer.api` and `product.api` are the contracts Orchestration
+    reads through, and their narrowness is load-bearing — it is what keeps the
+    money path free of PII and lets either module become its own deployable by
+    turning an interface into a client. Widening them to carry an admin console's
+    shape would give that up for nothing.
+  - Maker-checker on publish is enforced by two names on one row, not by
+    Orchestration's `approvals` table. Product may not depend on Orchestration,
+    and an approval there is bound to a saga id and an amount — neither of which
+    a product version has.
+  - Each module now carries its own `@RestControllerAdvice`. Orchestration's
+    cannot map Customer's or Product's exceptions without importing their
+    internals, which `ModuleBoundaryTest` forbids. The boundary that keeps them
+    extractable is the same one that rules out a single shared advice.
+- **Two defects found by the new endpoints, both pre-existing:**
+  - `customer.customer_accounts.one_live_holder_per_account` did not enforce its
+    name. Written as `UNIQUE (tenant_id, ledger_account_id, unlinked_at)`, and a
+    live link has `unlinked_at IS NULL` — PostgreSQL treats NULLs as distinct, so
+    two live holders of one account inserted happily. That is the exact case the
+    constraint's own comment said must never happen, and
+    `CustomerEligibility.holdsAccount` — asked on every transfer and every cash
+    operation — would have been answering from whichever row the planner
+    returned. Nothing caught it because until now no code path could create a
+    second link. Replaced with a partial unique index in customer `V4`.
+  - `ReversalService.NotReversible` and `ApprovalRecords.ApprovalRejected` had no
+    HTTP mapping and would have surfaced as 500s. Invisible while the reversal
+    endpoint did not exist.
+- **Supersedes:** `api.md`'s "OpenAPI is generated from the code once
+  implementation lands", which framed the document as a target while it read as
+  a description. The surface is now checked both ways by
+  `ApiSurfaceCatalogTest`. Per-endpoint status markers were considered and
+  rejected — a hand-maintained "not yet built" marker is the same category of
+  artefact that went stale here, whereas a failing build is not.
+- **Tests:** `CustomerApiTest` (14), `ProductApiTest` (11),
+  `CashAndReversalApiTest` (10), `ApiSurfaceCatalogTest` (2). The last is
+  modelled on the Ledger's `ErrorCodeCatalogTest` and carries the same
+  empty-set canary, because a parser that silently matches nothing turns a
+  bidirectional check into a decoration.
+- **Migration:** customer `V3` (tier-change audit, append-only; `created_by`),
+  customer `V4` (the live-holder index), product `V3` (`created_by` and
+  `publisher_differs_from_author`). Product `V3` adds its column with a default
+  rather than backfilling by UPDATE: V2's immutability trigger correctly refuses
+  to update a published row, and refused this migration's first draft. **Customer
+  `V4` fails loudly if any account is already live-linked to two customers** —
+  choosing which customer keeps an account decides who may move its money, and a
+  migration is the last place that should happen silently.
+
+---
+
+## [1.5.0] — 2026-08-06 · MINOR
+
+**The envelope is rendered by `libs/events`, and gains `occurredAt`.**
+
+- **Docs:** `architecture.md`
+- **Why:** Core assembled the ADR 0008 envelope in its own relay, and the ledger
+  assembled a different one in its. Comparing the two found three divergences —
+  flat body against nested, `ledgerEpoch` against `epoch`, and no `occurredAt`
+  on either — plus the ledger's outbox id missing from the wire entirely. Core's
+  shape was the closer of the two, and still wrong: without `occurredAt` a
+  consumer that only cares about the present cannot reject a stale event after a
+  replay, and it cannot derive that time from anything else on the message.
+  Found while designing the platform's first consumer, which is the first thing
+  that would have had to live with it.
+- **Impact:** the wire body gains `occurredAt` (the outbox row's `created_at` —
+  when the state change committed, never when the relay ran). Field order now
+  follows ADR 0008's table. No API of Core's own changes, and no schema change:
+  `orchestration.outbox_events` already carried `tenant_id`, `epoch` and
+  `created_at`.
+- **Supersedes:** "the library carries events, not schemas, so wrapping is the
+  service's job and stays here" — the comment in Core's relay that made the
+  divergence structural. Wrapping is now the library's job precisely because two
+  services each doing it produced two envelopes.
+- **Tests:** `PlatformEnvelopeTest`, `PublishersSendTheEnvelopeTest`
+  (`libs/events`). Core's 97-test app suite and 39-test orchestration suite are
+  green, including `OutboxTest`'s interleaved-commit case.
+- **Migration:** none.
+
+*Unrelated but found in the same pass, and recorded so it is not rediscovered:
+`architecture.md` documents a `transfer.reversed` event that the code does not
+emit — the reversal path emits `transfer.reversal_initiated`. Doc and code
+disagree; settling which is right is its own amendment, not this one.*
+
+---
+
+## [1.4.0] — 2026-08-06 · MINOR
+
+**Publishers move to `libs/events`; RabbitMQ arrives as a consequence.**
+
+- **Docs:** `design.md`, `architecture.md`
+- **Why:** v1.3 recorded the duplication as deliberate and named its trigger. The
+  trigger fired immediately — adding Core's Kafka adapter made two
+  implementations of one idea concrete rather than hypothetical.
+- **Impact:** internal, plus a configuration rename: the backbone is chosen by
+  `fincore.events.broker` for every service. RabbitMQ now works for Core without
+  a line of Core code, which is the point of the seam.
+- **Supersedes:** the v1.3 note deferring the extraction, and Core's
+  single-event publisher signature. The library took the ledger's
+  batch-with-acknowledgements shape: a batch where the third send fails must
+  still mark the first two published, or one unlucky event stalls everything
+  behind it forever. Core's relay now marks published exactly what the broker
+  acknowledged.
+- **Tests:** `OutboxTest` unchanged in intent and passing against the new shape;
+  `ModuleBoundaryTest` states that a shared library is not another deployable.
+- **Migration:** none.
+
+*Broker health indicators are disabled deliberately. A broker outage delays
+delivery and must never make the service unhealthy — that is the entire reason
+events are written to an outbox first, and readiness must not follow a dependency
+the write path does not have.*
+
+---
+
+## [1.3.0] — 2026-08-06 · MINOR
+
+**The operator surface exists, and events can reach a broker.**
+
+- **Docs:** `design.md`
+- **Why:** approvals and the unresolved-outcome queue were in `api.md` and
+  reachable only from code, which left an operator with no way to do their job
+  except through the database. Core's relay likewise had only a logging adapter,
+  so `transfer.completed` was written and relayed to nowhere.
+- **Impact:** additive. New endpoints under `/v1/approvals` and `/v1/ops`; a
+  Kafka publisher selected by `fincore.core.events.broker=kafka`, with the
+  logging adapter still the default so a developer without a broker gets a
+  working system rather than a startup failure.
+- **Supersedes:** nothing.
+- **Tests:** `OpsApiTest` — including that **no endpoint accepts an outcome**.
+  `resolve` asks Core to try again and lets the Ledger answer; the moment an
+  operator can assert what happened, the outcome protocol's central guarantee
+  becomes advisory. That test is the one that should have to be deleted, visibly,
+  before such a parameter could ever be added.
+- **Migration:** none.
+
+*Also records why the publisher adapters remain duplicated with the ledger's
+rather than extracted to `libs/`: the two abstractions differ — batch-with-acks
+against single-throw — so unifying them is a contract change to two AGREED
+designs and belongs in its own PR.*
 
 ---
 

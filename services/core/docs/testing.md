@@ -1,6 +1,6 @@
 # Core — Invariants & Test Strategy
 
-**Status:** AGREED v1.3 (2026-08-06) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
+**Status:** AGREED v1.8 (2026-08-06) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
 
 **Every suite below is unimplemented, because the service does not exist yet.**
 Markers (`IMPLEMENTED` / `PARTIAL` / `DEFERRED`) become meaningful when code
@@ -84,6 +84,26 @@ classification in [`outcome-protocol.md`](outcome-protocol.md) exactly. The
 connection-refused/read-timeout pair is explicitly tested, because a client
 library that collapses them into one exception type silently removes the
 distinction the whole protocol depends on.
+
+**API surface catalog.** *(IMPLEMENTED — `ApiSurfaceCatalogTest`.)* Parses the
+endpoint table in [`api.md`](api.md) and the generated OpenAPI document, and
+asserts each contains the other. Modelled on the Ledger's
+`ErrorCodeCatalogTest`, and added because the absence of it was expensive:
+`api.md` documented sixteen endpoints while six existed, and the only surface
+assertion in the suite was a positive spot-check for two known paths. **A
+positive check cannot find an absence** — that is the whole lesson, and it
+generalises past this file. Carries an empty-set canary, because a parser that
+silently stops matching turns a bidirectional check into a decoration that
+passes.
+
+**Administrative-surface suites.** *(IMPLEMENTED — `CustomerApiTest`,
+`ProductApiTest`, `CashAndReversalApiTest`.)* Over real HTTP, through the whole
+filter chain. Two assertions carry more weight than the rest: a KYC tier change
+is refused without a reason and recorded in an append-only trail, and the author
+of a product version cannot publish it. Both are money controls — a tier is a
+ceiling, a product version holds the fee and the limit — so both are written as
+tests that must be deleted deliberately and visibly if anyone ever decides
+otherwise.
 
 **Ledger contract suite.** *(IMPLEMENTED — `LedgerContractTest`, tagged
 `contract` and excluded from the default build.)* Against the **real** Ledger,

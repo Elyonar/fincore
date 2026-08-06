@@ -7,6 +7,7 @@ import org.elyonar.fincore.auth.NotAuthorizedException;
 import org.elyonar.fincore.core.orchestration.api.CoreException;
 import org.elyonar.fincore.core.orchestration.api.DetailKey;
 import org.elyonar.fincore.core.orchestration.api.ErrorCode;
+import org.elyonar.fincore.core.orchestration.internal.approval.ApprovalRecords;
 import org.elyonar.fincore.core.orchestration.internal.saga.TransferService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -83,6 +84,21 @@ public class ApiErrors {
     public ResponseEntity<ApiError> keyReused(TransferService.IdempotencyKeyReused e) {
         return ResponseEntity.status(HttpStatus.CONFLICT)
                 .body(ApiError.of(ErrorCode.IDEMPOTENCY_KEY_REUSED.code(), e.getMessage()));
+    }
+
+    /**
+     * The approval does not authorise this reversal — wrong target, wrong amount, unapproved, or
+     * already spent. A 403: the request is well formed, the authority is not there.
+     *
+     * <p>The message says which of the four it was, and stays in the log. A caller is told only
+     * that the authority was insufficient, because naming the discrepancy tells a prober what a
+     * valid approval would have to look like.
+     */
+    @ExceptionHandler(ApprovalRecords.ApprovalRejected.class)
+    public ResponseEntity<ApiError> approvalRejected(ApprovalRecords.ApprovalRejected e) {
+        log.debug("approval refused: {}", e.getMessage());
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(ApiError.of(ErrorCode.APPROVAL_INVALID.code(), "the approval does not authorise this reversal"));
     }
 
     @ExceptionHandler(NotAuthenticatedException.class)

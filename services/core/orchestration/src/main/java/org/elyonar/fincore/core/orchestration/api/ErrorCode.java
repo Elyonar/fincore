@@ -61,6 +61,12 @@ public enum ErrorCode {
     APPROVAL_REQUIRED,
     /** A reversal exists; the response carries its id. */
     ALREADY_REVERSED,
+    /**
+     * The approval does not authorise this reversal — wrong target, wrong amount, unapproved, or
+     * already spent. Which of the four stays in the log: naming it would tell a prober what a
+     * valid approval must look like.
+     */
+    APPROVAL_INVALID,
 
     // ---- the outcome protocol -------------------------------------------------------
     /**

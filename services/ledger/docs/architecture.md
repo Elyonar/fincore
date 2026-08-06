@@ -1,6 +1,6 @@
 # Ledger — Architecture & Boundaries
 
-**Status:** AGREED v1.5 (2026-08-06) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
+**Status:** AGREED v1.6 (2026-08-06) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
 
 ## The shape
 
@@ -92,6 +92,15 @@ The relay contract (the naive version loses events — this is binding):
 - Retention: published rows are purged after 30 days. The ledger's entries
   are the 7-year audit record; the outbox is a delivery queue and must never
   become a second, unaudited event archive.
+
+**The envelope — ADR 0008, rendered by `libs/events` for every publisher.** Each
+message body is
+`{eventId, eventType, aggregateId, tenantId, occurredAt, epoch, payload}`, with
+the thin domain payload nested under `payload`. `eventId` is the outbox row id
+and the deduplication key; `occurredAt` is when the state change committed, not
+when the relay ran; `epoch` is the restore generation. One renderer rather than
+one instruction per service, because two services each assembling "the same"
+JSON is how the platform briefly had two envelopes (CHANGELOG v1.7).
 
 | Event emitted | When | Payload |
 |---|---|---|

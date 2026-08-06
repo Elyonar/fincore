@@ -1,6 +1,6 @@
 # Core — Design Index & Decision Log
 
-**Status:** AGREED v1.3 (2026-08-06) — implemented from here; amendments via
+**Status:** AGREED v1.8 (2026-08-06) — implemented from here; amendments via
 [`CHANGELOG.md`](CHANGELOG.md) and the [design-change convention](../../../docs/conventions/design-changes.md).
 **Source:** platform PRD §4.2 (Customer), §4.3 (Product), §4.4 (Orchestration),
 §3 (constitution), §5 (communication map), §6 (security), §7 (NFRs), §8
@@ -315,6 +315,16 @@ simplification rather than a considered home. The trigger to revisit is the
 teller application: whether Branch becomes a fourth Core module or part of that
 service is decided **before it starts**, not after `tills` has grown three
 neighbours.
+
+**The publisher adapters are duplicated with the ledger's, deliberately, for
+now.** Both services now carry Kafka and logging publishers, so the `libs/`
+extraction bar is met on paper. It is not done yet because the two abstractions
+genuinely differ: the ledger publishes a *batch* and returns the ids the broker
+acknowledged, so an unacknowledged event stays pending; Core publishes one event
+and throws. Unifying them changes a documented relay contract in two AGREED
+designs and deserves its own PR with an amendment on each side, rather than
+being folded into unrelated work. The trigger is a third publisher, or the first
+time the two drift apart in behaviour.
 
 ## Open questions
 

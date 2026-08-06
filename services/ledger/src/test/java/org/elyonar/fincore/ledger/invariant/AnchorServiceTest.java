@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.elyonar.fincore.ledger.posting.EntryLine.Direction.CREDIT;
 import static org.elyonar.fincore.ledger.posting.EntryLine.Direction.DEBIT;
 
+import java.time.Duration;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
@@ -66,12 +67,51 @@ class AnchorServiceTest extends LedgerPostgresTest {
                         null, null, reason));
     }
 
+    /**
+     * Captures, having waited for the quiesce horizon to reach the entries just posted.
+     *
+     * <p>The horizon is {@code pg_snapshot_xmin}, and transaction ids are <strong>cluster-wide</strong>:
+     * any transaction open anywhere in the PostgreSQL instance — another test context's scheduler, a
+     * service running against a different database in the same container — holds the horizon below
+     * entries this test has already committed. {@link AnchorService#captureFor} then anchors nothing
+     * and returns zero, which is not a bug. It is the documented guarantee: the horizon lags live
+     * traffic and never overtakes it, because that is the only safe direction for the error to point.
+     *
+     * <p>What was wrong was this test assuming the horizon had already advanced by the time it
+     * asserted. That holds on an idle cluster and fails under concurrent load, which is why these
+     * failures were intermittent rather than reproducible — the worst shape for a suite to have,
+     * since it trains people to re-run rather than read.
+     *
+     * <p>Fails at the deadline instead of returning zero. A capture that quietly anchored nothing is
+     * precisely the outcome these tests exist to catch.
+     */
+    private int captureOnceSettled(LocalDate on) {
+        long deadline = System.nanoTime() + Duration.ofSeconds(20).toNanos();
+        while (true) {
+            int written = anchors.captureFor(tenant, on);
+            if (written > 0) {
+                return written;
+            }
+            if (System.nanoTime() > deadline) {
+                throw new AssertionError(
+                        "the quiesce horizon never advanced past this test's entries within 20s;"
+                                + " something is holding a transaction open in this PostgreSQL cluster");
+            }
+            try {
+                Thread.sleep(50);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new AssertionError("interrupted awaiting the quiesce horizon", e);
+            }
+        }
+    }
+
     @Test
     @DisplayName("an anchor records the balance proven at its bound")
     void anchor_records_a_proven_balance() {
         post("tx-1", 500_00, null, null);
 
-        assertThat(anchors.captureFor(tenant, LocalDate.now())).isEqualTo(2);
+        assertThat(captureOnceSettled(LocalDate.now())).isEqualTo(2);
 
         assertThat(db.count("SELECT balance_minor FROM balance_anchors WHERE account_id = ?", customer))
                 .isEqualTo(500_00);
@@ -82,7 +122,9 @@ class AnchorServiceTest extends LedgerPostgresTest {
     @DisplayName("anchor plus later entries equals the current balance")
     void incremental_check_uses_only_the_delta() {
         post("tx-1", 500_00, null, null);
-        anchors.captureFor(tenant, LocalDate.now());
+        // Awaited, not assumed: with no anchor written this assertion passes vacuously, since a
+        // check with nothing to reconcile also reports no findings.
+        captureOnceSettled(LocalDate.now());
 
         post("tx-2", 250_00, null, null);
 
@@ -97,7 +139,7 @@ class AnchorServiceTest extends LedgerPostgresTest {
     @DisplayName("a balance that drifts from anchor plus delta is caught")
     void drift_from_anchor_is_caught() {
         post("tx-1", 500_00, null, null);
-        anchors.captureFor(tenant, LocalDate.now());
+        captureOnceSettled(LocalDate.now());
         post("tx-2", 250_00, null, null);
 
         db.execute("UPDATE balances SET current_minor = current_minor + 999 WHERE account_id = ?", customer);
@@ -115,7 +157,7 @@ class AnchorServiceTest extends LedgerPostgresTest {
     @DisplayName("a backdated posting cannot falsify an anchor already taken")
     void backdating_cannot_falsify_an_anchor() {
         post("tx-1", 500_00, null, null);
-        anchors.captureFor(tenant, LocalDate.now());
+        captureOnceSettled(LocalDate.now());
         long anchoredBalance =
                 db.count("SELECT balance_minor FROM balance_anchors WHERE account_id = ?", customer);
 
@@ -137,7 +179,7 @@ class AnchorServiceTest extends LedgerPostgresTest {
         post("tx-1", 500_00, null, null);
         LocalDate today = LocalDate.now();
 
-        assertThat(anchors.captureFor(tenant, today)).isEqualTo(2);
+        assertThat(captureOnceSettled(today)).isEqualTo(2);
         post("tx-2", 250_00, null, null);
 
         assertThat(anchors.captureFor(tenant, today))
@@ -151,7 +193,7 @@ class AnchorServiceTest extends LedgerPostgresTest {
     @DisplayName("an anchor cannot be edited or deleted")
     void anchors_are_immutable() {
         post("tx-1", 500_00, null, null);
-        anchors.captureFor(tenant, LocalDate.now());
+        captureOnceSettled(LocalDate.now());
 
         assertThatThrownBy(() -> db.execute("UPDATE balance_anchors SET balance_minor = 1 WHERE tenant_id = ?", tenant))
                 .hasMessageContaining("append-only");
@@ -163,7 +205,8 @@ class AnchorServiceTest extends LedgerPostgresTest {
     @DisplayName("anchors are tenant-scoped like everything else")
     void anchors_are_tenant_scoped() {
         post("tx-1", 500_00, null, null);
-        anchors.captureFor(tenant, LocalDate.now());
+        // Likewise: "they see no anchors" proves isolation only once anchors exist to be hidden.
+        captureOnceSettled(LocalDate.now());
 
         UUID otherTenant = UUID.randomUUID();
         try (TenantSession theirs = TenantSession.open(dataSource, otherTenant)) {

@@ -2,6 +2,10 @@ package org.elyonar.fincore.ledger.outbox;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import org.elyonar.fincore.events.EventPublisher;
+import org.elyonar.fincore.events.KafkaEventPublisher;
+import org.elyonar.fincore.events.LoggingEventPublisher;
+import org.elyonar.fincore.events.RabbitEventPublisher;
 import org.elyonar.fincore.ledger.support.LedgerPostgresTest;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -25,9 +29,9 @@ class PublisherSelectionTest {
     }
 
     @Nested
-    @DisplayName("with ledger.events.broker=kafka")
+    @DisplayName("with fincore.events.broker=kafka")
     @TestPropertySource(
-            properties = {"ledger.events.broker=kafka", "spring.kafka.bootstrap-servers=localhost:29092"})
+            properties = {"fincore.events.broker=kafka", "spring.kafka.bootstrap-servers=localhost:29092"})
     class WithKafka extends LedgerPostgresTest {
         @Autowired EventPublisher publisher;
 
@@ -41,8 +45,8 @@ class PublisherSelectionTest {
     }
 
     @Nested
-    @DisplayName("with ledger.events.broker=rabbit")
-    @TestPropertySource(properties = {"ledger.events.broker=rabbit", "spring.rabbitmq.host=localhost"})
+    @DisplayName("with fincore.events.broker=rabbit")
+    @TestPropertySource(properties = {"fincore.events.broker=rabbit", "spring.rabbitmq.host=localhost"})
     class WithRabbit extends LedgerPostgresTest {
         @Autowired EventPublisher publisher;
 

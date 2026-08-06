@@ -121,7 +121,7 @@ class ReversalTest {
                             UUID versionId =
                                     productDb.queryForObject(
                                             "INSERT INTO product.product_versions (tenant_id, product_id, version,"
-                                                    + " status, published_by) VALUES (?,?,1,'PUBLISHED','a') RETURNING id",
+                                                    + " status, created_by, published_by) VALUES (?,?,1,'PUBLISHED','user:author','user:publisher') RETURNING id",
                                             UUID.class, tenantId, productId);
                             productDb.update(
                                     "INSERT INTO product.limit_rules (tenant_id, product_version_id, kyc_tier,"

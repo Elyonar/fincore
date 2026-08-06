@@ -31,5 +31,18 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-jdbc</artifactId>
         </dependency>
+
+        <!--
+            OpenAPI annotations only, never the springdoc starter. This module contributes
+            controllers to Core's document but serves no document of its own — the starter lives
+            in services/core/app, which is the deployable. Version matches what springdoc 3.1.0
+            resolves there; a second copy at a different version would put two incompatible
+            annotation classes on one classpath.
+        -->
+        <dependency>
+            <groupId>io.swagger.core.v3</groupId>
+            <artifactId>swagger-annotations-jakarta</artifactId>
+            <version>2.2.52</version>
+        </dependency>
     </dependencies>
 </project>

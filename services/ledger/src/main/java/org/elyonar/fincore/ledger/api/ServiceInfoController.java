@@ -1,5 +1,6 @@
 package org.elyonar.fincore.ledger.api;
 
+import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.Map;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -16,6 +17,7 @@ import org.springframework.web.bind.annotation.RestController;
  * root is read by more people than its configuration is, so nothing here names a tenant, an
  * account, or a setting.
  */
+@Tag(name = "Service", description = "Identity, health and documentation links")
 @RestController
 public class ServiceInfoController {
 

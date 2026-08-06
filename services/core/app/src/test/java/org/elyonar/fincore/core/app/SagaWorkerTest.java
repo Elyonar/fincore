@@ -121,8 +121,9 @@ class SagaWorkerTest {
                                             UUID.class, tenantId);
                             UUID versionId =
                                     productDb.queryForObject(
-                                            "INSERT INTO product.product_versions (tenant_id, product_id, version, status, published_by)"
-                                                    + " VALUES (?,?,1,'PUBLISHED','admin') RETURNING id",
+                                            "INSERT INTO product.product_versions (tenant_id, product_id, version, status,"
+                                                    + " created_by, published_by)"
+                                                    + " VALUES (?,?,1,'PUBLISHED','user:author','admin') RETURNING id",
                                             UUID.class, tenantId, productId);
                             productDb.update(
                                     "INSERT INTO product.limit_rules (tenant_id, product_version_id, kyc_tier, channel,"

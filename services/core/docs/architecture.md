@@ -1,6 +1,6 @@
 # Core — Architecture & Boundaries
 
-**Status:** AGREED v1.3 (2026-08-06) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
+**Status:** AGREED v1.8 (2026-08-06) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
 
 ## The shape
 
@@ -97,7 +97,10 @@ orphan posting nobody recorded.
 
 **Published**, per [ADR 0008](../../../docs/adr/0008-event-contract.md), each
 module writing to its own outbox table in its own schema, in the same
-transaction as the state change:
+transaction as the state change. The envelope —
+`{eventId, eventType, aggregateId, tenantId, occurredAt, epoch, payload}` — is
+rendered by `libs/events`, not here: two services each assembling it produced
+two different shapes, which is the divergence CHANGELOG v1.5 closed.
 
 | Event | Module | When |
 |---|---|---|

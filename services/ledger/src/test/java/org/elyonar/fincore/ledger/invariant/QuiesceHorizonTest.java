@@ -5,6 +5,7 @@ import static org.elyonar.fincore.ledger.posting.EntryLine.Direction.CREDIT;
 import static org.elyonar.fincore.ledger.posting.EntryLine.Direction.DEBIT;
 
 import java.sql.Connection;
+import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
 import javax.sql.DataSource;
@@ -68,11 +69,46 @@ class QuiesceHorizonTest extends LedgerPostgresTest {
                                 new EntryLine(b, CREDIT, amount, "NGN", null))));
     }
 
+    /**
+     * Waits for the horizon to reach {@code target}, and reports what it saw if it never does.
+     *
+     * <p>Transaction ids are cluster-wide, so an unrelated transaction open anywhere in this
+     * PostgreSQL instance — another test context's scheduler, a service running against a different
+     * database in the same container — holds the horizon below entries this test has already
+     * committed. That is the guarantee working, not failing: it lags live traffic and never
+     * overtakes it. Asserting on the horizon without first waiting for it tests the machine's
+     * idleness rather than the ledger's correctness, and fails intermittently in exactly the way
+     * that teaches people to re-run a suite instead of reading it.
+     *
+     * <p>The waiting belongs only where the test needs the horizon to have <em>advanced</em>. The
+     * assertions about it <em>not</em> advancing past an in-flight writer are left to read the
+     * horizon directly — waiting there would weaken the very property under test.
+     */
+    private void awaitBoundAtLeast(long target) {
+        long deadline = System.nanoTime() + Duration.ofSeconds(20).toNanos();
+        while (horizon.settledEntryIdBound(tenant).orElse(-1L) < target) {
+            if (System.nanoTime() > deadline) {
+                throw new AssertionError(
+                        "the horizon never reached entry id " + target + " within 20s (stalled at "
+                                + horizon.settledEntryIdBound(tenant).orElse(-1L)
+                                + "); something is holding a transaction open in this cluster");
+            }
+            try {
+                Thread.sleep(50);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new AssertionError("interrupted awaiting the quiesce horizon", e);
+            }
+        }
+    }
+
     @Test
     @DisplayName("committed entries fall below the horizon")
     void committed_entries_are_settled() {
         post("tx-1", 100_00);
         long committedMax = db.count("SELECT MAX(id) FROM entries WHERE tenant_id = ?", tenant);
+
+        awaitBoundAtLeast(committedMax);
 
         assertThat(horizon.settledEntryIdBound(tenant))
                 .isPresent()
@@ -84,6 +120,11 @@ class QuiesceHorizonTest extends LedgerPostgresTest {
     @DisplayName("the horizon never advances past an entry whose writer is still in flight")
     void horizon_excludes_in_flight_writers() throws Exception {
         post("tx-before", 100_00);
+        // Settle this one first, so the slow writer below is unambiguously the oldest transaction
+        // pinning the horizon. Without it, an unrelated older transaction elsewhere in the cluster
+        // could commit mid-test and let the bound move for a reason that has nothing to do with the
+        // writer this test is about — the assertion would then be measuring the wrong thing.
+        awaitBoundAtLeast(db.count("SELECT MAX(id) FROM entries WHERE tenant_id = ?", tenant));
 
         try (Connection slow = dataSource.getConnection()) {
             slow.setAutoCommit(false);
@@ -121,8 +162,9 @@ class QuiesceHorizonTest extends LedgerPostgresTest {
 
         // With the slow writer finished, the horizon is free to move again.
         post("tx-after", 25_00);
-        long finalBound = horizon.settledEntryIdBound(tenant).orElse(0L);
         long allEntries = db.count("SELECT MAX(id) FROM entries WHERE tenant_id = ?", tenant);
+        awaitBoundAtLeast(allEntries - 2);
+        long finalBound = horizon.settledEntryIdBound(tenant).orElse(0L);
         assertThat(finalBound)
                 .as("it lags live traffic and never overtakes it — the only safe direction")
                 .isGreaterThanOrEqualTo(allEntries - 2);

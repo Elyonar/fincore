@@ -32,14 +32,20 @@ COPY pom.xml .
 # and Core were added, the ledger's image kept copying only its own POM, and
 # `docker compose up` failed on a service whose own code had not changed.
 COPY libs/auth/pom.xml libs/auth/pom.xml
+COPY libs/events/pom.xml libs/events/pom.xml
 COPY services/ledger/pom.xml services/ledger/pom.xml
 COPY services/core/pom.xml services/core/pom.xml
 COPY services/core/customer/pom.xml services/core/customer/pom.xml
 COPY services/core/product/pom.xml services/core/product/pom.xml
 COPY services/core/orchestration/pom.xml services/core/orchestration/pom.xml
 COPY services/core/app/pom.xml services/core/app/pom.xml
+COPY services/notification/pom.xml services/notification/pom.xml
 RUN chmod +x mvnw && ./mvnw -B -pl services/ledger -am dependency:go-offline
 
+# The library's sources too, now that the relay's publishers live there. The ledger never
+# depended on a library before, so this file only ever copied its own tree — the same class of
+# omission as the POM list above, and it fails the same way: a build of code that did not change.
+COPY libs/events/src libs/events/src
 COPY services/ledger/src services/ledger/src
 RUN ./mvnw -B -pl services/ledger -am clean package -DskipTests \
  && cp services/ledger/target/ledger-*.jar /build/ledger.jar

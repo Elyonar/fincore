@@ -12,7 +12,9 @@ import java.util.TreeSet;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import org.elyonar.fincore.core.customer.api.CustomerErrorCode;
 import org.elyonar.fincore.core.product.api.ProductDecision;
+import org.elyonar.fincore.core.product.api.ProductErrorCode;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -41,8 +43,7 @@ class ErrorCodeCatalogTest {
     void everyCodeIsDocumented() throws IOException {
         String doc = doc();
         Set<String> undocumented =
-                Arrays.stream(ErrorCode.values())
-                        .map(ErrorCode::code)
+                allCoreCodes().stream()
                         .filter(code -> !doc.contains("`" + code + "`"))
                         .collect(Collectors.toCollection(TreeSet::new));
 
@@ -70,7 +71,7 @@ class ErrorCodeCatalogTest {
     @DisplayName("the catalog documents nothing that no longer exists")
     void noPhantomEntries() throws IOException {
         Set<String> known = new TreeSet<>(reasonConstants());
-        Arrays.stream(ErrorCode.values()).map(ErrorCode::code).forEach(known::add);
+        known.addAll(allCoreCodes());
 
         // Non-error vocabulary comes from the enums that define it, never a hand-kept list, so
         // adding a saga state or a product refusal can never read as an undocumented error code.
@@ -116,10 +117,24 @@ class ErrorCodeCatalogTest {
                                         .contains(name));
     }
 
+    /**
+     * Every code Core can return, across all three modules.
+     *
+     * <p>Core is one deployable holding several modules, and each owns its own catalog — a shared
+     * enum would make every module compile against Orchestration (ADR 0006). The published API is
+     * still one surface, so the doc is one table and this test unions the three.
+     */
+    private static Set<String> allCoreCodes() {
+        return Stream.of(ErrorCode.values(), CustomerErrorCode.values(), ProductErrorCode.values())
+                .flatMap(Arrays::stream)
+                .map(Enum::name)
+                .collect(Collectors.toCollection(TreeSet::new));
+    }
+
     @Test
     @DisplayName("the catalog is not vacuously satisfied")
     void notVacuous() {
-        assertThat(ErrorCode.values()).hasSizeGreaterThan(10);
+        assertThat(allCoreCodes()).hasSizeGreaterThan(20);
         assertThat(reasonConstants()).hasSizeGreaterThan(10);
     }
 

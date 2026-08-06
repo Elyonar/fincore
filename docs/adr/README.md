@@ -16,3 +16,4 @@ Numbered, never deleted; superseded ADRs are marked as such.
 | 0008 | One event envelope for the whole platform | Accepted |
 | 0009 | Authenticated service callers; the ledger enforces its own allowlist | Accepted |
 | 0010 | One Keycloak realm per tenant, and identity lands before Core | Accepted |
+| 0011 | The platform's first event consumer is built before Phase 3 | Accepted |

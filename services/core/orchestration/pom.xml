@@ -41,6 +41,16 @@
             <artifactId>spring-boot-starter-jdbc</artifactId>
         </dependency>
 
+        <!--
+            The shared backbone adapters. The broker is a runtime choice; this module holds no
+            broker type at all (ADR 0005, libs/events).
+        -->
+        <dependency>
+            <groupId>org.elyonar</groupId>
+            <artifactId>events</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>

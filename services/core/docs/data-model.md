@@ -1,6 +1,6 @@
 # Core — Data Model
 
-**Status:** AGREED v1.3 (2026-08-06) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
+**Status:** AGREED v1.8 (2026-08-06) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
 
 One database, three schemas, one database role per schema. Amounts are integer
 minor units (`BIGINT`), `tenant_id` on **every** row.
@@ -177,6 +177,7 @@ erDiagram
 ```mermaid
 erDiagram
     CUSTOMERS ||--o{ CUSTOMER_ACCOUNTS : "holds"
+    CUSTOMERS ||--o{ CUSTOMER_TIER_CHANGES : "was re-tiered by"
 
     CUSTOMERS {
         uuid id PK
@@ -186,6 +187,7 @@ erDiagram
         text kyc_tier "TIER_1 TIER_2 TIER_3. framework. not hardcoded logic"
         text full_name "PII. field-level encryption"
         text phone "PII. field-level encryption"
+        text created_by "which member of staff entered this person"
         timestamptz created_at
         timestamptz updated_at
     }
@@ -198,6 +200,16 @@ erDiagram
         text role "PRIMARY SAVINGS"
         timestamptz linked_at
         timestamptz unlinked_at
+    }
+    CUSTOMER_TIER_CHANGES {
+        uuid id PK
+        uuid tenant_id
+        uuid customer_id FK
+        text from_tier
+        text to_tier
+        text reason "required. the question actually asked afterwards"
+        text changed_by
+        timestamptz changed_at
     }
     OUTBOX_EVENTS {
         bigint id PK
@@ -220,6 +232,21 @@ erDiagram
 - `customer_accounts` is the customer↔ledger mapping. The Ledger holds only an
   opaque `customer_ref` and knows nothing about people; this table is where the
   association actually lives.
+- **One live holder per account, as a partial unique index** on
+  `(tenant_id, ledger_account_id) WHERE unlinked_at IS NULL`. It was first
+  written as `UNIQUE (tenant_id, ledger_account_id, unlinked_at)` and did not
+  work: a live link has `unlinked_at IS NULL`, PostgreSQL treats NULLs as
+  distinct in a UNIQUE constraint, and two live holders inserted happily. The
+  distinction matters because `holdsAccount` is asked on every transfer and
+  every cash operation, and with two rows "who holds this account" has two
+  answers. Unlinked history stays unconstrained — an account may be held,
+  released and held again, and each of those is a real row (customer `V4`).
+- `customer_tier_changes` is **append-only**, enforced by trigger. A KYC tier is
+  the ceiling on what someone may move, so a tier change is a limit change; a
+  reason is required, and a change to the tier already in force is refused
+  rather than recorded so the trail is not padded with non-events. It lives here
+  rather than in a platform-wide audit log because it is PII-adjacent and
+  belongs on this side of the boundary (ADR 0006).
 
 ## Schema `product`
 
@@ -244,7 +271,8 @@ erDiagram
         int version "append-only"
         text status "DRAFT PUBLISHED"
         timestamptz effective_from "decides which version is live"
-        text published_by "maker-checker attribution"
+        text created_by "the maker. required"
+        text published_by "the checker. must differ from created_by"
         timestamptz created_at
     }
     FEE_RULES {
@@ -278,6 +306,19 @@ erDiagram
   percentage applied to money is a money calculation and hard rule 1 applies.
 - `product_versions` is **append-only**. A published version is never edited; a
   change is a new version. Signed-off configuration must stay reconstructible.
+  The trigger enforcing this is not a formality: it refused the first draft of
+  the migration that added `created_by`, which had tried to backfill published
+  rows with an `UPDATE`. A migration is exactly the privileged path that quietly
+  edits signed-off configuration, and it was stopped like any other writer.
+- **The publisher of a version may not be its author** —
+  `publisher_differs_from_author`, mirroring `checker_differs_from_maker` on
+  `orchestration.approvals` because it is the same rule about a different
+  subject. Fees and limits live in a product version, so one person drafting and
+  publishing alone can raise a ceiling and price against it unsupervised. The
+  control is not in Orchestration's `approvals` table: Product may not depend on
+  Orchestration, and an approval there is bound to a saga id and an amount,
+  neither of which a version has. Two names on one row is the whole mechanism
+  the property needs.
 - v0 implements FLAT and PERCENT fees and PER_TXN/DAILY limits only. The
   declarative rule model in PRD §4.3 (tiered, capped, per-event, interest
   accrual) is deliberately deferred — recorded as a decision in

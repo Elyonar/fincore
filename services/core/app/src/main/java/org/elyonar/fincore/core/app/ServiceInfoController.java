@@ -1,5 +1,6 @@
 package org.elyonar.fincore.core.app;
 
+import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.Map;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -16,6 +17,7 @@ import org.springframework.web.bind.annotation.RestController;
  * <p>Deliberately unauthenticated, and deliberately empty of anything worth protecting — a name, a
  * version, and links. Nothing here reveals a tenant, a customer, or a configuration value.
  */
+@Tag(name = "Service", description = "Identity, health and documentation links")
 @RestController
 public class ServiceInfoController {
 

@@ -23,8 +23,10 @@ import org.springframework.stereotype.Component;
  * uncapped sums that can exceed 2^53, and a consumer parsing events must not disagree with a
  * consumer parsing responses.
  *
- * <p>Every payload carries {@code ledgerEpoch} for the restore protocol, and {@code outboxId}
- * reaches consumers as the message id or header so they can deduplicate.
+ * <p>Identity, tenancy, time and the restore generation are <em>not</em> payload fields. They are
+ * the platform envelope (ADR 0008), assembled by {@code libs/events} from this row's own columns
+ * so that every publisher on the platform emits one shape. Putting them in the payload too would
+ * give a consumer two places to read one fact, and eventually two answers.
  */
 @Component
 public class OutboxWriter {
@@ -38,21 +40,16 @@ public class OutboxWriter {
     }
 
     public void write(UUID tenantId, LedgerEvent event, UUID aggregateId, Map<String, Object> payload) {
-        Map<String, Object> body = new LinkedHashMap<>(payload);
-        body.put("tenantId", tenantId.toString());
-        body.put("aggregateId", aggregateId.toString());
-        // The restore generation. A consumer discards anything from an epoch newer than the one it
-        // was told to trust — without it, a post-restore replay is indistinguishable from ordinary
-        // at-least-once redelivery.
-        body.put("ledgerEpoch", epoch.value());
-
         jdbc.update(
-                "INSERT INTO outbox_events (tenant_id, event_type, aggregate_id, payload)"
-                        + " VALUES (?,?,?, CAST(? AS jsonb))",
+                "INSERT INTO outbox_events (tenant_id, event_type, aggregate_id, epoch, payload)"
+                        + " VALUES (?,?,?,?, CAST(? AS jsonb))",
                 tenantId,
                 event.wireName(),
                 aggregateId.toString(),
-                toJson(body));
+                // Stamped at write time, not at relay time: an event describes the generation it
+                // was born in, and a restore between the two must not relabel it.
+                epoch.value(),
+                toJson(new LinkedHashMap<>(payload)));
     }
 
     /**
