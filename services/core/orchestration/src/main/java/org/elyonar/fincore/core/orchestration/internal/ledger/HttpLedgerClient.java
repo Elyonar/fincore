@@ -39,8 +39,17 @@ public class HttpLedgerClient implements LedgerClient {
         this.json = json;
     }
 
+    /**
+     * The tenant header the Ledger scopes on.
+     *
+     * <p>Interim, and the Ledger says so too: until Identity issues tokens the tenant arrives in a
+     * header, which is not authentication. It is read in exactly one place on each side, so
+     * replacing it with a propagated identity later touches this constant and nothing else.
+     */
+    private static final String TENANT_HEADER = "X-Tenant-Id";
+
     @Override
-    public LedgerOutcome post(LedgerPosting posting) {
+    public LedgerOutcome post(UUID tenantId, LedgerPosting posting) {
         if (!posting.balances()) {
             // Ours to catch. The Ledger would reject it, but an unbalanced posting is a Core defect
             // and it should surface as one rather than as a business error from downstream.
@@ -48,22 +57,24 @@ public class HttpLedgerClient implements LedgerClient {
                     "posting does not balance: debits=" + posting.totalFor(LedgerPosting.Direction.DEBIT)
                             + " credits=" + posting.totalFor(LedgerPosting.Direction.CREDIT));
         }
-        return exchange("/v1/transactions", body(posting));
+        return exchange(tenantId, "/v1/transactions", body(posting));
     }
 
     @Override
-    public LedgerOutcome reverse(UUID ledgerTransactionId, String idempotencyKey, String initiatedBy) {
+    public LedgerOutcome reverse(
+            UUID tenantId, UUID ledgerTransactionId, String idempotencyKey, String initiatedBy) {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("idempotencyKey", idempotencyKey);
         body.put("initiatedBy", initiatedBy);
-        return exchange("/v1/transactions/" + ledgerTransactionId + "/reverse", body);
+        return exchange(tenantId, "/v1/transactions/" + ledgerTransactionId + "/reverse", body);
     }
 
-    private LedgerOutcome exchange(String path, Map<String, Object> body) {
+    private LedgerOutcome exchange(UUID tenantId, String path, Map<String, Object> body) {
         try {
             var response =
                     http.post()
                             .uri(path)
+                            .header(TENANT_HEADER, tenantId.toString())
                             .body(body)
                             // Every status is handled here rather than thrown, so a 4xx and a 5xx
                             // travel the same code path into the classifier and cannot be
@@ -76,7 +87,14 @@ public class HttpLedgerClient implements LedgerClient {
                 return new LedgerOutcome.Unknown("unparseable 2xx body");
             }
             return OutcomeClassifier.ofResponse(
-                    response.status(), textAt(parsed, "code"), uuidAt(parsed, "transactionId", "reversalTransactionId"));
+                    response.status(),
+                    textAt(parsed, "code"),
+                    // `detail` last: the Ledger's error contract carries the relevant identifier
+                    // there, and on ALREADY_REVERSED that identifier is the winning reversal.
+                    // Without reading it the outcome classifies as UNKNOWN and a losing reversal
+                    // retries forever instead of settling — found by the contract suite, because a
+                    // stub answered with whatever field this client happened to look for.
+                    uuidAt(parsed, "transactionId", "reversalTransactionId", "detail"));
 
         } catch (RuntimeException e) {
             // Includes connect failures, read timeouts and resets. The classifier unwraps causes,

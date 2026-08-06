@@ -1,6 +1,6 @@
 # Core — Architecture & Boundaries
 
-**Status:** AGREED v1.1.1 (2026-08-06) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
+**Status:** AGREED v1.2 (2026-08-06) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
 
 ## The shape
 
@@ -158,6 +158,33 @@ Anything that writes to another deployable's database.
 | Durability | RPO ≤ 5 min, RTO ≤ 1 hr |
 | Horizontal scale | Stateless; all work claimed from the database with leases, never held in a JVM queue |
 | Saga liveness | No saga non-terminal beyond its SLA without an ops case |
+
+### Database connections under load
+
+One pool per module, each sized deliberately rather than left at the driver's
+default: the owner connection runs migrations and never serves a request, the
+worker and relay are background batch work, and the money path takes the largest
+share. A short connection-timeout on that path is **backpressure, not
+impatience** — a saturated pool must shed load as a 503 the caller retries
+rather than queue unboundedly behind a database that is already the bottleneck.
+Timing out *before* the Ledger call is safe by construction: nothing was sent,
+so the outcome protocol reads it as a definite failure rather than an unknown.
+
+Scaling out multiplies pools by instances, and a PostgreSQL connection is a
+backend process — throughput peaks at a couple of dozen *active* connections and
+degrades beyond it. So the answer at scale is a **transaction-mode pooler**, not
+a higher `max_connections`. This platform can use one, and that is not luck: two
+decisions taken for other reasons make it possible.
+
+- Tenant context is `SET LOCAL`, which is transaction-scoped. A session-level
+  `SET` — the obvious alternative until pooled-connection bleed ruled it out —
+  would make transaction pooling unusable.
+- No transaction is held across an outbound call, so a server connection is
+  never pinned for the duration of someone else's outage.
+
+Raising a database's connection ceiling is a local convenience for running the
+stack and the test suite together. It is not the production answer, and
+`compose.yaml` says so where it does exactly that.
 
 **These are targets, not measurements.** Nothing here has been benchmarked, and
 this table stays labelled as intent until it has been.

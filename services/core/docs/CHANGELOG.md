@@ -8,6 +8,36 @@ entry first.
 
 ---
 
+## [1.2.0] — 2026-08-06 · MINOR
+
+**The Ledger client carries the tenant, and the contract suite that found it is
+recorded.**
+
+- **Docs:** `testing.md`, `architecture.md`
+- **Why:** the contract suite ran against a real Ledger for the first time and
+  immediately found that the client never sent `X-Tenant-Id` — Core could not
+  talk to a real Ledger at all. Every other test in the module runs against a
+  stub, which proves what Core does with an answer but not that the answer is
+  the one the Ledger gives. It also found `ALREADY_REVERSED` classifying as
+  `UNKNOWN`, because the winning reversal's id arrives in `detail` rather than
+  the field the client read; a losing reversal would have retried forever.
+- **Impact:** internal. `LedgerClient` gains a tenant parameter on every call —
+  the tenant is not part of the money movement, it is whose movement it is, and
+  the Ledger scopes every query by it. No API of Core's own changes.
+- **Supersedes:** nothing.
+- **Tests:** `LedgerContractTest`, tagged `contract` and excluded from the
+  default build so it cannot pass by being absent.
+- **Migration:** none.
+
+*Also records the connection posture that was applied but undocumented: one pool
+per module sized deliberately rather than left at the driver default, a short
+connection-timeout on the money path as backpressure, and the reason a
+transaction-mode pooler is available to this platform — tenant context is
+`SET LOCAL` and no transaction is held across an outbound call. Raising a
+database's `max_connections` is a local convenience, not the production answer.*
+
+---
+
 ## [1.1.1] — 2026-08-06 · PATCH
 
 **Persistence approach recorded: JDBC in `orchestration`, deferred for the other

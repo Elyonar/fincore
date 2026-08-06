@@ -1,6 +1,6 @@
 # Core — Invariants & Test Strategy
 
-**Status:** AGREED v1.1.1 (2026-08-06) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
+**Status:** AGREED v1.2 (2026-08-06) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
 
 **Every suite below is unimplemented, because the service does not exist yet.**
 Markers (`IMPLEMENTED` / `PARTIAL` / `DEFERRED`) become meaningful when code
@@ -85,12 +85,35 @@ connection-refused/read-timeout pair is explicitly tested, because a client
 library that collapses them into one exception type silently removes the
 distinction the whole protocol depends on.
 
-**Ledger contract suite.** Against the **real** ledger from the compose stack,
-never a mock. A mocked ledger leaves the joint contract as unproven as it is
-today: same-key replay returns the original result; a 4xx is terminal; a
-deliberately duplicated key with a changed payload returns
-`IDEMPOTENCY_KEY_REUSED`; a fee-bearing transfer posts as one balanced
-transaction; `ALREADY_REVERSED` converges on the winner's id.
+**Ledger contract suite.** *(IMPLEMENTED — `LedgerContractTest`, tagged
+`contract` and excluded from the default build.)* Against the **real** Ledger,
+never a mock: same-key replay returns the original result; a 4xx is terminal; a
+duplicated key with changed money returns `IDEMPOTENCY_KEY_REUSED` classified as
+*our* bug; a fee-bearing three-entry transfer posts as one balanced transaction;
+`ALREADY_REVERSED` converges on the winner's id.
+
+```bash
+docker compose up -d ledger
+./mvnw -pl services/core/app -am -Pcontract test \
+       -Dfincore.contract.tenant-id=<a tenant registered in the Ledger>
+```
+
+Excluded from the default build rather than skipped at runtime. A test that
+quietly passes when its subject is absent is worse than one that is not run,
+because the report then says the contract was checked.
+
+**It earned itself on the first run**, which is the argument for writing it at
+all. Two defects that every stub-based test in this module was blind to:
+
+- **The client never sent `X-Tenant-Id`.** Core could not talk to a real Ledger
+  at all — every posting would have been refused. The stub accepted anything, so
+  nothing caught it.
+- **`ALREADY_REVERSED` classified as `UNKNOWN`.** The Ledger carries the winning
+  reversal's id in `detail`; the client looked only at `reversalTransactionId`.
+  A losing reversal would have retried forever instead of settling on the winner.
+
+Both are the same shape of failure: two services each internally consistent and
+wrong about the other. Neither service's own suite can see it.
 
 **Property-based suite.** Generated sequences of operations and injected
 outcomes — transfers, deposits, withdrawals, reversals, crashes, unknowns,

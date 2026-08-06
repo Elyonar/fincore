@@ -94,7 +94,9 @@ public class SagaWorker {
 
         LedgerOutcome outcome;
         try {
-            outcome = ledger.post(pending.postingUnder(IdempotencyKeys.forStep(sagaId, "post")));
+            outcome =
+                    ledger.post(
+                            pending.tenantId(), pending.postingUnder(IdempotencyKeys.forStep(sagaId, "post")));
         } catch (SagaRecords.Unretryable e) {
             // Nothing was sent, and nothing will be. Park it for a human rather than retrying a
             // saga that cannot be built — the reservation stays held, because whether the original
