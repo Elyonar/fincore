@@ -40,6 +40,27 @@ public class AuthProperties {
      */
     private String[] devProfiles = {"dev", "test", "local"};
 
+    /**
+     * Paths served before a caller is known.
+     *
+     * <p>Configuration rather than a constant, because which paths are public is a service's own
+     * decision — the library cannot know whether a given deployment exposes its API documentation.
+     * The defaults are the ones every service needs: a readiness probe an orchestrator can reach,
+     * a root that answers, and the generated documentation.
+     *
+     * <p>Deny by default still holds: anything not listed here requires a caller.
+     */
+    private String[] openPaths = {
+        "/",
+        "/actuator/health/**",
+        "/actuator/info",
+        "/docs",
+        "/docs/**",
+        "/swagger-ui/**",
+        "/v3/api-docs/**",
+        "/favicon.ico"
+    };
+
     public Mode getMode() {
         return mode;
     }
@@ -78,6 +99,14 @@ public class AuthProperties {
 
     public void setPermissionsClaim(String permissionsClaim) {
         this.permissionsClaim = permissionsClaim;
+    }
+
+    public String[] getOpenPaths() {
+        return openPaths;
+    }
+
+    public void setOpenPaths(String[] openPaths) {
+        this.openPaths = openPaths;
     }
 
     public String[] getDevProfiles() {

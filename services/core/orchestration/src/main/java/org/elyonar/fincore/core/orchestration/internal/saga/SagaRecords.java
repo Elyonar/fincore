@@ -463,6 +463,18 @@ public class SagaRecords {
     /** A saga found by its idempotency key, with the fingerprint that decides replay vs 409. */
     public record Existing(String fingerprint, TransferResult result) {}
 
+    /**
+     * The saga cannot be turned into a posting at all.
+     *
+     * <p>Distinct from an unknown outcome: an unknown is retried because the answer may arrive,
+     * whereas this will fail identically forever. Retrying it is not caution, it is a loop.
+     */
+    public static class Unretryable extends RuntimeException {
+        public Unretryable(String message) {
+            super(message);
+        }
+    }
+
     /** A completed transaction that may still be reversed, and what reversing it would undo. */
     public record Reversible(
             UUID id, long amountMinor, long feeMinor, String currency, UUID ledgerTransactionId) {}
@@ -515,6 +527,14 @@ public class SagaRecords {
                                             org.elyonar.fincore.core.orchestration.api.LedgerPosting.Direction.CREDIT,
                                             credit,
                                             currency)));
+            if (feeMinor > 0 && feeAccountId == null) {
+                // Unbuildable, and no amount of retrying changes that. Raised as its own type so
+                // the worker can tell "try again later" from "this will never work" — otherwise it
+                // loops forever on a saga it cannot possibly complete, which is what a real
+                // deployment did until this was added.
+                throw new Unretryable(
+                        "saga carries a fee of " + feeMinor + " but names no fee account");
+            }
             if (feeMinor > 0) {
                 entries.add(
                         new org.elyonar.fincore.core.orchestration.api.LedgerPosting.Entry(

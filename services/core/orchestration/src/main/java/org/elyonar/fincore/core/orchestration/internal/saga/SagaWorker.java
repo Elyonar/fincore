@@ -92,8 +92,17 @@ public class SagaWorker {
             return;
         }
 
-        LedgerOutcome outcome =
-                ledger.post(pending.postingUnder(IdempotencyKeys.forStep(sagaId, "post")));
+        LedgerOutcome outcome;
+        try {
+            outcome = ledger.post(pending.postingUnder(IdempotencyKeys.forStep(sagaId, "post")));
+        } catch (SagaRecords.Unretryable e) {
+            // Nothing was sent, and nothing will be. Park it for a human rather than retrying a
+            // saga that cannot be built — the reservation stays held, because whether the original
+            // attempt posted is still unknown.
+            log.error("saga {} cannot be rebuilt and will not be retried: {}", sagaId, e.getMessage());
+            sagas.escalate(pending.tenantId(), sagaId);
+            return;
+        }
 
         switch (outcome) {
             case LedgerOutcome.Success success -> {

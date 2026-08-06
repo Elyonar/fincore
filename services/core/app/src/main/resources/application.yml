@@ -6,6 +6,11 @@ spring:
   # is the owner's, used for migration and for anything cross-cutting; module datasources are
   # configured per module as they gain tables.
   datasource:
+    # The owner connection runs migrations at startup and never serves a request, so it holds one
+    # connection rather than a pool's worth for the life of the process.
+    hikari:
+      maximum-pool-size: 1
+      minimum-idle: 0
     url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:55432/core}
     username: ${SPRING_DATASOURCE_USERNAME:fincore}
     password: ${SPRING_DATASOURCE_PASSWORD:fincore}
@@ -28,22 +33,43 @@ fincore:
     # GRANT, not by convention (ADR 0006, ADR 0007).
     datasource:
       customer:
+        # Read-only inside Phase A and cheap; it does not need the request path's headroom.
+        maximum-pool-size: ${FINCORE_CUSTOMER_POOL:5}
+        minimum-idle: 1
+        connection-timeout: 3000
         jdbc-url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:55432/core}
         username: ${FINCORE_CUSTOMER_DB_USER:core_customer}
         password: ${FINCORE_CUSTOMER_DB_PASSWORD:core_customer}
       product:
+        maximum-pool-size: ${FINCORE_PRODUCT_POOL:5}
+        minimum-idle: 1
+        connection-timeout: 3000
         jdbc-url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:55432/core}
         username: ${FINCORE_PRODUCT_DB_USER:core_product}
         password: ${FINCORE_PRODUCT_DB_PASSWORD:core_product}
       relay:
+        # Background batch work. One connection is enough; several instances relay concurrently
+        # through FOR UPDATE SKIP LOCKED rather than through a bigger pool.
+        maximum-pool-size: ${FINCORE_RELAY_POOL:2}
+        minimum-idle: 0
         jdbc-url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:55432/core}
         username: core_relay
         password: core_relay
       worker:
+        maximum-pool-size: ${FINCORE_WORKER_POOL:2}
+        minimum-idle: 0
         jdbc-url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:55432/core}
         username: core_worker
         password: core_worker
       orchestration:
+        # The money path, so the largest share — but still small. A short connection-timeout is
+        # deliberate backpressure: a saturated pool must shed load as a 503 the caller retries,
+        # not queue unboundedly behind a database that is already the bottleneck. Timing out
+        # *before* the Ledger call is also safe by construction — nothing was sent, so the outcome
+        # protocol classifies it a definite failure rather than an unknown.
+        maximum-pool-size: ${FINCORE_ORCHESTRATION_POOL:10}
+        minimum-idle: 2
+        connection-timeout: 3000
         jdbc-url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:55432/core}
         username: ${FINCORE_ORCHESTRATION_DB_USER:core_orchestration}
         password: ${FINCORE_ORCHESTRATION_DB_PASSWORD:core_orchestration}
@@ -62,6 +88,12 @@ management:
     health:
       probes:
         enabled: true
+
+# Swagger at /docs, matching the ledger. /swagger-ui/index.html still works, because tooling
+# expects it.
+springdoc:
+  swagger-ui:
+    path: /docs
 
 server:
   port: ${SERVER_PORT:8081}
