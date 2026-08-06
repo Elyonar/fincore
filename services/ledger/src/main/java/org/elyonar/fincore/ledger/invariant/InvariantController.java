@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+import org.elyonar.fincore.ledger.shared.InvariantStatus;
 
 /** The ledger's argument for its own correctness. */
 @RestController
@@ -38,7 +39,7 @@ public class InvariantController {
     public ReportResponse latest(HttpServletRequest http) {
         InvariantReport report = invariants.latest(tenants.resolve(http));
         if (report == null) {
-            return new ReportResponse(null, null, null, null, "NO_RUN_YET", 0, 0, List.of());
+            return new ReportResponse(null, null, null, null, InvariantStatus.NO_RUN_YET.value(), 0, 0, List.of());
         }
         return new ReportResponse(
                 Long.toString(report.runId()),
@@ -47,7 +48,9 @@ public class InvariantController {
                 report.scope(),
                 // A run with no completion time is still in flight; reporting it CLEAN would be a
                 // lie of omission at exactly the moment someone is checking.
-                report.completedAt() == null ? "RUNNING" : (report.clean() ? "CLEAN" : "VIOLATIONS"),
+                report.completedAt() == null
+                        ? InvariantStatus.RUNNING.value()
+                        : (report.clean() ? InvariantStatus.CLEAN.value() : InvariantStatus.VIOLATIONS.value()),
                 report.violations(),
                 report.exposures(),
                 List.of());
@@ -77,7 +80,7 @@ public class InvariantController {
                 queued.startedAt().toString(),
                 null,
                 queued.scope(),
-                "QUEUED",
+                InvariantStatus.QUEUED.value(),
                 0,
                 0,
                 List.of());
