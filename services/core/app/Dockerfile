@@ -32,6 +32,7 @@ COPY pom.xml .
 # and Core were added, the ledger's image kept copying only its own POM, and
 # `docker compose up` failed on a service whose own code had not changed.
 COPY libs/auth/pom.xml libs/auth/pom.xml
+COPY libs/events/pom.xml libs/events/pom.xml
 COPY services/ledger/pom.xml services/ledger/pom.xml
 COPY services/core/pom.xml services/core/pom.xml
 COPY services/core/customer/pom.xml services/core/customer/pom.xml
@@ -41,6 +42,7 @@ COPY services/core/app/pom.xml services/core/app/pom.xml
 RUN chmod +x mvnw && ./mvnw -B -pl services/core/app -am dependency:go-offline
 
 COPY libs/auth/src libs/auth/src
+COPY libs/events/src libs/events/src
 COPY services/core/customer/src services/core/customer/src
 COPY services/core/product/src services/core/product/src
 COPY services/core/orchestration/src services/core/orchestration/src
