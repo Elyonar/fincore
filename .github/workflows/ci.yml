@@ -60,11 +60,13 @@ jobs:
           set -euo pipefail
 
           # Databases beyond POSTGRES_DB, which already created "ledger".
-          DATABASES=""
+          DATABASES="core"
 
-          # Restricted roles. The password matches the role name in CI only;
-          # deployments provision real secrets.
-          ROLES="ledger_app"
+          # Restricted roles. One per service, and one per module where a deployable holds
+          # several (ADR 0006) — a cross-module query then fails at runtime rather than
+          # surviving until someone tries to extract a module. The password matches the role
+          # name in CI only; deployments provision real secrets.
+          ROLES="ledger_app core_customer core_product core_orchestration core_relay"
 
           for db in $DATABASES; do
             echo "creating database $db"

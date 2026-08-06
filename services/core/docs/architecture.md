@@ -1,6 +1,6 @@
 # Core — Architecture & Boundaries
 
-**Status:** AGREED v1.0 (2026-08-06) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
+**Status:** AGREED v1.1 (2026-08-06) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
 
 ## The shape
 
@@ -9,13 +9,13 @@
   channels              │                CORE (one deployable)         │
  ─────────────►         │                                              │
   teller, API           │  ┌────────────┐  ┌───────────┐               │
-  (validated JWT)       │  │core-customer│  │core-product│              │
+  (validated JWT)       │  │  customer  │  │  product  │              │
                         │  │ schema:     │  │ schema:    │              │
                         │  │ customer    │  │ product    │              │
                         │  └─────▲──────┘  └─────▲──────┘               │
                         │        │ interface     │ interface            │
                         │  ┌─────┴───────────────┴──────┐               │
-                        │  │    core-orchestration      │               │
+                        │  │       orchestration        │               │
                         │  │    schema: orchestration   │───────────────┼──► LEDGER
                         │  │    the only ledger client  │  mTLS +       │    (write API)
                         │  └────────────┬───────────────┘  service id   │
@@ -28,27 +28,27 @@
 
 | Module | Schema | Owns | Never |
 |---|---|---|---|
-| `core-customer` | `customer` | Profiles, KYC tier, lifecycle status, mandates, customer↔account mapping | Balances, entries, transaction history, money of any kind |
-| `core-product` | `product` | Product catalog, fee rules, limit rules, versioned configuration | Executing anything. It returns *decisions*, never postings |
-| `core-orchestration` | `orchestration` | Sagas, limit reservations, fee application, the ledger client, the idempotency registry | Fee or interest *rules*; customer PII; balance computation |
+| `customer` | `customer` | Profiles, KYC tier, lifecycle status, mandates, customer↔account mapping | Balances, entries, transaction history, money of any kind |
+| `product` | `product` | Product catalog, fee rules, limit rules, versioned configuration | Executing anything. It returns *decisions*, never postings |
+| `orchestration` | `orchestration` | Sagas, limit reservations, fee application, the ledger client, the idempotency registry | Fee or interest *rules*; customer PII; balance computation |
 
-`core-app` assembles them into one Spring Boot application. It holds wiring and
+`app` assembles them into one Spring Boot application. It holds wiring and
 cross-cutting infrastructure (the outbox relay, the saga worker), no domain
 logic.
 
 ### How the boundaries are enforced
 
-Four mechanisms, deliberately overlapping, because a boundary defended one way
-is a boundary that erodes:
+Three mechanisms, deliberately overlapping, because a boundary defended one way
+is a boundary that erodes. It was four until v1.1 traded the api/impl module
+split for fewer directories; the CHANGELOG records what that cost:
 
-1. **The classpath.** `core-orchestration` depends on `core-customer-api` and
-   `core-product-api`, never on their implementation modules. It is not possible
-   to import a repository that is not on the classpath. Nothing depends on
-   `core-orchestration`.
+1. **The POM dependency graph.** `orchestration` depends on `customer` and
+   `product`; nothing depends on `orchestration`. Direction is declared, so a
+   cycle is a build failure rather than a review comment.
 2. **Database privilege.** Each module connects as its own role, granted only on
    its own schema ([ADR 0007](../../../docs/adr/0007-tenant-isolation-pattern.md)).
    A cross-schema query fails at runtime, in the test suite, on first attempt.
-3. **ArchUnit.** Only `core-orchestration` may reference the ledger client;
+3. **ArchUnit.** Only `orchestration` may reference the ledger client;
    no module may reference another module's internal packages; the platform hard
    rules (no floats, no legacy date API) apply throughout.
 4. **The POMs.** Dependency direction is declared, so a cycle is a build failure
@@ -78,10 +78,10 @@ row-level security exists to catch.
 
 **The Ledger, and nothing else, in v1.** No rails connectors, no SMS, no KYC
 providers. The dependency list is an architectural control: an HTTP client
-appearing in `core-customer` or `core-product` is a boundary violation, not a
+appearing in `customer` or `product` is a boundary violation, not a
 convenience.
 
-**The ledger client lives only in `core-orchestration`** and is the module's
+**The ledger client lives only in `orchestration`** and is the module's
 sole outbound dependency. It:
 
 - derives idempotency keys as a pure function of `(saga_id, step)`
@@ -120,7 +120,7 @@ arrive — and that is when consumer-side deduplication and epoch fencing get
 built. Saying "none, in v1" rather than "none, ever" is deliberate: the ledger's
 boundary is permanent, Core's is a scope statement.
 
-**One relay reads all three outbox tables**, running in `core-app` under a role
+**One relay reads all three outbox tables**, running in `app` under a role
 granted on the outbox tables only. The relay contract is the platform's: poll
 `FOR UPDATE SKIP LOCKED` on unpublished rows ordered by id, never a watermark,
 mark published in the transaction that records the broker acknowledgement, alert

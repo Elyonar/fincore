@@ -30,6 +30,10 @@ known limitation.
   | service | which system acted | mutual TLS, via the peer certificate |
   | tenant | whose money | the token's `tenant_id` claim |
 
+  Mutual TLS authenticates a **process**, so the service identity is the
+  deployable (`core`), never a module inside it. A rule about which *module* may
+  call something is enforced by that deployable, not by its callee.
+
 - Scopes that context to the request and **always clears it**, including on
   exception.
 - Provides `require(permission)` and `requireCallerAnyOf(services…)`.
@@ -55,12 +59,12 @@ Authorization.require("transfers:create");
 
 // A service's own caller allowlist. Enforcement belongs to the owning
 // service; the gateway authenticates but never decides.
-Authorization.requireCallerAnyOf("core-orchestration");
+Authorization.requireCallerAnyOf("core");
 
 // Attribution, as two separate facts. Examiners ask who authorized an action
 // and which system performed it as different questions.
 String initiatedBy = Authorization.initiatedBy();   // user:ada.o@branch-01
-String executedBy  = Authorization.executedBy();    // core-orchestration
+String executedBy  = Authorization.executedBy();    // core
 
 // Never a header, never a request body.
 UUID tenantId = Authorization.tenantId();

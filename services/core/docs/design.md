@@ -1,6 +1,6 @@
 # Core — Design Index & Decision Log
 
-**Status:** AGREED v1.0 (2026-08-06) — implemented from here; amendments via
+**Status:** AGREED v1.1 (2026-08-06) — implemented from here; amendments via
 [`CHANGELOG.md`](CHANGELOG.md) and the [design-change convention](../../../docs/conventions/design-changes.md).
 **Source:** platform PRD §4.2 (Customer), §4.3 (Product), §4.4 (Orchestration),
 §3 (constitution), §5 (communication map), §6 (security), §7 (NFRs), §8
@@ -27,8 +27,8 @@ silent edits. Code that contradicts it is a bug even if it works.
 
 ## One paragraph
 
-Core is one deployable holding three modules — `core-customer`, `core-product`,
-`core-orchestration` — each owning a schema in one PostgreSQL database and a
+Core is one deployable holding three modules — `customer`, `product`,
+`orchestration` — each owning a schema in one PostgreSQL database and a
 database role granted only on that schema. Orchestration turns a business
 intent into a balanced, attributed, idempotent posting against the Ledger, and
 guarantees that a request interrupted at any point ends either completely done
@@ -132,9 +132,22 @@ header-supplied tenant is a caller assertion; if it is wrong, every downstream
 isolation control faithfully enforces the wrong boundary.
 
 **Cross-module calls go through published interfaces, enforced by the
-classpath.** `core-orchestration` depends on `core-customer-api` and
+classpath.** `orchestration` depends on `core-customer-api` and
 `core-product-api`, never on their implementations. Nothing depends on
-`core-orchestration`.
+`orchestration`.
+*— Superseded by v1.1.* The rule stands; the enforcement changed. One Maven
+module per domain replaced the api/impl split, so a module's `api` package is
+the published surface and its `internal` package is private, enforced by
+`ModuleBoundaryTest` and by per-schema database roles rather than by the
+compiler. See [`CHANGELOG.md`](CHANGELOG.md).
+
+**The service identity the Ledger sees is `core`, not a module.** Mutual TLS
+authenticates a *process*, and all three modules share one. So the Ledger's
+caller allowlist admits `core`, and the narrower rule — only `orchestration` may
+hold the ledger client — is enforced inside Core by ArchUnit, because no
+certificate can distinguish modules within a single process. Worth stating
+because "the ledger accepts writes only from orchestration" is otherwise read as
+something the ledger verifies, when it is something Core guarantees.
 
 **Unknown-resolution schedule → exponential backoff from 1 s, doubling with
 jitter, capped at 60 s; escalate to `PENDING_RESOLUTION` after 15 minutes or 12
@@ -212,7 +225,7 @@ checker enforced. The reversal saga refuses to call the ledger without one.
 
 **Tills → referenced by ledger account id, with a minimal till registry in
 `orchestration`.** A till is a ledger account (PRD §4.7.4) and is not a
-customer, so it does not belong in `core-customer`. It is genuinely a Branch /
+customer, so it does not belong in `customer`. It is genuinely a Branch /
 organizational-unit concern and there is no Branch domain yet — so v1 keeps a
 small `tills` table as operational reference data on the money path, and this is
 recorded as a **deliberate simplification** rather than a considered home.

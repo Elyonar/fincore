@@ -41,7 +41,7 @@ The scope names the module or area touched:
 | Scope | Meaning |
 |---|---|
 | `ledger` | services/ledger |
-| `core-orchestration` · `core-product` · `core-customer` | the modules of services/core — **one scope per module, not one per deployable**, because the money-path merge gate attaches to `core-orchestration` alone and the scope is how a reviewer knows whether it applies |
+| `core/orchestration` · `core/product` · `core/customer` | the modules of services/core — **one scope per module, not one per deployable**, because the money-path merge gate attaches to `core/orchestration` alone and the scope is how a reviewer knows whether it applies |
 | `core` | services/core structure itself: the aggregator build, wiring, cross-module scaffolding |
 | `libs` | shared libraries (or the lib name once several exist) |
 | `adr` | architecture decision records |

@@ -47,6 +47,7 @@
         -->
         <module>libs/auth</module>
         <module>services/ledger</module>
+        <module>services/core</module>
     </modules>
 
     <properties>

@@ -9,7 +9,7 @@
 One deployable, three modules, one database, three schemas, three database
 roles. It is the **only** caller of the Ledger's write API.
 
-**Status: design AGREED v1.0 — no code written yet.** Packaging is decided
+**Status: design AGREED v1.1 — no code written yet.** Packaging is decided
 ([ADR 0006](../../docs/adr/0006-modular-core.md)) and the design is agreed, so
 implementation may begin. Changes to the design are now amendments in
 [`docs/CHANGELOG.md`](docs/CHANGELOG.md), in their own PR ahead of the code —
@@ -26,14 +26,14 @@ this deployable's database and its three module roles.
 
 | You want to know… | Read | Status |
 |---|---|---|
-| The design at a glance + the decision log | [`docs/design.md`](docs/design.md) | AGREED v1.0 |
-| **The three-valued outcome model** — the thing this service exists to get right | [`docs/outcome-protocol.md`](docs/outcome-protocol.md) | AGREED v1.0 |
-| How sagas execute, recover, and are claimed across instances | [`docs/saga-protocol.md`](docs/saga-protocol.md) | AGREED v1.0 |
-| Modules, boundaries, the ledger client, events, DR posture | [`docs/architecture.md`](docs/architecture.md) | AGREED v1.0 |
-| Tables per schema, ownership rules, decided edge cases | [`docs/data-model.md`](docs/data-model.md) | AGREED v1.0 |
-| Endpoint surface, error catalog, contract properties | [`docs/api.md`](docs/api.md) | AGREED v1.0 |
-| Core's eight invariants and every test suite | [`docs/testing.md`](docs/testing.md) | AGREED v1.0 |
-| Every amendment since the design was agreed | [`docs/CHANGELOG.md`](docs/CHANGELOG.md) | v1.0 |
+| The design at a glance + the decision log | [`docs/design.md`](docs/design.md) | AGREED v1.1 |
+| **The three-valued outcome model** — the thing this service exists to get right | [`docs/outcome-protocol.md`](docs/outcome-protocol.md) | AGREED v1.1 |
+| How sagas execute, recover, and are claimed across instances | [`docs/saga-protocol.md`](docs/saga-protocol.md) | AGREED v1.1 |
+| Modules, boundaries, the ledger client, events, DR posture | [`docs/architecture.md`](docs/architecture.md) | AGREED v1.1 |
+| Tables per schema, ownership rules, decided edge cases | [`docs/data-model.md`](docs/data-model.md) | AGREED v1.1 |
+| Endpoint surface, error catalog, contract properties | [`docs/api.md`](docs/api.md) | AGREED v1.1 |
+| Core's eight invariants and every test suite | [`docs/testing.md`](docs/testing.md) | AGREED v1.1 |
+| Every amendment since the design was agreed | [`docs/CHANGELOG.md`](docs/CHANGELOG.md) | v1.1 |
 | Platform hard rules | [`AGENTS.md`](../../AGENTS.md) | Standing |
 | What every service must have before it ships | [`service-scaffold.md`](../../docs/conventions/service-scaffold.md) | Standing |
 
@@ -44,16 +44,16 @@ README stays the map, never the territory.
 
 | Module | Schema | Owns |
 |---|---|---|
-| `core-customer` | `customer` | Profiles, KYC tier, lifecycle, mandates, customer↔account mapping. **The only schema holding PII.** |
-| `core-product` | `product` | Product catalog, fee rules, limit rules, versioned configuration. Returns *decisions*, never postings. |
-| `core-orchestration` | `orchestration` | Sagas, limit reservations, fee application, the ledger client. **The only module that may call the Ledger's write API.** |
+| `customer` | `customer` | Profiles, KYC tier, lifecycle, mandates, customer↔account mapping. **The only schema holding PII.** |
+| `product` | `product` | Product catalog, fee rules, limit rules, versioned configuration. Returns *decisions*, never postings. |
+| `orchestration` | `orchestration` | Sagas, limit reservations, fee application, the ledger client. **The only module that may call the Ledger's write API.** |
 
-`core-app` assembles them: wiring, the outbox relay, the saga worker. No domain
+`app` assembles them: wiring, the outbox relay, the saga worker. No domain
 logic.
 
-Boundaries are enforced four ways — the classpath (a module's internals are not
-on another's), database privilege (one role per schema), ArchUnit, and the POM
-dependency graph. A boundary defended one way is a boundary that erodes.
+Boundaries are enforced three ways — database privilege (one role per schema,
+no grants on its neighbours), ArchUnit (`api` is public, `internal` is not), and
+the POM dependency graph. A boundary defended one way is a boundary that erodes.
 
 ## Quick facts
 

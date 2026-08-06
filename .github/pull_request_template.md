@@ -17,7 +17,7 @@ Delete rows that genuinely do not apply — do not tick a box that is not true.
 - [ ] No imports across a deployable boundary; no synchronous outbound call
       added to the ledger; no event consumer added to the ledger.
 - [ ] No module reads another module's tables — cross-module calls go through
-      the published interface, and only `core-orchestration` holds the ledger
+      the published interface, and only `core/orchestration` holds the ledger
       client.
 - [ ] Any outbound call is preceded by persisted state, and an unknown outcome
       (timeout / 5xx) retries the same idempotency key rather than compensating.

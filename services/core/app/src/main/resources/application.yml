@@ -1,0 +1,43 @@
+spring:
+  application:
+    name: core
+
+  # Migrations run as the owner; each module's traffic connects as its own role. This datasource
+  # is the owner's, used for migration and for anything cross-cutting; module datasources are
+  # configured per module as they gain tables.
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:55432/core}
+    username: ${SPRING_DATASOURCE_USERNAME:fincore}
+    password: ${SPRING_DATASOURCE_PASSWORD:fincore}
+
+  # Three schemas, three migration histories, three locations — one per module, so a module's
+  # schema changes travel with its code (docs/conventions/service-scaffold.md). Wired explicitly
+  # in FlywayConfiguration rather than by autoconfiguration, which only manages one.
+  flyway:
+    enabled: false
+
+fincore:
+  auth:
+    # The only deployable mode. Dev mode additionally requires a sanctioned profile and says so
+    # loudly at startup (ADR 0010, libs/auth).
+    mode: ${FINCORE_AUTH_MODE:jwt}
+    issuer-uri: ${FINCORE_AUTH_ISSUER_URI:}
+
+  core:
+    ledger:
+      # Orchestration's only outbound dependency. No other module may hold a client.
+      base-url: ${FINCORE_LEDGER_URL:http://localhost:8080}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        # Deliberately limited, as in the ledger. An actuator surface is an attack surface.
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+server:
+  port: ${SERVER_PORT:8081}

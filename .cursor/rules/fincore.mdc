@@ -23,9 +23,9 @@ The rules most likely to trip up generated code:
 4. No imports across a deployable boundary. Deployables integrate over APIs and
    events only.
 5. **Modules never read each other's tables.** A deployable may hold several
-   modules (`core-customer`, `core-product`, `core-orchestration`); each owns a
+   modules (`core/customer`, `core/product`, `core/orchestration`); each owns a
    schema and is reached only through its published interface. No cross-schema
-   joins, no shared repositories, and only `core-orchestration` holds the ledger
+   joins, no shared repositories, and only `core/orchestration` holds the ledger
    client.
 6. The ledger makes no synchronous outbound calls and consumes no events.
 7. Changing an AGREED design requires a `CHANGELOG.md` entry and a version

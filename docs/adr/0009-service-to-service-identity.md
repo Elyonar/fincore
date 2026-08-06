@@ -46,8 +46,17 @@ gateway authenticates; it never makes business authorization decisions. Each
 service holds the allowlist for its own endpoints:
 
 - The ledger's write endpoints accept exactly one calling service identity:
-  `core-orchestration`. Its read endpoints additionally accept Reporting.
+  `core` — the deployable. Its read endpoints additionally accept Reporting.
   Everything else is refused.
+
+  **Mutual TLS authenticates a process, not a module.** Core's three modules
+  share one process and therefore one certificate, so the ledger cannot tell
+  orchestration's calls from customer's. The narrower rule that only the
+  orchestration module may hold the ledger client is real, but it is enforced
+  *inside* Core by ArchUnit and by the classpath — not by the ledger. Stating
+  this matters: "the ledger accepts writes only from Orchestration" otherwise
+  reads as something the ledger verifies, when it is something Core guarantees
+  and the ledger takes on trust at module granularity.
 - The allowlist is configuration, so adding a caller is a reviewable change
   rather than a code change — but it is also **asserted by tests**, because an
   allowlist nobody tests is a comment.

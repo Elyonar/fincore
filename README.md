@@ -56,7 +56,7 @@ Read the [ADRs](docs/adr/), then try to break the ledger —
 | Service | What it does | Status | Docs |
 |---|---|---|---|
 | **Ledger** | Double-entry posting engine — the single source of monetary truth. Accounts, entries, balances, holds. | ✅ Design AGREED v1.4 · implemented (pre-1.0) | [README](services/ledger/README.md) · [design](services/ledger/docs/design.md) · [data model](services/ledger/docs/data-model.md) · [architecture](services/ledger/docs/architecture.md) · [API](services/ledger/docs/api.md) · [posting algorithm](services/ledger/docs/posting-algorithm.md) · [testing](services/ledger/docs/testing.md) |
-| **Core** | One deployable, three modules — `core-customer`, `core-product`, `core-orchestration`. Owns sagas, fee application and limits; the only caller of the Ledger's write API. | 🔜 Design AGREED v1.0 · not yet implemented | [README](services/core/README.md) · [design](services/core/docs/design.md) · [outcome protocol](services/core/docs/outcome-protocol.md) · [saga protocol](services/core/docs/saga-protocol.md) · [data model](services/core/docs/data-model.md) · [API](services/core/docs/api.md) · [testing](services/core/docs/testing.md) |
+| **Core** | One deployable, three modules — `core/customer`, `core/product`, `core/orchestration`. Owns sagas, fee application and limits; the only caller of the Ledger's write API. | 🔜 Design AGREED v1.0 · not yet implemented | [README](services/core/README.md) · [design](services/core/docs/design.md) · [outcome protocol](services/core/docs/outcome-protocol.md) · [saga protocol](services/core/docs/saga-protocol.md) · [data model](services/core/docs/data-model.md) · [API](services/core/docs/api.md) · [testing](services/core/docs/testing.md) |
 | Identity | Keycloak, self-hosted: auth, tenants, roles, maker-checker. Configured, not built. | Planned | — |
 | Lending · Compliance · Connectors · Notification | Further domains around the ledger. | Planned | — |
 
@@ -88,7 +88,7 @@ fincore/
 │   │   ├── README.md  # the service's own map: purpose, boundaries, doc index
 │   │   └── docs/      # the service's design & deep-dive docs
 │   └── core/          # (planned) one deployable, three modules:
-│                      #   core-customer · core-product · core-orchestration
+│                      #   customer · product · orchestration · app
 ├── libs/              # shared internal libraries (auth, events) — arrive when needed
 ├── docs/
 │   ├── prd.md         # product requirements

@@ -85,7 +85,7 @@ not, that gap is a bug in the guardrails.
    touches a money value.
 2. Ledger entries are append-only; corrections are reversing entries.
 3. Only the Ledger Service writes balances. Only the Orchestration domain calls
-   the ledger's write API — today that is the `core-orchestration` module, the
+   the ledger's write API — today that is the `core/orchestration` module, the
    only module permitted to declare the ledger client. Enforced by the
    classpath, by ArchUnit, and by the ledger's own caller allowlist
    ([ADR 0009](docs/adr/0009-service-to-service-identity.md)).
@@ -99,7 +99,7 @@ not, that gap is a bug in the guardrails.
 6. Multi-tenancy: `tenant_id` scoping on every query, with forced row-level
    security under a restricted role and `SET LOCAL` tenant context as the
    backstop ([ADR 0007](docs/adr/0007-tenant-isolation-pattern.md)).
-7. AI advises, humans decide. No change to the ledger or to `core-orchestration`
+7. AI advises, humans decide. No change to the ledger or to `core/orchestration`
    merges
    without the invariant, property-based, concurrency and failure-injection
    suites green, and money-touching changes ship with the tests that prove them.
@@ -151,7 +151,7 @@ ever disagree, the changelog is right and this section is stale.
 
 - `services/core` — **design AGREED v1.0; no code written yet.**
   [ADR 0006](docs/adr/0006-modular-core.md) packages it as one deployable holding
-  three modules — `core-customer`, `core-product`, `core-orchestration` — with a
+  three modules — `core/customer`, `core/product`, `core/orchestration` — with a
   schema and a database role each. v1 scope: book transfers only (deposit,
   withdrawal, intra-tenant transfer, business reversal, status lookup); no rails
   connectors, no holds, no consumed events. Read

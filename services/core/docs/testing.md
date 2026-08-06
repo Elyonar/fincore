@@ -1,6 +1,6 @@
 # Core — Invariants & Test Strategy
 
-**Status:** AGREED v1.0 (2026-08-06) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
+**Status:** AGREED v1.1 (2026-08-06) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
 
 **Every suite below is unimplemented, because the service does not exist yet.**
 Markers (`IMPLEMENTED` / `PARTIAL` / `DEFERRED`) become meaningful when code
@@ -112,7 +112,7 @@ terminal state.
 cap; wash transfers; oversized keys; a fee that would exceed the principal; a
 percentage fee whose rounding is asserted exactly, in integers.
 
-**Module-boundary suite.** ArchUnit: only `core-orchestration` references the
+**Module-boundary suite.** ArchUnit: only `orchestration` references the
 ledger client; no module references another module's internal packages; no
 floats; no legacy date API; plus an **empty-import canary**, because every
 `no…should…` rule passes when nothing was imported. Database privilege: each

@@ -29,8 +29,8 @@ deployable, `services/core`. The Ledger remains a separate deployable.**
 The modules are separated by the compiler and by the database, not by
 convention:
 
-- **Multi-module Maven build.** `core-customer`, `core-product`,
-  `core-orchestration` and `core-app`, each with its own POM. Dependency
+- **Multi-module Maven build.** `core/customer`, `core/product`,
+  `core/orchestration` and `core-app`, each with its own POM. Dependency
   direction is declared in the POMs, so a cycle is a build failure. A module
   cannot import another module's internals because they are not on its
   classpath.
@@ -43,7 +43,7 @@ convention:
 - **Cross-module calls go through published interfaces** (`CustomerEligibility`,
   `ProductDecisionService`), never through another module's repositories or
   tables.
-- **Only `core-orchestration` holds the ledger client.** Enforced by the
+- **Only `core/orchestration` holds the ledger client.** Enforced by the
   classpath — no other module declares the dependency — and by ArchUnit.
 - **Bulkheads per module:** separate connection pools, and a separate executor
   for document-upload and search workloads, so administrative traffic cannot
@@ -146,10 +146,10 @@ on the money path, before any evidence justifies it.
 ### Obligations this creates
 
 - `AGENTS.md`, the root README, `docs/conventions/commits.md`, CODEOWNERS and the
-  PR template adopt the §3.4 vocabulary and name `core-orchestration` where they
+  PR template adopt the §3.4 vocabulary and name `core/orchestration` where they
   previously named "orchestration".
 - The money-path merge gate (`AGENTS.md` hard rule 7) attaches to
-  `core-orchestration`, not to all of Core. A change confined to `core-customer`
+  `core/orchestration`, not to all of Core. A change confined to `core/customer`
   does not drag the invariant and concurrency suites.
 - CI provisions a second database and the per-module roles.
 - The API Gateway remains unbuilt until an external API consumer exists; edge TLS
@@ -164,7 +164,7 @@ MVCC quiesce horizon was built and proven standalone *first*, because three
 guarantees were going to rest on it.
 
 So: **once the three modules exist and the first vertical slice works, extract
-`core-customer` on a throwaway branch.** Not to ship it — to find out whether
+`core/customer` on a throwaway branch.** Not to ship it — to find out whether
 the seams hold and what the extraction actually costs. If it takes an afternoon,
 the bet is evidenced. If Orchestration turns out to be reaching into customer
 tables in four places, that is learned at a cost of one day rather than one
