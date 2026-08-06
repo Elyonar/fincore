@@ -309,8 +309,89 @@ public class SagaRecords {
                 sagaId);
     }
 
+    /**
+     * Loads a transaction if — and only if — it can be reversed.
+     *
+     * <p>The conditions are in the query rather than in the caller: COMPLETED, not itself a
+     * reversal, and not already reversed. A caller that checked these separately would leave a
+     * window between the check and the reversal in which another request could reverse it too.
+     */
+    @Transactional(readOnly = true)
+    public Reversible loadReversible(UUID tenantId, UUID sagaId) {
+        scopeTo(tenantId);
+        return jdbc.query(
+                """
+                SELECT id, amount_minor, fee_minor, currency, ledger_transaction_id
+                  FROM orchestration.sagas s
+                 WHERE s.id = ?
+                   AND s.state = 'COMPLETED'
+                   AND s.type <> 'REVERSAL'
+                   AND NOT EXISTS (
+                        SELECT 1 FROM orchestration.sagas r
+                         WHERE r.reverses_saga_id = s.id AND r.state <> 'FAILED')
+                """,
+                rs ->
+                        rs.next()
+                                ? new Reversible(
+                                        rs.getObject("id", UUID.class),
+                                        rs.getLong("amount_minor"),
+                                        rs.getLong("fee_minor"),
+                                        rs.getString("currency"),
+                                        rs.getObject("ledger_transaction_id", UUID.class))
+                                : null,
+                sagaId);
+    }
+
+    /**
+     * Opens the reversal saga.
+     *
+     * <p>A new row rather than a mutation of the original: terminal states stay terminal and the
+     * audit trail stays additive. The link is what ties them together.
+     */
+    @Transactional
+    public UUID openReversal(
+            UUID tenantId,
+            UUID originalSagaId,
+            UUID approvalId,
+            String idempotencyKey,
+            Reversible original,
+            String initiatedBy) {
+        scopeTo(tenantId);
+        UUID reversalId =
+                jdbc.queryForObject(
+                        """
+                        INSERT INTO orchestration.sagas
+                            (tenant_id, type, state, channel_idempotency_key, request_fingerprint,
+                             amount_minor, fee_minor, currency, initiated_by, executed_by,
+                             reverses_saga_id, approval_id)
+                        VALUES (?, 'REVERSAL', 'POSTING', ?, ?, ?, ?, ?, ?, 'core', ?, ?)
+                        RETURNING id
+                        """,
+                        UUID.class,
+                        tenantId,
+                        idempotencyKey,
+                        "reversal:" + originalSagaId,
+                        original.amountMinor(),
+                        original.feeMinor(),
+                        original.currency(),
+                        initiatedBy,
+                        originalSagaId,
+                        approvalId);
+
+        outbox.append(
+                tenantId,
+                "transfer.reversal_initiated",
+                reversalId,
+                payload(reversalId, original.amountMinor(), original.feeMinor(), original.currency()));
+        return reversalId;
+    }
+
     /** A saga found by its idempotency key, with the fingerprint that decides replay vs 409. */
     public record Existing(String fingerprint, TransferResult result) {}
+
+    /** A completed transaction that may still be reversed, and what reversing it would undo. */
+    public record Reversible(
+            UUID id, long amountMinor, long feeMinor, String currency, UUID ledgerTransactionId) {}
 
     /** Everything needed to re-send a saga's posting exactly as it was first sent. */
     public record Pending(
