@@ -1,6 +1,6 @@
 # Ledger — Invariants & Test Strategy
 
-**Status:** AGREED v1.6 (2026-08-06) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
+**Status:** AGREED v1.7 (2026-08-06) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
 
 The test suite is the product's argument for correctness — public, runnable
 by anyone. If you want to contribute: **try to break the ledger and encode

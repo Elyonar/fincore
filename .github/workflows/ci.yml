@@ -154,4 +154,64 @@ jobs:
             fi
           done
 
+          # The version in the newest CHANGELOG entry must equal the version in every
+          # status header for that service.
+          #
+          # This is checked for every service on every PR, not only the ones a PR touches,
+          # because the drift it catches is created by the PR that forgot the bump and only
+          # noticed by everyone after. Both the ledger and Core reached a [1.7.0] entry while
+          # every header still said v1.6, and CI was green throughout — the job asked for the
+          # bump in an error message and never verified it. A guardrail that states a rule it
+          # does not check is worse than none: it reads as coverage.
+          for design in services/*/docs/design.md; do
+            svc="$(printf '%s' "$design" | awk -F/ '{ print $2 }')"
+            changelog="services/$svc/docs/CHANGELOG.md"
+
+            grep -qs '^\*\*Status:\*\* AGREED' "$design" || continue
+            [ -f "$changelog" ] || continue
+
+            # Newest entry, e.g. "## [1.7.0] — ..." -> 1.7.0, and its MAJOR.MINOR.
+            newest="$(grep -m1 -oE '^## \[[0-9]+\.[0-9]+\.[0-9]+\]' "$changelog" \
+              | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || true)"
+            if [ -z "$newest" ]; then
+              echo "::error::$changelog has no version entry of the form '## [X.Y.Z]'."
+              status=1
+              continue
+            fi
+            short="${newest%.*}"
+
+            for doc in services/$svc/docs/*.md; do
+              case "$doc" in */CHANGELOG.md) continue ;; esac
+
+              # The status header is a header: only the first few lines count, so a version
+              # mentioned in prose further down cannot satisfy this.
+              have="$(head -n 6 "$doc" | grep -oE 'AGREED v[0-9]+(\.[0-9]+)+' \
+                | head -n1 | sed 's/^AGREED v//' || true)"
+              if [ -z "$have" ]; then
+                echo "::error::$doc carries no 'AGREED vX.Y' status header."
+                status=1
+                continue
+              fi
+              if [ "$have" != "$short" ] && [ "$have" != "$newest" ]; then
+                echo "::error::$doc says AGREED v$have but $changelog's newest entry is $newest."
+                echo "::error::Every design doc in a service carries the same version —"
+                echo "::error::see docs/conventions/design-changes.md, 'One contract, one version'."
+                status=1
+              fi
+            done
+
+            # AGENTS.md is the entry point an agent reads first, and it names each service's
+            # agreed version. It has gone stale twice — once claiming Core had "no code written
+            # yet" while Core was implemented, merged and running with 191 tests. An agent
+            # following it would have rebuilt a finished service. Prose that lies about state is
+            # worse than absent prose, so the version it states is checked like any other.
+            stated="$(grep -oE '`services/'"$svc"'`.*AGREED v[0-9]+(\.[0-9]+)+' AGENTS.md \
+              | grep -oE 'AGREED v[0-9]+(\.[0-9]+)+' | head -n1 | sed 's/^AGREED v//' || true)"
+            if [ -n "$stated" ] && [ "$stated" != "$short" ] && [ "$stated" != "$newest" ]; then
+              echo "::error::AGENTS.md says services/$svc is AGREED v$stated, but its newest"
+              echo "::error::CHANGELOG entry is $newest. Update the 'Current state' section."
+              status=1
+            fi
+          done
+
           exit $status
