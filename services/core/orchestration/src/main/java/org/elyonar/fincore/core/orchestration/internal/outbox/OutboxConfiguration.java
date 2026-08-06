@@ -3,7 +3,9 @@ package org.elyonar.fincore.core.orchestration.internal.outbox;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.InitializingBean;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -20,11 +22,32 @@ public class OutboxConfiguration {
 
     private static final Logger log = LoggerFactory.getLogger(OutboxConfiguration.class);
 
+    /**
+     * Kafka, when the deployment asks for it.
+     *
+     * <p>Selected at runtime rather than compiled in: an operator should not have to rebuild the
+     * service to change broker, and no broker type reaches the domain (ADR 0005).
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnProperty(name = "fincore.core.events.broker", havingValue = "kafka")
+    public EventPublisher kafkaEventPublisher(
+            org.springframework.kafka.core.KafkaTemplate<String, String> kafka,
+            @Value("${fincore.core.events.topic-prefix:fincore.core}") String topicPrefix,
+            @Value("${fincore.core.events.send-timeout-seconds:10}") long sendTimeoutSeconds) {
+        return new KafkaEventPublisher(kafka, topicPrefix, sendTimeoutSeconds);
+    }
+
+    /**
+     * The default, and it delivers nothing.
+     *
+     * <p>Deliberately the fallback rather than an error: a developer running the service without a
+     * broker should get a working system, not a startup failure. The banner below is what stops
+     * that becoming a production surprise.
+     */
     @Bean
     @ConditionalOnMissingBean
     public EventPublisher eventPublisher() {
-        // Kafka and RabbitMQ adapters arrive when a consumer exists. The seam is what matters now:
-        // the backbone stays a deployment choice rather than a code dependency (ADR 0005, 0008).
         return new LoggingEventPublisher();
     }
 

@@ -41,6 +41,23 @@
             <artifactId>spring-boot-starter-jdbc</artifactId>
         </dependency>
 
+        <!--
+            The event backbone. Both are runtime choices, not code dependencies: no broker type
+            reaches the domain and changing broker needs no rebuild (ADR 0005).
+        -->
+        <dependency>
+            <groupId>org.springframework.kafka</groupId>
+            <artifactId>spring-kafka</artifactId>
+        </dependency>
+        <!--
+            Boot 4 splits autoconfiguration per technology. Without this, spring-kafka is on the
+            classpath and no KafkaTemplate is ever created — the same trap the ledger hit.
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-kafka</artifactId>
+        </dependency>
+
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>

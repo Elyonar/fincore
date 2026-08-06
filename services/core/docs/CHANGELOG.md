@@ -8,6 +8,34 @@ entry first.
 
 ---
 
+## [1.3.0] — 2026-08-06 · MINOR
+
+**The operator surface exists, and events can reach a broker.**
+
+- **Docs:** `design.md`
+- **Why:** approvals and the unresolved-outcome queue were in `api.md` and
+  reachable only from code, which left an operator with no way to do their job
+  except through the database. Core's relay likewise had only a logging adapter,
+  so `transfer.completed` was written and relayed to nowhere.
+- **Impact:** additive. New endpoints under `/v1/approvals` and `/v1/ops`; a
+  Kafka publisher selected by `fincore.core.events.broker=kafka`, with the
+  logging adapter still the default so a developer without a broker gets a
+  working system rather than a startup failure.
+- **Supersedes:** nothing.
+- **Tests:** `OpsApiTest` — including that **no endpoint accepts an outcome**.
+  `resolve` asks Core to try again and lets the Ledger answer; the moment an
+  operator can assert what happened, the outcome protocol's central guarantee
+  becomes advisory. That test is the one that should have to be deleted, visibly,
+  before such a parameter could ever be added.
+- **Migration:** none.
+
+*Also records why the publisher adapters remain duplicated with the ledger's
+rather than extracted to `libs/`: the two abstractions differ — batch-with-acks
+against single-throw — so unifying them is a contract change to two AGREED
+designs and belongs in its own PR.*
+
+---
+
 ## [1.2.0] — 2026-08-06 · MINOR
 
 **The Ledger client carries the tenant, and the contract suite that found it is
