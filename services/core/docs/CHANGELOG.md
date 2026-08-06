@@ -8,6 +8,28 @@ entry first.
 
 ---
 
+## [1.1.1] — 2026-08-06 · PATCH
+
+**Persistence approach recorded: JDBC in `orchestration`, deferred for the other
+two modules.**
+
+- **Docs:** `design.md`
+- **Why:** `docs/conventions/service-scaffold.md` requires every service to record
+  whether it uses plain SQL or an ORM, and why. Core's design never did, so the
+  choice existed only as whatever the first code happened to use — exactly the
+  state the convention exists to prevent, and the one that gets re-litigated on
+  every review.
+- **Impact:** clarification, no behavioural change. It states a constraint that
+  was already true and already implemented in `SagaClaims`.
+- **Supersedes:** nothing.
+- **Tests:** none required; no behaviour changes.
+- **Migration:** none.
+
+*Caught by a question rather than by review: "is it not time to use an ORM?" has
+no answer in the documents unless the current choice is written down.*
+
+---
+
 ## [1.1.0] — 2026-08-06 · MINOR
 
 **One Maven module per domain, not two. Module boundaries move from the compiler

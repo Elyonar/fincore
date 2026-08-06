@@ -1,6 +1,6 @@
 # Core — Invariants & Test Strategy
 
-**Status:** AGREED v1.1 (2026-08-06) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
+**Status:** AGREED v1.1.1 (2026-08-06) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
 
 **Every suite below is unimplemented, because the service does not exist yet.**
 Markers (`IMPLEMENTED` / `PARTIAL` / `DEFERRED`) become meaningful when code

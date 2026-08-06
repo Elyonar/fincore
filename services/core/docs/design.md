@@ -1,6 +1,6 @@
 # Core — Design Index & Decision Log
 
-**Status:** AGREED v1.1 (2026-08-06) — implemented from here; amendments via
+**Status:** AGREED v1.1.1 (2026-08-06) — implemented from here; amendments via
 [`CHANGELOG.md`](CHANGELOG.md) and the [design-change convention](../../../docs/conventions/design-changes.md).
 **Source:** platform PRD §4.2 (Customer), §4.3 (Product), §4.4 (Orchestration),
 §3 (constitution), §5 (communication map), §6 (security), §7 (NFRs), §8
@@ -108,6 +108,36 @@ reconstructible even after the configuration changes.
 **Customer owns identity and KYC state; it never owns money.** Balances,
 entries and transaction history live in the Ledger. Customer holds the profile,
 tier, status, mandates and the customer↔account mapping.
+
+**Persistence → plain SQL over JDBC in `orchestration`. Deferred, per module,
+for `customer` and `product`.** The scaffold convention requires every service to
+record this choice rather than let it be inferred from whatever got written
+first.
+
+*Orchestration: JDBC, for the ledger's reasons.* Its correctness is written in
+terms of things an ORM takes away — `FOR UPDATE SKIP LOCKED` for claiming, a
+conditional `UPDATE … WHERE claimed_by = ?` whose affected-row count *is* the
+concurrency primitive, unique-index conflicts as the idempotency arbiter, and a
+Phase A whose statement order is deliberate. An ORM decides statement order at
+flush time and its identity map can serve a pre-lock copy of a row just locked.
+There is also an audit argument: a reader can follow the saga engine and see
+every statement that moves money.
+
+*Customer and product: not yet decided, deliberately.* Both are CRUD-shaped and
+JPA is a reasonable fit — Customer has real relationships and needs field-level
+PII encryption, Product is a version graph loaded and cached together. But both
+modules currently have no tables and no code, and choosing an ORM before there
+is a schema to map is choosing on anticipation. The decision belongs with the
+first real schema, and the module boundary is what keeps it contained to one
+module.
+
+Two constraints on that later choice, recorded now because they are easy to miss:
+per-module database roles mean a DataSource per module, so an ORM multiplies
+configuration rather than adding one instance; and Phase A is a single
+transaction spanning all three modules, in which customer and product are
+**read-only**. Should either ever write during Phase A, the flush-ordering
+argument above starts applying to it too, and JDBC becomes the answer there as
+well.
 
 **The saga worker claims work from the database with leases — never an in-JVM
 queue.** Core runs multiple instances behind a load balancer. An in-memory queue

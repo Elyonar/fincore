@@ -1,6 +1,6 @@
 # Core — Saga Protocol & Recovery
 
-**Status:** AGREED v1.1 (2026-08-06) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
+**Status:** AGREED v1.1.1 (2026-08-06) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
 
 Read [`outcome-protocol.md`](outcome-protocol.md) first. This document describes
 execution; that one describes the rule execution must obey.
