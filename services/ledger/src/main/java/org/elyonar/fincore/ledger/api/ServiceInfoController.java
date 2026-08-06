@@ -1,6 +1,6 @@
 package org.elyonar.fincore.ledger.api;
 
-import io.swagger.v3.oas.annotations.tags.Tag;
+import io.swagger.v3.oas.annotations.Hidden;
 import java.util.Map;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -17,7 +17,10 @@ import org.springframework.web.bind.annotation.RestController;
  * root is read by more people than its configuration is, so nothing here names a tenant, an
  * account, or a setting.
  */
-@Tag(name = "Service", description = "Identity, health and documentation links")
+// Not in the OpenAPI document. `/` exists so a probe, a load balancer or a person pasting the
+// base URL gets an answer instead of a 404 — it is not part of the v1 contract a channel
+// integrates against, and listing it beside the money path implies it is.
+@Hidden
 @RestController
 public class ServiceInfoController {
 
