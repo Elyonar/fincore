@@ -29,6 +29,8 @@ import org.junit.jupiter.api.Test;
  */
 class HttpLedgerClientTest {
 
+    private static final UUID TENANT = UUID.randomUUID();
+
     private HttpServer server;
 
     @AfterEach
@@ -100,7 +102,7 @@ class HttpLedgerClientTest {
         UUID transactionId = UUID.randomUUID();
         String base = startServer(201, "{\"transactionId\":\"" + transactionId + "\"}");
 
-        assertThat(clientFor(base).post(aTransfer()))
+        assertThat(clientFor(base).post(TENANT, aTransfer()))
                 .isEqualTo(new LedgerOutcome.Success(transactionId));
     }
 
@@ -108,7 +110,7 @@ class HttpLedgerClientTest {
     void a_business_rejection_is_terminal_and_carries_the_ledgers_code() throws IOException {
         String base = startServer(422, "{\"code\":\"INSUFFICIENT_FUNDS\"}");
 
-        assertThat(clientFor(base).post(aTransfer()))
+        assertThat(clientFor(base).post(TENANT, aTransfer()))
                 .isEqualTo(LedgerOutcome.DefiniteFailure.of("INSUFFICIENT_FUNDS"));
     }
 
@@ -116,21 +118,21 @@ class HttpLedgerClientTest {
     void a_server_error_is_unknown_because_the_ledger_may_have_committed() throws IOException {
         String base = startServer(500, "{\"code\":\"INTERNAL\"}");
 
-        assertThat(clientFor(base).post(aTransfer())).isInstanceOf(LedgerOutcome.Unknown.class);
+        assertThat(clientFor(base).post(TENANT, aTransfer())).isInstanceOf(LedgerOutcome.Unknown.class);
     }
 
     @Test
     void an_unreadable_success_body_is_unknown_not_success() throws IOException {
         String base = startServer(201, "this is not json");
 
-        assertThat(clientFor(base).post(aTransfer())).isInstanceOf(LedgerOutcome.Unknown.class);
+        assertThat(clientFor(base).post(TENANT, aTransfer())).isInstanceOf(LedgerOutcome.Unknown.class);
     }
 
     @Test
     void a_success_naming_no_transaction_is_unknown() throws IOException {
         String base = startServer(201, "{\"status\":\"ok\"}");
 
-        assertThat(clientFor(base).post(aTransfer())).isInstanceOf(LedgerOutcome.Unknown.class);
+        assertThat(clientFor(base).post(TENANT, aTransfer())).isInstanceOf(LedgerOutcome.Unknown.class);
     }
 
     // ---------------------------------------------------------------- transport
@@ -140,7 +142,7 @@ class HttpLedgerClientTest {
         // Nothing is listening. The request was never written, so the Ledger never saw it — and a
         // ledger that is simply down should fail sagas fast rather than park every one of them in
         // an ops queue awaiting a human.
-        LedgerOutcome outcome = clientFor("http://127.0.0.1:" + aClosedPort()).post(aTransfer());
+        LedgerOutcome outcome = clientFor("http://127.0.0.1:" + aClosedPort()).post(TENANT, aTransfer());
 
         assertThat(outcome).isEqualTo(LedgerOutcome.DefiniteFailure.of("LEDGER_UNREACHABLE"));
     }
@@ -150,7 +152,7 @@ class HttpLedgerClientTest {
         // The mirror of the case above, and the reason this file uses a real socket: to a careless
         // client both are "the call failed". Here the request reached the Ledger, which may have
         // committed before going quiet — so compensating would be a guess.
-        LedgerOutcome outcome = clientFor(startStalledServer()).post(aTransfer());
+        LedgerOutcome outcome = clientFor(startStalledServer()).post(TENANT, aTransfer());
 
         assertThat(outcome).isInstanceOf(LedgerOutcome.Unknown.class);
     }
@@ -162,7 +164,7 @@ class HttpLedgerClientTest {
         UUID winner = UUID.randomUUID();
         String base = startServer(409, "{\"code\":\"ALREADY_REVERSED\",\"reversalTransactionId\":\"" + winner + "\"}");
 
-        assertThat(clientFor(base).reverse(UUID.randomUUID(), "core:x:reverse", "user:ada"))
+        assertThat(clientFor(base).reverse(TENANT, UUID.randomUUID(), "core:x:reverse", "user:ada"))
                 .isEqualTo(new LedgerOutcome.Success(winner));
     }
 
@@ -182,7 +184,7 @@ class HttpLedgerClientTest {
 
         assertThat(
                         org.assertj.core.api.Assertions.catchThrowable(
-                                () -> clientFor(base).post(unbalanced)))
+                                () -> clientFor(base).post(TENANT, unbalanced)))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("does not balance");
     }

@@ -89,6 +89,50 @@
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
             </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <!--
+                        The contract suite needs a running Ledger, so it is excluded here rather
+                        than skipped at runtime. A test that quietly passes when its subject is
+                        absent is worse than one that is not run: the report then says the contract
+                        was checked when nothing checked it.
+                    -->
+                    <excludedGroups>contract</excludedGroups>
+                </configuration>
+            </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <profile>
+            <!--
+                docker compose up -d ledger
+                ./mvnw -pl services/core/app -am -Pcontract test \
+                       -Dfincore.contract.tenant-id=<a tenant registered in the Ledger>
+            -->
+            <id>contract</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <configuration>
+                            <excludedGroups combine.self="override"/>
+                            <groups>contract</groups>
+                            <systemPropertyVariables>
+                                <fincore.contract.ledger-url>${fincore.contract.ledger-url}</fincore.contract.ledger-url>
+                                <fincore.contract.tenant-id>${fincore.contract.tenant-id}</fincore.contract.tenant-id>
+                            </systemPropertyVariables>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+            <properties>
+                <fincore.contract.ledger-url>http://localhost:58080</fincore.contract.ledger-url>
+                <fincore.contract.tenant-id/>
+            </properties>
+        </profile>
+    </profiles>
 </project>

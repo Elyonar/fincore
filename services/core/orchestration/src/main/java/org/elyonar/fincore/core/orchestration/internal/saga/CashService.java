@@ -109,7 +109,9 @@ public class CashService {
 
         // ---- Phase B ---------------------------------------------------------
         LedgerOutcome outcome =
-                ledger.post(postingFor(command, decision, till, IdempotencyKeys.forStep(sagaId, POST_STEP)));
+                ledger.post(
+                        command.tenantId(),
+                        postingFor(command, decision, till, IdempotencyKeys.forStep(sagaId, POST_STEP)));
 
         // ---- Phase C ---------------------------------------------------------
         return switch (outcome) {

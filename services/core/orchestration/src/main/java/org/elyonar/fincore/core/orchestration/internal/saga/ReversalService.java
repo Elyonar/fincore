@@ -68,6 +68,7 @@ public class ReversalService {
 
         LedgerOutcome outcome =
                 ledger.reverse(
+                        tenantId,
                         original.ledgerTransactionId(),
                         IdempotencyKeys.forStep(reversalSagaId, REVERSE_STEP),
                         initiatedBy);

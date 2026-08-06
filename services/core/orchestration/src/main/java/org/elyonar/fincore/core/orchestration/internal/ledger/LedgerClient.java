@@ -14,9 +14,16 @@ import org.elyonar.fincore.core.orchestration.api.LedgerPosting;
  */
 public interface LedgerClient {
 
-    /** Records a balanced transaction. Principal and fee are entries of the same posting. */
-    LedgerOutcome post(LedgerPosting posting);
+    /**
+     * Records a balanced transaction. Principal and fee are entries of the same posting.
+     *
+     * <p>The tenant is a parameter rather than something the posting carries, because it is not
+     * part of the money movement — it is who the movement belongs to, and the Ledger scopes every
+     * query by it. Omitting it is not a validation error the Ledger reports helpfully; it is a
+     * request that resolves to no tenant and therefore to nothing.
+     */
+    LedgerOutcome post(UUID tenantId, LedgerPosting posting);
 
     /** Reverses a previously posted transaction, under its own derived key. */
-    LedgerOutcome reverse(UUID ledgerTransactionId, String idempotencyKey, String initiatedBy);
+    LedgerOutcome reverse(UUID tenantId, UUID ledgerTransactionId, String idempotencyKey, String initiatedBy);
 }

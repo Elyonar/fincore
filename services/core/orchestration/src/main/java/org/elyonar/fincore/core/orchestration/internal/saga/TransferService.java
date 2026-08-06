@@ -94,7 +94,7 @@ public class TransferService {
 
         // ---- Phase B: call the Ledger, holding no transaction ----------------
         String key = IdempotencyKeys.forStep(sagaId, POST_STEP);
-        LedgerOutcome outcome = ledger.post(postingFor(command, decision, key));
+        LedgerOutcome outcome = ledger.post(command.tenantId(), postingFor(command, decision, key));
 
         // ---- Phase C: record what happened, one local transaction ------------
         return switch (outcome) {
