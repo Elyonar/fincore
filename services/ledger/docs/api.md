@@ -153,93 +153,26 @@ with an MVCC quiesce horizon (testing.md).
 
 ## Error catalog (distinct, documented, tested)
 
-Every rejection returns the shape defined in
-[`docs/conventions/error-contract.md`](../../../docs/conventions/error-contract.md):
-
-```json
-{
-  "code": "LIMIT_EXCEEDED",
-  "reason": "ENTRY_COUNT_EXCEEDED",
-  "message": "a transaction may carry at most 1000 entries",
-  "retryableWithSameKey": false,
-  "details": { "limit": "1000", "supplied": "1400" }
-}
-```
-
-`code` is what a caller branches on. `reason` distinguishes causes that share a
-code. `details` carries the facts a translated message interpolates. **`message`
-is developer English for a log** — never displayed to an end user, never parsed,
-and free to be reworded without an amendment. A channel serving a francophone
-tenant renders its own string from `code`, `reason` and `details`; it must never
-forward `message`.
-
 | Code | Meaning | Retry with same key? |
 |---|---|---|
 | `UNBALANCED` | per-currency Σdebits ≠ Σcredits, or < 2 entries | no — terminal |
 | `WASH_TRANSACTION` | an account appears on both sides | no |
-| `LIMIT_EXCEEDED` | a bound was broken or a required field was absent — see reasons | no |
-| `ACCOUNT_NOT_FOUND` | unknown account, tenant, transaction or hold (or another tenant's) | no |
+| `LIMIT_EXCEEDED` | entries > cap, amount > cap, key > 200 chars | no |
+| `ACCOUNT_NOT_FOUND` | unknown account (or other tenant's) | no |
 | `ACCOUNT_CLOSED` | posting touches a closed account (non-reversal, non-sweep) | no |
 | `SWEEP_INVALID` | closedAccountSweep that doesn't zero the account or lacks a suspense counterparty | no |
 | `CURRENCY_MISMATCH` | entry/hold currency ≠ account currency | no |
 | `INSUFFICIENT_FUNDS` | protected account would go available < 0 | no — new key after funding |
 | `IDEMPOTENCY_KEY_REUSED` | same key, different payload fingerprint | no — caller bug |
-| `VALUE_DATE_INVALID` | the value date or period is not postable — see reasons | no |
-| `ALREADY_REVERSED` | reversal exists; response carries its id in `detail` | converge on returned id |
+| `VALUE_DATE_INVALID` | future date, window exceeded, missing reason, closed period | no |
+| `ALREADY_REVERSED` | reversal exists; response carries its id | converge on returned id |
 | `REVERSAL_OF_REVERSAL` | target is itself a reversal | no — post a fresh correction |
 | `HAS_COMPENSATIONS` | target has linked compensations; plain reversal blocked | no — resolve via ops |
 | `TARGET_REVERSED` | compensation links a REVERSED transaction — the double-credit mirror of HAS_COMPENSATIONS | no |
-| `HOLD_NOT_ACTIVE` | consume on a hold that is RELEASED / EXPIRED / CONSUMED | no — re-authorize |
+| `HOLD_NOT_ACTIVE` | consume on a hold that is RELEASED / EXPIRED / CONSUMED (state included) | no — re-authorize |
 | `HOLD_EXCEEDED` | debit on held account > hold amount | no |
 | `CLOSE_BLOCKED` | closure with nonzero balance or active holds | no — sweep/release first |
 | `PERIOD_CLOSED` | period-close on an already-closed period | no |
-| `RATE_LIMITED` | the caller exceeded its request budget | yes — after backoff |
-
-### Reasons
-
-Four codes cover several distinct causes each. A caller that renders user-facing
-text branches on the reason, not on the message.
-
-| Code | Reason | Cause | `details` |
-|---|---|---|---|
-| `LIMIT_EXCEEDED` | `FIELD_REQUIRED` | a required field was absent | `field` |
-| `LIMIT_EXCEEDED` | `AMOUNT_NOT_INTEGER` | amount given as a decimal; money is integer minor units | `field`, `supplied` |
-| `LIMIT_EXCEEDED` | `AMOUNT_NOT_PARSEABLE` | amount is not an integer at all | `field`, `supplied` |
-| `LIMIT_EXCEEDED` | `AMOUNT_NOT_POSITIVE` | amount is zero or negative | — |
-| `LIMIT_EXCEEDED` | `AMOUNT_ABOVE_CAP` | amount exceeds the 10^15 minor-unit cap | `cap`, `supplied` |
-| `LIMIT_EXCEEDED` | `ENTRY_COUNT_EXCEEDED` | more entries than a transaction may carry | `limit`, `supplied` |
-| `LIMIT_EXCEEDED` | `IDEMPOTENCY_KEY_TOO_LONG` | key outside 1..200 characters | `maxLength` |
-| `LIMIT_EXCEEDED` | `HOLD_EXPIRY_REQUIRED` | a hold was submitted without an expiry | — |
-| `UNBALANCED` | `TOO_FEW_ENTRIES` | fewer than two entries | `minimum`, `supplied` |
-| `UNBALANCED` | `CURRENCY_NOT_BALANCED` | debits ≠ credits in one currency | `currency`, `differenceMinor` |
-| `UNBALANCED` | `ENTRIES_REQUIRED` | no entries supplied | — |
-| `VALUE_DATE_INVALID` | `VALUE_DATE_IN_FUTURE` | value date after the business date | `valueDate`, `businessDate` |
-| `VALUE_DATE_INVALID` | `BACKDATE_WINDOW_EXCEEDED` | older than the tenant's backdate window | `valueDate`, `earliestAllowed`, `windowDays` |
-| `VALUE_DATE_INVALID` | `BACKDATE_REASON_REQUIRED` | backdated posting without a stated reason | — |
-| `VALUE_DATE_INVALID` | `PERIOD_CLOSED` | value date falls in a closed accounting period | `valueDate` |
-| `VALUE_DATE_INVALID` | `PERIOD_ALREADY_CLOSED` | close requested on an already-closed period | — |
-| `VALUE_DATE_INVALID` | `STATEMENT_PERIOD_INVALID` | statement `from` after `to`, or range unusable | — |
-| `VALUE_DATE_INVALID` | `CURSOR_MALFORMED` | statement page cursor cannot be decoded | — |
-| `ACCOUNT_NOT_FOUND` | `UNKNOWN_ACCOUNT` | no such account for this tenant | — |
-| `ACCOUNT_NOT_FOUND` | `UNKNOWN_TENANT` | tenant not provisioned, or not ACTIVE | — |
-| `ACCOUNT_NOT_FOUND` | `UNKNOWN_TRANSACTION` | no such transaction for this tenant | — |
-| `ACCOUNT_NOT_FOUND` | `UNKNOWN_HOLD` | no such hold for this tenant | — |
-| `CLOSE_BLOCKED` | `ACCOUNT_ALREADY_CLOSED` | the account is already closed | — |
-| `CLOSE_BLOCKED` | `BALANCE_NOT_ZERO` | closure attempted with a nonzero balance | — |
-| `CLOSE_BLOCKED` | `ACTIVE_HOLDS_PRESENT` | closure attempted with holds still active | — |
-| `SWEEP_INVALID` | `SWEEP_NOT_SINGLE_CLOSED_ACCOUNT` | sweep does not target exactly one closed account | — |
-| `SWEEP_INVALID` | `SWEEP_DOES_NOT_ZERO` | sweep leaves a residual balance | — |
-| `SWEEP_INVALID` | `SWEEP_COUNTERPARTY_NOT_SUSPENSE` | sweep counterparty is not a suspense account | — |
-| `HOLD_NOT_ACTIVE` | `HOLD_ALREADY_RESOLVED` | hold is RELEASED, EXPIRED or CONSUMED | — |
-| `HOLD_NOT_ACTIVE` | `HOLD_NOT_ON_TOUCHED_ACCOUNT` | the named hold is not on an account this posting touches | — |
-
-Deliberately absent: `ACCOUNT_NOT_FOUND`'s reasons never distinguish "does not
-exist" from "belongs to another tenant". That indistinguishability is the point
-— a caller must not be able to probe for another tenant's accounts — and no
-reason will ever be added that breaks it.
-
-`ErrorCodeCatalogTest` fails the build if a code or reason exists in the source
-and not in these tables, or the reverse.
 
 ## Hold release — outcome-precise responses
 
