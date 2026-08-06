@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.elyonar</groupId>
+        <artifactId>fincore</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
+        <relativePath>../../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>auth</artifactId>
+    <name>fincore :: libs :: auth</name>
+    <description>
+        Shared authorization library (PRD §6.3, ADR 0009). Validates tokens, extracts the
+        identity context — principal, tenant, permissions, calling service — and provides the
+        require(permission) helpers. Mechanics written once; domain authorization stays in the
+        service that owns the rule.
+    </description>
+
+    <!--
+        Deliberately small, and for the same reason the ledger's list is: a reviewer should be
+        able to confirm the boundary by reading this file. This library validates tokens and
+        answers questions about the caller. It has no database, no HTTP client, and no knowledge
+        of any domain.
+    -->
+    <dependencies>
+        <!-- Servlet types only; this library does not start a web server. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+            <scope>provided</scope>
+        </dependency>
+
+        <!--
+            Nimbus JWT decoding with JWKS. Adopt commodity (PRD §6.5 rule 5): token signature
+            verification is exactly the kind of code that is proven by a decade of hostile
+            exposure rather than by our review. The full resource-server starter is deliberately
+            not used — we want the decoder, not its filter chain, because enforcement belongs to
+            the owning service.
+        -->
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-oauth2-jose</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-autoconfigure</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+</project>

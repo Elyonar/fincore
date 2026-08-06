@@ -1,0 +1,63 @@
+spring:
+  application:
+    name: core
+
+  # Migrations run as the owner; each module's traffic connects as its own role. This datasource
+  # is the owner's, used for migration and for anything cross-cutting; module datasources are
+  # configured per module as they gain tables.
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:55432/core}
+    username: ${SPRING_DATASOURCE_USERNAME:fincore}
+    password: ${SPRING_DATASOURCE_PASSWORD:fincore}
+
+  # Three schemas, three migration histories, three locations — one per module, so a module's
+  # schema changes travel with its code (docs/conventions/service-scaffold.md). Wired explicitly
+  # in FlywayConfiguration rather than by autoconfiguration, which only manages one.
+  flyway:
+    enabled: false
+
+fincore:
+  auth:
+    # The only deployable mode. Dev mode additionally requires a sanctioned profile and says so
+    # loudly at startup (ADR 0010, libs/auth).
+    mode: ${FINCORE_AUTH_MODE:jwt}
+    issuer-uri: ${FINCORE_AUTH_ISSUER_URI:}
+
+  core:
+    # One datasource per module, each as that module's own role. The boundary is enforced by
+    # GRANT, not by convention (ADR 0006, ADR 0007).
+    datasource:
+      customer:
+        jdbc-url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:55432/core}
+        username: ${FINCORE_CUSTOMER_DB_USER:core_customer}
+        password: ${FINCORE_CUSTOMER_DB_PASSWORD:core_customer}
+      product:
+        jdbc-url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:55432/core}
+        username: ${FINCORE_PRODUCT_DB_USER:core_product}
+        password: ${FINCORE_PRODUCT_DB_PASSWORD:core_product}
+      worker:
+        jdbc-url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:55432/core}
+        username: core_worker
+        password: core_worker
+      orchestration:
+        jdbc-url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:55432/core}
+        username: ${FINCORE_ORCHESTRATION_DB_USER:core_orchestration}
+        password: ${FINCORE_ORCHESTRATION_DB_PASSWORD:core_orchestration}
+
+    ledger:
+      # Orchestration's only outbound dependency. No other module may hold a client.
+      base-url: ${FINCORE_LEDGER_URL:http://localhost:8080}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        # Deliberately limited, as in the ledger. An actuator surface is an attack surface.
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+server:
+  port: ${SERVER_PORT:8081}

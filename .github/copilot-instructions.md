@@ -18,6 +18,11 @@ The rules most likely to trip up generated code:
 3. **Every query is tenant-scoped**, and tenant context is set with
    `SET LOCAL` inside the request transaction — never a session-level `SET`,
    because connections are pooled across tenants.
+4. **Modules never read each other's tables.** A deployable may hold several
+   modules (`core/customer`, `core/product`, `core/orchestration`); each owns a
+   schema and is reached only through its published interface. No joins across
+   schemas, no shared repositories. Only `core/orchestration` may hold the
+   ledger client.
 4. **No cross-service imports.** Services integrate over APIs and events only.
 5. **The ledger makes no synchronous outbound calls and consumes no events.**
 6. **Changing an AGREED design** requires a `CHANGELOG.md` entry and a version

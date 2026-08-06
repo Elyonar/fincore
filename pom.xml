@@ -40,7 +40,14 @@
     </licenses>
 
     <modules>
+        <!--
+            Shared libraries build first: a lib is extracted only when a second consumer
+            exists (AGENTS.md), and auth has two — Core and the ledger, which needs real
+            authentication to retire its tenant-header posture (ADR 0009).
+        -->
+        <module>libs/auth</module>
         <module>services/ledger</module>
+        <module>services/core</module>
     </modules>
 
     <properties>

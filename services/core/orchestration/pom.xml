@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.elyonar</groupId>
+        <artifactId>core</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
+        <relativePath>../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>orchestration</artifactId>
+    <name>fincore :: core :: orchestration</name>
+    <description>Orchestration module: sagas, limit reservations, fee application, and the Ledger client. Owns
+        the `orchestration` schema; connects as `core_orchestration`. This is the money path —
+        the merge gate in AGENTS.md hard rule 7 attaches here and nowhere else in Core. It is
+        also the only module permitted an HTTP client, because it is the only module that may
+        call the Ledger's write API.</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.elyonar</groupId>
+            <artifactId>customer</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.elyonar</groupId>
+            <artifactId>product</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.elyonar</groupId>
+            <artifactId>auth</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-jdbc</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+</project>

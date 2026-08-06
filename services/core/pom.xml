@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.elyonar</groupId>
+        <artifactId>fincore</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
+        <relativePath>../../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>core</artifactId>
+    <packaging>pom</packaging>
+    <name>fincore :: core</name>
+    <description>
+        Core Service (ADR 0006) — one deployable holding three modules: customer, product and
+        transaction orchestration. One database, one schema per module, one database role per
+        module. The only caller of the Ledger's write API.
+    </description>
+
+    <!--
+        One Maven module per domain, so dependency direction is declared rather than implied:
+        orchestration depends on customer and product, nothing depends on orchestration, and a
+        cycle is a build failure instead of a review comment.
+
+        Within a module, `api` is the published surface and `internal` is everything else. A
+        consumer may reference another module's `api` package and never its `internal` one —
+        enforced by ArchUnit (ModuleBoundaryTest) and, for data, by one database role per schema
+        with no grants on its neighbours.
+
+        Splitting each domain further into separate api and impl artifacts would let the
+        compiler enforce that too. It was tried and reverted as more folders than the boundary
+        was worth at four modules; see CHANGELOG 1.1.0, which records what the trade actually
+        costs rather than implying nothing changed.
+    -->
+    <modules>
+        <module>customer</module>
+        <module>product</module>
+        <module>orchestration</module>
+        <module>app</module>
+    </modules>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>org.elyonar</groupId>
+                <artifactId>customer</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.elyonar</groupId>
+                <artifactId>product</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.elyonar</groupId>
+                <artifactId>orchestration</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+</project>

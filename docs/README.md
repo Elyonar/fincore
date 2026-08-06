@@ -10,7 +10,9 @@ This folder holds material that spans the whole platform:
   until the PRD is revised.
 - [`conventions/`](conventions/) — standing conventions: commit format
   ([`commits.md`](conventions/commits.md)), how an agreed service design is
-  amended ([`design-changes.md`](conventions/design-changes.md)), and future
+  amended ([`design-changes.md`](conventions/design-changes.md)), what every
+  service must have before it ships
+  ([`service-scaffold.md`](conventions/service-scaffold.md)), and future
   coding/review conventions as they're agreed.
 
 **Service-specific documentation does not live here.** Every service carries
