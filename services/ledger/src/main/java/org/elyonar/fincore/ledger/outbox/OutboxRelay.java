@@ -49,16 +49,25 @@ public class OutboxRelay {
         List<DomainEvent> claimed =
                 jdbc.query(
                         """
-                        SELECT id, event_type, aggregate_id, payload::text
+                        SELECT id, event_type, aggregate_id, tenant_id, created_at, epoch, payload::text
                           FROM outbox_events
                          WHERE published_at IS NULL
                          ORDER BY id
                          FOR UPDATE SKIP LOCKED
                          LIMIT ?
                         """,
+                        // Every envelope field comes from this row (ADR 0008). occurredAt is
+                        // created_at — when the writing transaction committed — and never the
+                        // moment of relay, which can be minutes later after a broker outage.
                         (rs, rowNum) ->
                                 new DomainEvent(
-                                        rs.getLong(1), rs.getString(2), rs.getString(3), rs.getString(4)),
+                                        rs.getLong("id"),
+                                        rs.getString("event_type"),
+                                        rs.getString("aggregate_id"),
+                                        rs.getString("tenant_id"),
+                                        rs.getObject("created_at", java.time.OffsetDateTime.class).toInstant(),
+                                        rs.getLong("epoch"),
+                                        rs.getString("payload")),
                         batchSize);
 
         if (claimed.isEmpty()) {

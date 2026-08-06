@@ -36,6 +36,8 @@ the first place.
 | `GET  /v1/customers/{id}` | customer profile, tier, status, linked accounts | customer | `customers:read` | teller, API |
 | `POST /v1/customers/{id}/tier` | change KYC tier (attributed, reason required) | customer | `customers:tier` | compliance, admin |
 | `POST /v1/customers/{id}/accounts` | link a ledger account to a customer | customer | `customers:link` | admin |
+| `GET  /v1/customers/by-account/{ledgerAccountId}` | contact addresses and consent for the holder of an account — **no name, no tier** | customer | `customers:contact` | notification, API |
+| `POST /v1/customers/{id}/consent` | record what a customer agreed to, per category and channel | customer | `customers:consent` | admin, compliance |
 | `GET  /v1/products` | list products and their versions | product | `products:read` | teller, admin |
 | `POST /v1/products` | create a product with a DRAFT version 1 | product | `products:create` | admin |
 | `POST /v1/products/{id}/versions/{v}/publish` | publish a version (attributed; maker-checker) | product | `products:publish` | admin |
@@ -160,6 +162,7 @@ forever by every caller.
 | `ACCOUNT_ALREADY_HELD` | that ledger account is already live-linked to a customer → 409 | no |
 | `REASON_REQUIRED` | a tier change carried no reason → 422 | no |
 | `TIER_UNCHANGED` | the customer already holds that tier → 422 | no |
+| `CONSENT_INCOMPLETE` | a consent record omitted its category, channel or answer → 422 | no |
 | `PRODUCT_CODE_TAKEN` | the tenant already has a product with this code → 409 | no — caller bug |
 | `INVALID_PRODUCT_TYPE` | not one of the supported product types → 422 | no |
 | `PRODUCT_VERSION_NOT_FOUND` | no such version, or another tenant's → 404 | no |

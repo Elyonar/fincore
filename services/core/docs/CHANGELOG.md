@@ -8,6 +8,70 @@ entry first.
 
 ---
 
+## [1.7.0] — 2026-08-06 · MINOR
+
+**Customer gains contact addresses and communication consent, and one lookup
+that runs from an account.**
+
+- **Docs:** `api.md` (v1.6)
+- **Why:** Notification is the platform's first event consumer
+  ([ADR 0011](../../../docs/adr/0011-first-consumer-before-phase-three.md)), and
+  a domain event carries no PII by design (ADR 0008). A service that sends to
+  customers therefore has to ask, on every send — and Customer could not answer.
+  It held `phone` and nothing else: no second address kind, no consent records
+  despite PRD §4.2 assigning them here, and **no way in from an account id**,
+  which is the only identifier an event carries. `GET /v1/customers/{id}` needs
+  a customer id, so the send path had no entry point at all.
+- **Impact:** additive. Two routes —
+  `GET /v1/customers/by-account/{ledgerAccountId}` and
+  `POST /v1/customers/{id}/consent` — two permissions (`customers:contact`,
+  `customers:consent`), one new error code, and `email` on the create request
+  and the profile response. No existing endpoint or shape changes.
+- **Design decisions worth recording:**
+  - **The lookup carries its own permission and returns no name and no tier.**
+    It exists for a machine, and a machine that sends messages should be able to
+    hold exactly that grant. Reusing `customers:read` would have meant "let the
+    notifier read contacts" implying "let it read everything".
+  - **Addresses are returned keyed by address *kind*** (`PHONE`, `EMAIL`), not
+    by channel. Several channels share a kind — SMS and WhatsApp are both
+    `PHONE` — so a new channel on an existing kind needs nothing from Core at
+    all. Only a genuinely new kind, such as a device token for push, is a change
+    here. That is what keeps the channel registry on Notification's side cheap.
+  - **Consent is per `(category, channel)`, never one flag.** "Accepts
+    transaction alerts by SMS, refuses marketing, never asked about email" is
+    one customer and three answers, and a single flag collapses them in the
+    direction that sends.
+  - **Absence is not denial.** Only explicit answers are stored, and the
+    response carries them unchanged. What an *absent* answer permits is delivery
+    policy — a transactional alert is a fraud control nobody opts out of,
+    marketing is opt-in — and that belongs to the sending service. A default
+    stored here would dress an assumption up as a customer's answer, which is
+    also why `granted` is boxed and an omitted one is a `422`, not a `false`.
+  - **`category` and `channel` are TEXT, not CHECK lists.** Notification adds
+    channels as data; a CHECK here would mean a Core migration every time
+    another service gained a delivery channel.
+- **Tests:** `ContactAndConsentApiTest` (12) — addresses keyed by kind, absent
+  addresses omitted rather than null, the narrow response, unknown and
+  foreign accounts both 404, unlinking ending the lookup, the endpoint's own
+  permission, consent per category and channel, `UNSET → GRANTED → DENIED`
+  history with attribution, and the append-only trigger refusing both UPDATE and
+  DELETE. `ApiSurfaceCatalogTest` and `CustomerApiTest` stay green.
+- **Migration:** customer `V5__contact_and_consent.sql` — `email` on
+  `customers`; `communication_consent` (current state, unique per customer,
+  category and channel); `consent_changes` (append-only, trigger-enforced);
+  RLS enabled and forced on both with the module's grants; and a partial index
+  on `(tenant_id, ledger_account_id) WHERE unlinked_at IS NULL`, because the new
+  lookup runs in the opposite direction from every existing query on that table
+  and would otherwise scan on every send.
+
+*Known gap, stated rather than left to be found: there is no endpoint that
+**changes** a customer's phone or email after creation. Contact details do
+change, and that is a real omission — but it is an administrative surface with
+its own attribution and audit questions, not something to bolt onto a migration
+whose purpose was to let a sender find an address.*
+
+---
+
 ## [1.6.0] — 2026-08-06 · MINOR
 
 **Every endpoint `api.md` documents now exists, and the document can no longer
@@ -77,6 +141,41 @@ drift from the code.**
   `V4` fails loudly if any account is already live-linked to two customers** —
   choosing which customer keeps an account decides who may move its money, and a
   migration is the last place that should happen silently.
+
+---
+
+## [1.5.0] — 2026-08-06 · MINOR
+
+**The envelope is rendered by `libs/events`, and gains `occurredAt`.**
+
+- **Docs:** `architecture.md`
+- **Why:** Core assembled the ADR 0008 envelope in its own relay, and the ledger
+  assembled a different one in its. Comparing the two found three divergences —
+  flat body against nested, `ledgerEpoch` against `epoch`, and no `occurredAt`
+  on either — plus the ledger's outbox id missing from the wire entirely. Core's
+  shape was the closer of the two, and still wrong: without `occurredAt` a
+  consumer that only cares about the present cannot reject a stale event after a
+  replay, and it cannot derive that time from anything else on the message.
+  Found while designing the platform's first consumer, which is the first thing
+  that would have had to live with it.
+- **Impact:** the wire body gains `occurredAt` (the outbox row's `created_at` —
+  when the state change committed, never when the relay ran). Field order now
+  follows ADR 0008's table. No API of Core's own changes, and no schema change:
+  `orchestration.outbox_events` already carried `tenant_id`, `epoch` and
+  `created_at`.
+- **Supersedes:** "the library carries events, not schemas, so wrapping is the
+  service's job and stays here" — the comment in Core's relay that made the
+  divergence structural. Wrapping is now the library's job precisely because two
+  services each doing it produced two envelopes.
+- **Tests:** `PlatformEnvelopeTest`, `PublishersSendTheEnvelopeTest`
+  (`libs/events`). Core's 97-test app suite and 39-test orchestration suite are
+  green, including `OutboxTest`'s interleaved-commit case.
+- **Migration:** none.
+
+*Unrelated but found in the same pass, and recorded so it is not rediscovered:
+`architecture.md` documents a `transfer.reversed` event that the code does not
+emit — the reversal path emits `transfer.reversal_initiated`. Doc and code
+disagree; settling which is right is its own amendment, not this one.*
 
 ---
 

@@ -8,6 +8,56 @@ entry first.
 
 ---
 
+## [1.7.0] — 2026-08-06 · MINOR
+
+**The published envelope becomes ADR 0008's envelope. `V7__outbox_envelope.sql`.**
+
+- **Docs:** `architecture.md`, `data-model.md`
+- **Why:** ADR 0008 specifies one envelope for the whole platform, and the wire
+  did not carry it. The ledger published the payload column verbatim: the
+  restore generation was a payload field named `ledgerEpoch`, the tenant and
+  aggregate were duplicated inside the body, `occurredAt` was absent, and **the
+  outbox row id — the deduplication key the ADR mandates — never left the
+  process at all.** Core meanwhile published a nested envelope with the epoch
+  named `epoch`. Two publishers, two shapes, and the ledger's own contract
+  ("consumers deduplicate on outbox id") unsatisfiable by any consumer. Nothing
+  consumes events yet, which is exactly why nothing caught it — and exactly why
+  the cost of fixing it is zero today and a breaking change for every consumer
+  later.
+- **Impact:** **BREAKING for anything parsing published events — and nothing
+  does.** The message body is now
+  `{eventId, eventType, aggregateId, tenantId, occurredAt, epoch, payload}`,
+  with the domain payload nested under `payload`. `ledgerEpoch`, and the
+  duplicated `tenantId` / `aggregateId`, are gone from the payload: they are
+  envelope fields now, and one fact in two places eventually becomes two
+  answers. ADR 0008's rule that a removed field needs a new `eventType` exists
+  to protect consumers; with zero consumers the honest move is to fix the shape
+  now rather than carry a duplicate field permanently, and this entry is that
+  decision being stated rather than assumed.
+- **Supersedes:** "every payload carries `ledgerEpoch`" in the v1.5 outbox
+  contract. The restore protocol is unchanged in substance — the epoch is
+  stamped at write time and travels with the event; only its home moved from the
+  payload body to the row and then to the envelope.
+- **Tests:** `PlatformEnvelopeTest` and `PublishersSendTheEnvelopeTest` in
+  `libs/events` — the seven fields in the ADR's order, payload embedded as JSON
+  rather than a re-parsed string, a partial envelope rejected at construction,
+  and the assertion that a publisher puts `envelope()` on the wire and not
+  `payload()`. That last one is the regression that actually happened: a test on
+  the renderer alone would have passed throughout. The existing 230-test suite
+  is green, including invariants, property-based, concurrency and
+  failure-injection.
+- **Migration:** `V7__outbox_envelope.sql` — adds `epoch BIGINT NOT NULL
+  DEFAULT 1 CHECK (epoch > 0)` to `outbox_events`. The default is correct rather
+  than convenient: the epoch starts at 1 and only a restore advances it, so
+  every pre-existing row was written under epoch 1.
+
+*The envelope is now rendered once, in `libs/events`, for every publisher. A
+shared instruction to build the same JSON is a convention; a shared renderer is
+a guarantee, and the difference only shows up when there are consumers to
+break.*
+
+---
+
 ## [1.6.0] — 2026-08-06 · MINOR
 
 **The publisher adapters move to `libs/events`, shared with Core.**

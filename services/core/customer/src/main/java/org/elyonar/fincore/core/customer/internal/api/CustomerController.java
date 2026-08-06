@@ -43,6 +43,7 @@ public class CustomerController {
                 request.externalRef(),
                 request.fullName(),
                 request.phone(),
+                request.email(),
                 // A tier the caller omits is the lowest one. Defaulting upward would hand out
                 // limits by accident, and the safe direction here is obvious.
                 request.kycTier() == null ? "TIER_1" : request.kycTier(),
@@ -90,8 +91,60 @@ public class CustomerController {
                 request.role() == null ? "PRIMARY" : request.role());
     }
 
+    /**
+     * Who to contact about a ledger account, and what they agreed to.
+     *
+     * <p>The only lookup on this controller that runs from an account rather than a customer,
+     * because it exists for services holding an account id and nothing else: a domain event carries
+     * no PII (ADR 0008), so a sender must ask, on every send.
+     *
+     * <p>It carries its own permission rather than reusing {@code customers:read}. This returns
+     * contact details and consent and nothing else — no name, no tier, no external reference — and
+     * a machine that sends messages should be able to hold exactly that grant and no more.
+     */
+    @GetMapping("/by-account/{ledgerAccountId}")
+    public CustomerRecords.ContactAndConsent contactForAccount(@PathVariable UUID ledgerAccountId) {
+        var identity = Authorization.require("customers:contact");
+        CustomerRecords.ContactAndConsent contact =
+                customers.contactForAccount(identity.tenantId(), ledgerAccountId);
+        if (contact == null) {
+            throw new CustomerRecords.NoSuchCustomer();
+        }
+        return contact;
+    }
+
+    /**
+     * Records what a customer agreed to, per category and channel.
+     *
+     * <p>Per category and channel rather than one flag, because "accepts transaction alerts by SMS,
+     * refuses marketing, never asked about email" is one customer and three different answers. A
+     * single flag collapses them, and the collapse always resolves in the direction that sends.
+     */
+    @PostMapping("/{id}/consent")
+    public CustomerRecords.Consent recordConsent(@PathVariable UUID id, @RequestBody RecordConsent request) {
+        var identity = Authorization.require("customers:consent");
+        if (request.category() == null || request.channel() == null || request.granted() == null) {
+            throw new IllegalArgumentException("CONSENT_INCOMPLETE");
+        }
+        return customers.recordConsent(
+                identity.tenantId(),
+                id,
+                request.category(),
+                request.channel(),
+                request.granted(),
+                Authorization.initiatedBy());
+    }
+
     /** @param externalRef the tenant's own customer number; unique within the tenant */
-    public record CreateCustomer(String externalRef, String fullName, String phone, String kycTier) {}
+    public record CreateCustomer(
+            String externalRef, String fullName, String phone, String email, String kycTier) {}
+
+    /**
+     * @param granted boxed deliberately — an absent answer must be rejected, not silently read as
+     *     "denied". A consent record that says a customer refused when nobody asked is a fabricated
+     *     answer, and the compliance value of this table is that every row is a real one.
+     */
+    public record RecordConsent(String category, String channel, Boolean granted) {}
 
     public record ChangeTier(String toTier, String reason) {}
 

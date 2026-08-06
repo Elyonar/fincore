@@ -1,7 +1,9 @@
 package org.elyonar.fincore.core.customer.internal;
 
 import java.time.OffsetDateTime;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.dao.DuplicateKeyException;
@@ -43,7 +45,13 @@ public class CustomerRecords {
      */
     @Transactional(transactionManager = "customerTransactionManager")
     public Profile create(
-            UUID tenantId, String externalRef, String fullName, String phone, String kycTier, String createdBy) {
+            UUID tenantId,
+            String externalRef,
+            String fullName,
+            String phone,
+            String email,
+            String kycTier,
+            String createdBy) {
 
         scopeTo(tenantId);
         try {
@@ -51,12 +59,12 @@ public class CustomerRecords {
                     jdbc.queryForObject(
                             """
                             INSERT INTO customer.customers
-                                (tenant_id, external_ref, full_name, phone, kyc_tier, created_by)
-                            VALUES (?,?,?,?,?,?)
+                                (tenant_id, external_ref, full_name, phone, email, kyc_tier, created_by)
+                            VALUES (?,?,?,?,?,?,?)
                             RETURNING id
                             """,
                             UUID.class,
-                            tenantId, externalRef, fullName, phone, kycTier, createdBy);
+                            tenantId, externalRef, fullName, phone, email, kycTier, createdBy);
             return read(tenantId, id);
         } catch (DuplicateKeyException e) {
             // The tenant already numbered this customer. A 409 rather than a silent second record:
@@ -73,7 +81,7 @@ public class CustomerRecords {
         Profile profile =
                 jdbc.query(
                         """
-                        SELECT id, external_ref, full_name, phone, status, kyc_tier, created_at
+                        SELECT id, external_ref, full_name, phone, email, status, kyc_tier, created_at
                           FROM customer.customers WHERE id = ?
                         """,
                         rs ->
@@ -83,6 +91,7 @@ public class CustomerRecords {
                                                 rs.getString("external_ref"),
                                                 rs.getString("full_name"),
                                                 rs.getString("phone"),
+                                                rs.getString("email"),
                                                 rs.getString("status"),
                                                 rs.getString("kyc_tier"),
                                                 rs.getObject("created_at", OffsetDateTime.class),
@@ -197,15 +206,175 @@ public class CustomerRecords {
             String externalRef,
             String fullName,
             String phone,
+            String email,
             String status,
             String kycTier,
             OffsetDateTime createdAt,
             List<Link> accounts) {
 
         Profile withAccounts(List<Link> accounts) {
-            return new Profile(customerId, externalRef, fullName, phone, status, kycTier, createdAt, accounts);
+            return new Profile(
+                    customerId, externalRef, fullName, phone, email, status, kycTier, createdAt, accounts);
         }
     }
+
+    /**
+     * Who to contact about an account, and whether they agreed to be contacted.
+     *
+     * <p>The lookup runs in the opposite direction from every other query here — from a ledger
+     * account to the customer holding it — because that is the only identifier a domain event
+     * carries. Event payloads hold no PII by design (ADR 0008), so a service that sends to
+     * customers has to ask, on every send, and this is the one call that answers it.
+     *
+     * <p>Addresses are keyed by <em>address kind</em> rather than returned as named fields.
+     * Notification treats a delivery channel as data, and several channels share one kind — SMS and
+     * WhatsApp are both {@code PHONE}. A map means a new channel on an existing kind needs nothing
+     * from Customer at all; only a genuinely new kind, such as a device token for push, is a change
+     * here.
+     *
+     * <p>Consent is returned as the explicit answers on record, and nothing more. What an
+     * <em>absent</em> answer permits is delivery policy — a transactional alert is a fraud control
+     * a customer cannot opt out of, marketing is opt-in — and that decision belongs to the service
+     * doing the sending. Inventing a default here would dress an assumption up as a customer's
+     * answer.
+     *
+     * @return null when no live link to that account exists for this tenant
+     */
+    @Transactional(readOnly = true, transactionManager = "customerTransactionManager")
+    public ContactAndConsent contactForAccount(UUID tenantId, UUID ledgerAccountId) {
+        scopeTo(tenantId);
+
+        UUID customerId =
+                jdbc.query(
+                        """
+                        SELECT customer_id FROM customer.customer_accounts
+                         WHERE ledger_account_id = ? AND unlinked_at IS NULL
+                        """,
+                        rs -> rs.next() ? rs.getObject("customer_id", UUID.class) : null,
+                        ledgerAccountId);
+
+        if (customerId == null) {
+            // Unlinked, never linked, or another tenant's — one answer, as everywhere in this
+            // module. Distinguishing them would confirm that an account exists somewhere.
+            return null;
+        }
+
+        ContactAndConsent contact =
+                jdbc.query(
+                        "SELECT id, status, phone, email FROM customer.customers WHERE id = ?",
+                        rs -> {
+                            if (!rs.next()) {
+                                return null;
+                            }
+                            Map<String, String> addresses = new LinkedHashMap<>();
+                            // Absent rather than null-valued: a caller iterating the map should see
+                            // only addresses that exist, never an entry it has to null-check.
+                            if (rs.getString("phone") != null) {
+                                addresses.put(AddressKind.PHONE, rs.getString("phone"));
+                            }
+                            if (rs.getString("email") != null) {
+                                addresses.put(AddressKind.EMAIL, rs.getString("email"));
+                            }
+                            return new ContactAndConsent(
+                                    rs.getObject("id", UUID.class), rs.getString("status"), addresses, List.of());
+                        },
+                        customerId);
+
+        if (contact == null) {
+            return null;
+        }
+
+        List<Consent> consent =
+                jdbc.query(
+                        """
+                        SELECT category, channel, granted FROM customer.communication_consent
+                         WHERE customer_id = ? ORDER BY category, channel
+                        """,
+                        (rs, row) ->
+                                new Consent(rs.getString("category"), rs.getString("channel"), rs.getBoolean("granted")),
+                        customerId);
+
+        return contact.withConsent(consent);
+    }
+
+    /**
+     * Records a customer's answer about being contacted, and keeps the history.
+     *
+     * <p>Current state and history are written together, in one transaction, the same way a tier
+     * change is. The current row answers "may we send"; only the history answers "when did they
+     * agree and who recorded it", which is the question NDPR asks and the one that arrives months
+     * later with a regulator attached.
+     *
+     * <p>There is deliberately no endpoint that deletes a consent record. Withdrawing consent is
+     * recording {@code granted = false} — an answer, kept — because a customer who opted out and a
+     * customer who was never asked are different people to a compliance officer.
+     */
+    @Transactional(transactionManager = "customerTransactionManager")
+    public Consent recordConsent(
+            UUID tenantId, UUID customerId, String category, String channel, boolean granted, String recordedBy) {
+        scopeTo(tenantId);
+
+        Integer exists =
+                jdbc.query("SELECT 1 FROM customer.customers WHERE id = ?", rs -> rs.next() ? 1 : null, customerId);
+        if (exists == null) {
+            throw new NoSuchCustomer();
+        }
+
+        String from =
+                jdbc.query(
+                        """
+                        SELECT granted FROM customer.communication_consent
+                         WHERE customer_id = ? AND category = ? AND channel = ?
+                        """,
+                        rs -> rs.next() ? (rs.getBoolean("granted") ? "GRANTED" : "DENIED") : "UNSET",
+                        customerId, category, channel);
+
+        jdbc.update(
+                """
+                INSERT INTO customer.communication_consent
+                       (tenant_id, customer_id, category, channel, granted, recorded_by)
+                VALUES (?,?,?,?,?,?)
+                ON CONFLICT (tenant_id, customer_id, category, channel)
+                DO UPDATE SET granted = EXCLUDED.granted,
+                              recorded_by = EXCLUDED.recorded_by,
+                              recorded_at = now()
+                """,
+                tenantId, customerId, category, channel, granted, recordedBy);
+
+        jdbc.update(
+                """
+                INSERT INTO customer.consent_changes
+                       (tenant_id, customer_id, category, channel, from_state, to_state, recorded_by)
+                VALUES (?,?,?,?,?,?,?)
+                """,
+                tenantId, customerId, category, channel, from, granted ? "GRANTED" : "DENIED", recordedBy);
+
+        return new Consent(category, channel, granted);
+    }
+
+    /**
+     * The address kinds Customer can supply.
+     *
+     * <p>Constants rather than string literals, per AGENTS.md rule 10: these names are a published
+     * contract that a consumer matches on, so changing one must be one edit and not a search.
+     */
+    public static final class AddressKind {
+        private AddressKind() {}
+
+        public static final String PHONE = "PHONE";
+        public static final String EMAIL = "EMAIL";
+    }
+
+    public record ContactAndConsent(
+            UUID customerId, String status, Map<String, String> addresses, List<Consent> consent) {
+
+        ContactAndConsent withConsent(List<Consent> consent) {
+            return new ContactAndConsent(customerId, status, addresses, consent);
+        }
+    }
+
+    /** One explicit answer. Absence of an entry means the customer was never asked. */
+    public record Consent(String category, String channel, boolean granted) {}
 
     public record Link(UUID ledgerAccountId, String currency, String role, OffsetDateTime linkedAt) {}
 

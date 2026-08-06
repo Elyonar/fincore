@@ -50,25 +50,29 @@ public class OutboxRelay {
         List<DomainEvent> pending =
                 jdbc.query(
                         """
-                        SELECT id, tenant_id, event_type, aggregate_id, epoch, payload::text AS payload
+                        SELECT id, tenant_id, event_type, aggregate_id, created_at, epoch,
+                               payload::text AS payload
                           FROM orchestration.outbox_events
                          WHERE published_at IS NULL
                          ORDER BY id
                            FOR UPDATE SKIP LOCKED
                          LIMIT ?
                         """,
+                        // Every envelope field comes from this row (ADR 0008), and the envelope
+                        // itself is rendered by libs/events — one renderer for every publisher,
+                        // because two services each assembling "the same" JSON is how this
+                        // platform ended up with two envelopes and no consumer to notice.
+                        // occurredAt is created_at: when the state change committed, never when a
+                        // relay got round to it.
                         (rs, row) ->
                                 new DomainEvent(
                                         rs.getLong("id"),
                                         rs.getString("event_type"),
                                         rs.getString("aggregate_id"),
-                                        // The platform envelope, assembled from the module's own
-                                        // row (ADR 0008). The library carries events, not schemas,
-                                        // so wrapping is the service's job and stays here.
-                                        envelope(rs.getLong("id"), rs.getString("event_type"),
-                                                rs.getString("aggregate_id"),
-                                                rs.getString("tenant_id"), rs.getLong("epoch"),
-                                                rs.getString("payload"))),
+                                        rs.getString("tenant_id"),
+                                        rs.getObject("created_at", java.time.OffsetDateTime.class).toInstant(),
+                                        rs.getLong("epoch"),
+                                        rs.getString("payload")),
                         batchSize);
 
         // Only what the broker acknowledged is marked published: an unacknowledged event stays
@@ -93,13 +97,6 @@ public class OutboxRelay {
                                 + " FROM orchestration.outbox_events WHERE published_at IS NULL",
                         Long.class);
         return Optional.ofNullable(age);
-    }
-
-    private static String envelope(
-            long id, String eventType, String aggregateId, String tenantId, long epoch, String payload) {
-        return """
-               {"eventId":%d,"eventType":"%s","aggregateId":"%s","tenantId":"%s","epoch":%d,"payload":%s}"""
-                .formatted(id, eventType, aggregateId, tenantId, epoch, payload);
     }
 
     public void warnIfStale(long thresholdSeconds) {

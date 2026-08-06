@@ -273,7 +273,8 @@ a missed message would mean a real bank silently unable to transact. A provision
 is visible immediately to the person running it.
 
 **Ledger epoch.** `ledger_epoch` is a single enforced row carrying the restore generation, stamped
-onto every published event as `ledgerEpoch`. A restore from backup rewinds the outbox: ids
+onto the outbox row at write time and published as the envelope's `epoch` (ADR 0008; it was a
+payload field named `ledgerEpoch` until v1.7). A restore from backup rewinds the outbox: ids
 consumers have already seen become available again, and the events written under them may describe
 different money. Without a generation marker a consumer cannot tell a genuine at-least-once
 redelivery from a post-restore replay of a different history — both look like an outbox id it has

@@ -43,7 +43,7 @@ public class RabbitEventPublisher implements EventPublisher {
                                     operations.convertAndSend(
                                             exchange,
                                             event.eventType(),
-                                            event.payload(),
+                                            event.envelope(),
                                             message -> {
                                                 var props = message.getMessageProperties();
                                                 props.setHeader("aggregateId", event.aggregateId());

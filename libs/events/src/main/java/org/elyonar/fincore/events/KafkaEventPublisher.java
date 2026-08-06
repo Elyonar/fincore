@@ -45,7 +45,7 @@ public class KafkaEventPublisher implements EventPublisher {
     public List<Long> publish(List<DomainEvent> batch) {
         List<CompletableFuture<SendResult<String, String>>> sends = new ArrayList<>(batch.size());
         for (DomainEvent event : batch) {
-            sends.add(kafka.send(topicPrefix + "." + event.eventType(), event.aggregateId(), event.payload()));
+            sends.add(kafka.send(topicPrefix + "." + event.eventType(), event.aggregateId(), event.envelope()));
         }
 
         List<Long> acknowledged = new ArrayList<>(batch.size());

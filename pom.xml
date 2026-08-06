@@ -49,6 +49,11 @@
         <module>libs/events</module>
         <module>services/ledger</module>
         <module>services/core</module>
+        <!--
+            The platform's first event consumer (ADR 0011). Built after the publishers, because
+            a consumer is what turns the event contract from prose into something a test can fail.
+        -->
+        <module>services/notification</module>
     </modules>
 
     <properties>

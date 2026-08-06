@@ -78,6 +78,7 @@ a schema and is reached only through its interface, never its tables
 | [0008](docs/adr/0008-event-contract.md) | One event envelope for the whole platform |
 | [0009](docs/adr/0009-service-to-service-identity.md) | Authenticated service callers; the ledger enforces its own allowlist |
 | [0010](docs/adr/0010-keycloak-realm-per-tenant.md) | One Keycloak realm per tenant, and identity lands before Core |
+| [0011](docs/adr/0011-first-consumer-before-phase-three.md) | The platform's first event consumer is built before Phase 3 |
 
 ## Repository layout
 
