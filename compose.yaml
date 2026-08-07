@@ -106,11 +106,25 @@ services:
   keycloak:
     image: quay.io/keycloak/keycloak:26.0
     profiles: ["identity"]
-    command: ["start-dev"]
+    # --import-realm seeds keycloak/fincore-dev-realm.json on every start. Deliberate: start-dev
+    # keeps its database in memory, so the realm is rebuilt from the file each time and cannot
+    # drift from what the repository says it is. Changes made in the admin console are lost on
+    # restart — edit the file instead, which is also what makes them reviewable.
+    command: ["start-dev", "--import-realm"]
+    volumes:
+      - ./keycloak:/opt/keycloak/data/import:ro
     environment:
       KC_BOOTSTRAP_ADMIN_USERNAME: admin
       KC_BOOTSTRAP_ADMIN_PASSWORD: admin
       KC_HEALTH_ENABLED: "true"
+      # A fixed issuer, and this is the setting that makes tokens work in both directions.
+      # A token's `iss` must equal the issuer a service validates against, and the two reach
+      # Keycloak by different names: a developer curls localhost:8180, while services resolve
+      # `keycloak` on the compose network. Pinning the hostname means every token says
+      # http://keycloak:8080/realms/fincore-dev whichever door it was requested through — so
+      # services validate it and fetch the signing keys over a name they can actually resolve.
+      KC_HOSTNAME: http://keycloak:8080
+      KC_HOSTNAME_STRICT: "false"
     ports:
       - "${FINCORE_KEYCLOAK_PORT:-8180}:8080"
     healthcheck:

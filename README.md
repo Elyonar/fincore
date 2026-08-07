@@ -108,6 +108,7 @@ fincore/
 │   ├── adr/           # Architecture Decision Records (cross-cutting only)
 │   ├── conventions/   # commits, design amendments, the service scaffold
 │   └── README.md      # documentation conventions
+├── keycloak/          # the seeded development realm — fake credentials, on purpose
 ├── .github/           # CONTRIBUTING, CLA, SECURITY, CI workflows
 ├── AGENTS.md          # memory map for AI agents & new contributors
 ├── pom.xml            # Maven multi-module root (Java 25 LTS)
@@ -154,8 +155,35 @@ break the build, or the other way round. Inside the compose network the ports
 are unchanged.
 
 RabbitMQ is available as an alternative backbone
-(`FINCORE_EVENTS_BROKER=rabbit`), and Keycloak runs under
-`docker compose --profile identity up`.
+(`FINCORE_EVENTS_BROKER=rabbit`).
+
+### Logging in
+
+Keycloak ships with a seeded development realm — six users shaped like real
+jobs, so trying an endpoint your role does not cover and getting a 403 is the
+system working.
+
+```bash
+docker compose --profile identity up -d keycloak          # admin console: localhost:8180 (admin/admin)
+
+FINCORE_AUTH_MODE=jwt \
+FINCORE_AUTH_ISSUER_URI=http://keycloak:8080/realms/fincore-dev \
+docker compose --profile identity up -d --force-recreate core notification
+
+TOKEN=$(curl -s -X POST \
+  http://localhost:8180/realms/fincore-dev/protocol/openid-connect/token \
+  -d grant_type=password -d client_id=fincore-cli \
+  -d username=ada -d password=password | jq -r .access_token)
+
+curl -H "Authorization: Bearer $TOKEN" http://localhost:58081/v1/products
+```
+
+Or press **Authorize** in Swagger UI and paste the token.
+
+Every credential in that realm is fake and published on purpose:
+[`keycloak/README.md`](keycloak/README.md) explains the users, what each may do,
+and what this deliberately does not cover — the ledger still takes a tenant
+header, and no service-to-service mTLS exists yet.
 
 **Two things announce themselves loudly at startup, and both are meant to.**
 Services run with a development identity — headers, not tokens — until a
