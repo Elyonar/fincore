@@ -19,9 +19,15 @@ Then start the services in JWT mode:
 
 ```bash
 FINCORE_AUTH_MODE=jwt \
-FINCORE_AUTH_ISSUER_URI=http://keycloak:8080/realms/fincore-dev \
+FINCORE_AUTH_ISSUER_URI=http://localhost:8180/realms/fincore-dev \
+FINCORE_AUTH_JWKS_URI=http://keycloak:8080/realms/fincore-dev/protocol/openid-connect/certs \
 docker compose --profile identity up -d --force-recreate core notification
 ```
+
+**See the sign-in page** at
+<http://localhost:8180/realms/fincore-dev/account> — it redirects to the login
+form, which is the same page a mobile app opens in an in-app browser tab. Sign in
+as any user below.
 
 Get a token and use it:
 
@@ -74,12 +80,17 @@ demands has a role here, and no role exists that no endpoint demands.
 
 ## Two things that will surprise you
 
-**The issuer is `http://keycloak:8080/...`, not `localhost:8180`.** A token's
-`iss` must equal the issuer a service validates against, and the two reach
-Keycloak by different names — you curl `localhost:8180`, services resolve
-`keycloak` on the compose network. `KC_HOSTNAME` pins the issuer so every token
-says the same thing whichever door it was requested through, and services fetch
-the signing keys over a name they can actually resolve.
+**The issuer and the key set are two different URLs, deliberately.** A browser
+reaches Keycloak at `localhost:8180`; a container reaches it at `keycloak:8080`.
+Pin everything to the compose name and the login page renders perfectly and
+cannot be submitted — the form posts to a host the browser cannot resolve. Pin
+everything to `localhost` and no service can fetch the signing keys.
+
+So the **issuer** is `http://localhost:8180/...`: it is a public fact, baked into
+every token, and must be reachable from where a human sits. The **key set** is
+fetched over the compose network via `FINCORE_AUTH_JWKS_URI`. The issuer claim is
+still verified — that setting decides where keys come from, never what is
+trusted. Behind a gateway a real deployment splits them the same way.
 
 **Nothing you do in the admin console survives a restart.** `start-dev` keeps its
 database in memory and `--import-realm` rebuilds this file on every start. That

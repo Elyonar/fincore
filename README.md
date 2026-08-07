@@ -167,7 +167,8 @@ system working.
 docker compose --profile identity up -d keycloak          # admin console: localhost:8180 (admin/admin)
 
 FINCORE_AUTH_MODE=jwt \
-FINCORE_AUTH_ISSUER_URI=http://keycloak:8080/realms/fincore-dev \
+FINCORE_AUTH_ISSUER_URI=http://localhost:8180/realms/fincore-dev \
+FINCORE_AUTH_JWKS_URI=http://keycloak:8080/realms/fincore-dev/protocol/openid-connect/certs \
 docker compose --profile identity up -d --force-recreate core notification
 
 TOKEN=$(curl -s -X POST \
@@ -178,7 +179,9 @@ TOKEN=$(curl -s -X POST \
 curl -H "Authorization: Bearer $TOKEN" http://localhost:58081/v1/products
 ```
 
-Or press **Authorize** in Swagger UI and paste the token.
+Or press **Authorize** in Swagger UI and paste the token. The sign-in page
+itself — the one a mobile app opens in an in-app browser tab — is at
+<http://localhost:8180/realms/fincore-dev/account>.
 
 Every credential in that realm is fake and published on purpose:
 [`keycloak/README.md`](keycloak/README.md) explains the users, what each may do,

@@ -22,6 +22,21 @@ public class AuthProperties {
     /** Issuer URI whose published keys sign the tokens this service accepts. */
     private String issuerUri;
 
+    /**
+     * Where to fetch the signing keys, when that is not reachable at {@link #issuerUri}.
+     *
+     * <p>Optional, and empty is the normal case. It exists because the issuer is a *public* fact —
+     * it is baked into every token and must be identical for everyone — while the key set is
+     * fetched by the service itself and may sit on a network only it can reach. Behind a gateway
+     * the two genuinely differ, and locally they always do: a browser reaches Keycloak at
+     * {@code localhost}, a container reaches it by its compose name, and pinning one breaks the
+     * other.
+     *
+     * <p>Set it and the issuer is still verified — the claim must match {@link #issuerUri} exactly.
+     * This changes where keys come from, never what is trusted.
+     */
+    private String jwksUri;
+
     /** Claim carrying the tenant. The tenant is never read from a header (ADR 0009). */
     private String tenantClaim = "tenant_id";
 
@@ -71,6 +86,14 @@ public class AuthProperties {
 
     public String getIssuerUri() {
         return issuerUri;
+    }
+
+    public String getJwksUri() {
+        return jwksUri;
+    }
+
+    public void setJwksUri(String jwksUri) {
+        this.jwksUri = jwksUri;
     }
 
     public void setIssuerUri(String issuerUri) {
