@@ -117,14 +117,17 @@ services:
       KC_BOOTSTRAP_ADMIN_USERNAME: admin
       KC_BOOTSTRAP_ADMIN_PASSWORD: admin
       KC_HEALTH_ENABLED: "true"
-      # A fixed issuer, and this is the setting that makes tokens work in both directions.
-      # A token's `iss` must equal the issuer a service validates against, and the two reach
-      # Keycloak by different names: a developer curls localhost:8180, while services resolve
-      # `keycloak` on the compose network. Pinning the hostname means every token says
-      # http://keycloak:8080/realms/fincore-dev whichever door it was requested through — so
-      # services validate it and fetch the signing keys over a name they can actually resolve.
-      KC_HOSTNAME: http://keycloak:8080
+      # The front-channel address: what a browser uses, and what every token says it was issued
+      # by. It must be reachable from a laptop, because Keycloak renders the login form's action
+      # with it — pinning this to the compose name instead produced a login page that displayed
+      # perfectly and could not be submitted.
+      #
+      # Services then verify that issuer while fetching the signing keys over the compose network
+      # (FINCORE_AUTH_JWKS_URI, below). The issuer is a public fact; where keys come from is the
+      # service's own business, and behind a gateway those genuinely differ too.
+      KC_HOSTNAME: http://localhost:8180
       KC_HOSTNAME_STRICT: "false"
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
     ports:
       - "${FINCORE_KEYCLOAK_PORT:-8180}:8080"
     healthcheck:
@@ -225,6 +228,10 @@ services:
       # with an issuer URI to exercise the real path against Keycloak.
       FINCORE_AUTH_MODE: ${FINCORE_AUTH_MODE:-dev}
       FINCORE_AUTH_ISSUER_URI: ${FINCORE_AUTH_ISSUER_URI:-}
+      # Where this service fetches the signing keys. The issuer above is what a browser and a
+      # token both say; this is a name only the compose network resolves. Set together, or
+      # neither.
+      FINCORE_AUTH_JWKS_URI: ${FINCORE_AUTH_JWKS_URI:-}
       SPRING_PROFILES_ACTIVE: ${FINCORE_CORE_PROFILE:-dev}
     ports:
       # Published on 58081 for the same reason the ledger uses 58080: Core's own tests bind 8081.
@@ -297,6 +304,9 @@ services:
       # because the messaging connector does not exist yet.
       FINCORE_AUTH_MODE: ${FINCORE_AUTH_MODE:-dev}
       FINCORE_AUTH_ISSUER_URI: ${FINCORE_AUTH_ISSUER_URI:-}
+      # Where this service fetches the signing keys. The issuer above is what a browser and a
+      # token both say; this is a name only the compose network resolves. Set together, or neither.
+      FINCORE_AUTH_JWKS_URI: ${FINCORE_AUTH_JWKS_URI:-}
       SPRING_PROFILES_ACTIVE: ${FINCORE_NOTIFICATION_PROFILE:-dev}
     ports:
       # 58082 for the same reason the ledger uses 58080 and Core 58081: the

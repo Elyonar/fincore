@@ -15,6 +15,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.core.Ordered;
 import org.springframework.core.env.Environment;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
+import org.springframework.security.oauth2.jwt.JwtValidators;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 
 /**
@@ -48,9 +49,21 @@ public class AuthAutoConfiguration {
                     "fincore.auth.mode=jwt requires fincore.auth.issuer-uri. Refusing to start "
                             + "rather than accepting tokens nobody verified.");
         }
-        // fromIssuerLocation performs issuer discovery and pins the signing keys, so tokens are
-        // verified locally per request without calling the provider.
-        return NimbusJwtDecoder.withIssuerLocation(properties.getIssuerUri()).build();
+        // Either way the keys are fetched once and cached, so tokens are verified locally per
+        // request without calling the provider — which is what makes Identity critical
+        // infrastructure rather than a per-transaction dependency (PRD §6.1).
+        if (properties.getJwksUri() == null || properties.getJwksUri().isBlank()) {
+            // Discovery from the issuer: one URL, and the ordinary case.
+            return NimbusJwtDecoder.withIssuerLocation(properties.getIssuerUri()).build();
+        }
+
+        // The key set lives somewhere this service can reach and the issuer does not name. The
+        // issuer claim is still verified against issuerUri — this decides where keys come from,
+        // never what is trusted, and skipping that validator would accept any token signed by
+        // anyone whose keys happen to be at that URL.
+        NimbusJwtDecoder decoder = NimbusJwtDecoder.withJwkSetUri(properties.getJwksUri()).build();
+        decoder.setJwtValidator(JwtValidators.createDefaultWithIssuer(properties.getIssuerUri()));
+        return decoder;
     }
 
     @Bean
