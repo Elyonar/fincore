@@ -112,7 +112,11 @@ services:
     # restart — edit the file instead, which is also what makes them reviewable.
     command: ["start-dev", "--import-realm"]
     volumes:
-      - ./keycloak:/opt/keycloak/data/import:ro
+      # Two mounts, because they are two different things: what the realm *is*, and what it looks
+      # like. Keeping the theme out of the import directory also keeps the import scanner from
+      # walking it.
+      - ./keycloak/import:/opt/keycloak/data/import:ro
+      - ./keycloak/themes:/opt/keycloak/themes:ro
     environment:
       KC_BOOTSTRAP_ADMIN_USERNAME: admin
       KC_BOOTSTRAP_ADMIN_PASSWORD: admin

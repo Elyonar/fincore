@@ -351,5 +351,7 @@
         }
       ]
     }
-  ]
+  ],
+  "loginTheme": "fincore",
+  "accountTheme": "keycloak.v3"
 }
