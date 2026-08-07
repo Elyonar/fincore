@@ -11,11 +11,13 @@ regulatory licenses and banking relationships; money never moves through us.
 
 ## Status
 
-🚧 **Early build — being developed in public.** The Ledger is designed,
-implemented, and tested against real PostgreSQL. It is pre-1.0 and **not
-production-ready** — its own README carries the honest list of what is still
-missing. Core, which holds customer, product and transaction orchestration, is
-decided but not yet designed. Nothing here processes real money yet.
+🚧 **Early build — being developed in public.** Three deployables exist and are
+tested against real PostgreSQL: the **Ledger**, **Core** (customer, product and
+transaction orchestration), and **Notification**, the platform's first event
+consumer. All are pre-1.0 and **not production-ready** — each service's README
+carries the honest list of what is still missing, and nothing here processes
+real money yet. No payment rails connector exists, so money moves only between
+accounts within one institution.
 
 Per-service status lives in the table below, and canonically in each service's
 `docs/CHANGELOG.md` — if the two ever disagree, the changelog is right.
@@ -55,10 +57,11 @@ Read the [ADRs](docs/adr/), then try to break the ledger —
 
 | Service | What it does | Status | Docs |
 |---|---|---|---|
-| **Ledger** | Double-entry posting engine — the single source of monetary truth. Accounts, entries, balances, holds. | ✅ Design AGREED v1.4 · implemented (pre-1.0) | [README](services/ledger/README.md) · [design](services/ledger/docs/design.md) · [data model](services/ledger/docs/data-model.md) · [architecture](services/ledger/docs/architecture.md) · [API](services/ledger/docs/api.md) · [posting algorithm](services/ledger/docs/posting-algorithm.md) · [testing](services/ledger/docs/testing.md) |
-| **Core** | One deployable, three modules — `core/customer`, `core/product`, `core/orchestration`. Owns sagas, fee application and limits; the only caller of the Ledger's write API. | 🔜 Design AGREED v1.0 · not yet implemented | [README](services/core/README.md) · [design](services/core/docs/design.md) · [outcome protocol](services/core/docs/outcome-protocol.md) · [saga protocol](services/core/docs/saga-protocol.md) · [data model](services/core/docs/data-model.md) · [API](services/core/docs/api.md) · [testing](services/core/docs/testing.md) |
+| **Ledger** | Double-entry posting engine — the single source of monetary truth. Accounts, entries, balances, holds. | ✅ Design AGREED v1.8 · implemented (pre-1.0) | [README](services/ledger/README.md) · [design](services/ledger/docs/design.md) · [data model](services/ledger/docs/data-model.md) · [architecture](services/ledger/docs/architecture.md) · [API](services/ledger/docs/api.md) · [posting algorithm](services/ledger/docs/posting-algorithm.md) · [testing](services/ledger/docs/testing.md) |
+| **Core** | One deployable, three modules — `core/customer`, `core/product`, `core/orchestration`. Owns sagas, fee application and limits; the only caller of the Ledger's write API. | ✅ Design AGREED v1.11 · implemented (pre-1.0) | [README](services/core/README.md) · [design](services/core/docs/design.md) · [outcome protocol](services/core/docs/outcome-protocol.md) · [saga protocol](services/core/docs/saga-protocol.md) · [data model](services/core/docs/data-model.md) · [API](services/core/docs/api.md) · [testing](services/core/docs/testing.md) |
 | Identity | Keycloak, self-hosted: auth, tenants, roles, maker-checker. Configured, not built. | Planned | — |
-| Lending · Compliance · Connectors · Notification | Further domains around the ledger. | Planned | — |
+| **Notification** | The platform's first event consumer. Turns Core's business events into messages over a registry of channels; writes no money and holds no gateway credentials. | ✅ Design AGREED v1.2 · implemented (pre-1.0) | [README](services/notification/README.md) · [design](services/notification/docs/design.md) · [architecture](services/notification/docs/architecture.md) · [data model](services/notification/docs/data-model.md) · [API](services/notification/docs/api.md) · [testing](services/notification/docs/testing.md) |
+| Lending · Compliance · Connectors | Further domains around the ledger. | Planned | — |
 
 A **deployable** owns its own process and database; a **module** inside one owns
 a schema and is reached only through its interface, never its tables
@@ -88,8 +91,9 @@ fincore/
 │   ├── ledger/        # the first deployable — double-entry posting engine
 │   │   ├── README.md  # the service's own map: purpose, boundaries, doc index
 │   │   └── docs/      # the service's design & deep-dive docs
-│   └── core/          # (planned) one deployable, three modules:
-│                      #   customer · product · orchestration · app
+│   ├── core/          # one deployable, three modules:
+│   │                  #   customer · product · orchestration · app
+│   └── notification/  # the first event consumer — messages, not money
 ├── libs/              # shared internal libraries (auth, events) — arrive when needed
 ├── docs/
 │   ├── prd.md         # product requirements
@@ -99,7 +103,8 @@ fincore/
 ├── .github/           # CONTRIBUTING, CLA, SECURITY, CI workflows
 ├── AGENTS.md          # memory map for AI agents & new contributors
 ├── pom.xml            # Maven multi-module root (Java 25 LTS)
-└── compose.yaml       # local dev dependencies (PostgreSQL)
+└── compose.yaml       # local dev stack: PostgreSQL, Kafka, RabbitMQ, Keycloak,
+                       #   and all three deployables
 ```
 
 A monorepo is not a monolith: each directory under `services/` builds its own

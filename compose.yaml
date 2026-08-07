@@ -222,5 +222,79 @@ services:
       retries: 12
       start_period: 30s
 
+  # The platform's first event consumer (ADR 0011). It moves no money: it reads
+  # Core's business events and turns them into messages, so it is the last thing
+  # to start and nothing waits on it.
+  notification:
+    build:
+      # Root context: the Dockerfile builds through the Maven reactor, so it
+      # needs the parent pom, the wrapper and both libs.
+      context: .
+      dockerfile: services/notification/Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+      # A broker outage delays consumption; it does not make this service
+      # unhealthy. Waiting for Kafka anyway means the first events after
+      # `up` are not missed while the consumer is still connecting.
+      kafka:
+        condition: service_healthy
+      # Every send asks Core two questions — which accounts a transaction moved
+      # between, and who holds them. Waiting for readiness rather than start
+      # means the first alert does not race Core's migrations. An unreachable
+      # Core is not "no such customer": the consumer leaves the event
+      # unconsumed and redelivery retries it.
+      core:
+        condition: service_healthy
+    environment:
+      # Its own database, never Core's (AGENTS.md rule 5). The roles come from
+      # db/init/40-notification-roles.sql, which runs once on an empty volume.
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/notification
+      SPRING_DATASOURCE_USERNAME: fincore
+      SPRING_DATASOURCE_PASSWORD: fincore
+      # A container is not a dev machine; it must never start its own database
+      # sidecar.
+      SPRING_DOCKER_COMPOSE_ENABLED: "false"
+
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      # Never `earliest`. Kafka retains history for Compliance's benefit while
+      # notifications care only about what is happening now (ADR 0005), so a
+      # consumer starting at the beginning of a retained topic would send weeks
+      # of stale alerts on its first start. The max-event-age guard below is the
+      # second, independent line of defence — an offset is an operational detail
+      # somebody eventually resets.
+      SPRING_KAFKA_CONSUMER_AUTO_OFFSET_RESET: latest
+      SPRING_KAFKA_CONSUMER_GROUP_ID: ${FINCORE_NOTIFICATION_GROUP:-notification}
+      # Core publishes under this prefix, so this is the topic its completed
+      # transfers arrive on. One category, one publisher: the ledger's
+      # posting.completed describes the same moment and is deliberately not
+      # consumed here.
+      FINCORE_NOTIFICATION_TOPICS: fincore.core.transfer.completed
+      FINCORE_NOTIFICATION_MAX_EVENT_AGE_MS: ${FINCORE_NOTIFICATION_MAX_EVENT_AGE_MS:-900000}
+
+      # The only outbound dependency on the send path. There is no ledger client
+      # here and no gateway SDK.
+      FINCORE_NOTIFICATION_CORE_BASE_URL: http://core:8081
+
+      # Dev identity, as elsewhere in this file: headers rather than tokens, and
+      # libs/auth refuses that unless a sanctioned profile is also active
+      # (ADR 0010). The startup banner says loudly that this is not
+      # authentication — and a second banner says the senders deliver nothing,
+      # because the messaging connector does not exist yet.
+      FINCORE_AUTH_MODE: ${FINCORE_AUTH_MODE:-dev}
+      FINCORE_AUTH_ISSUER_URI: ${FINCORE_AUTH_ISSUER_URI:-}
+      SPRING_PROFILES_ACTIVE: ${FINCORE_NOTIFICATION_PROFILE:-dev}
+    ports:
+      # 58082 for the same reason the ledger uses 58080 and Core 58081: the
+      # service's own tests bind 8082, and a stack must never be able to break
+      # the build or the other way round.
+      - "${FINCORE_NOTIFICATION_PORT:-58082}:8082"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8082/actuator/health/readiness | grep -q '\"status\":\"UP\"'"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
 volumes:
   pgdata:

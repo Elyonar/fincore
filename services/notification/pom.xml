@@ -91,4 +91,19 @@
             <scope>test</scope>
         </dependency>
     </dependencies>
+
+    <build>
+        <plugins>
+            <!--
+                Without this the package phase produces a plain jar with no main manifest, and the
+                container starts, fails with "no main manifest attribute" and reports itself
+                unhealthy — which is exactly how this was found. The other two deployables declare
+                it for the same reason; a service that is not repackaged is not a deployable.
+            -->
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
 </project>
