@@ -9,6 +9,7 @@ import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
+import org.elyonar.fincore.core.product.api.ProductErrorCode;
 
 /**
  * Product's administrative writes — creating products and publishing versions.
@@ -62,7 +63,7 @@ public class ProductRecords {
             throw new ProductCodeTaken(code);
         } catch (DataIntegrityViolationException e) {
             // The `type` CHECK. Surfaced as a caller error rather than a 500, because it is one.
-            throw new IllegalArgumentException("INVALID_PRODUCT_TYPE");
+            throw new IllegalArgumentException(ProductErrorCode.INVALID_PRODUCT_TYPE.code());
         }
     }
 

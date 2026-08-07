@@ -6,6 +6,8 @@ import org.elyonar.fincore.core.orchestration.api.TransferResult;
 import org.elyonar.fincore.core.orchestration.internal.approval.ApprovalRecords;
 import org.elyonar.fincore.core.orchestration.internal.ledger.LedgerClient;
 import org.springframework.stereotype.Service;
+import org.elyonar.fincore.core.orchestration.api.CoreException;
+import org.elyonar.fincore.core.orchestration.api.ErrorCode;
 
 /**
  * Business reversal: a human undoing a transaction the system considers correct.
@@ -81,7 +83,7 @@ public class ReversalService {
 
             case LedgerOutcome.DefiniteFailure failure -> {
                 sagas.fail(tenantId, reversalSagaId, failure.errorCode());
-                throw new TransferService.TransferRefused(failure.errorCode());
+                throw TransferService.TransferRefused.fromLedger(failure.errorCode());
             }
 
             case LedgerOutcome.Unknown unknown -> {
@@ -92,9 +94,12 @@ public class ReversalService {
     }
 
     /** The target is not something that can be reversed. */
-    public static class NotReversible extends RuntimeException {
+    public static class NotReversible extends CoreException {
         public NotReversible() {
-            super("NOT_REVERSIBLE");
+            // One answer for "not COMPLETED", "already a reversal" and "another tenant's". No
+            // reason is carried to the caller: distinguishing them would let a caller probe for the
+            // existence of another tenant's saga, and that outranks precision.
+            super(ErrorCode.NOT_REVERSIBLE, "target is not reversible");
         }
     }
 }

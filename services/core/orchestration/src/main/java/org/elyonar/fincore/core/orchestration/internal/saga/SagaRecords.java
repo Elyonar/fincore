@@ -9,6 +9,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
+import org.elyonar.fincore.core.orchestration.api.CoreProperties;
 
 /**
  * The saga's own writes: Phase A's open, Phase C's outcome, and the replay lookup.
@@ -25,8 +26,8 @@ public class SagaRecords {
     private final OutboxWriter outbox;
 
     public SagaRecords(
-            @Qualifier("orchestrationJdbcTemplate") JdbcTemplate orchestrationJdbcTemplate,
-            @Qualifier("workerJdbcTemplate") JdbcTemplate workerJdbcTemplate,
+            @Qualifier(CoreProperties.Beans.ORCHESTRATION_JDBC) JdbcTemplate orchestrationJdbcTemplate,
+            @Qualifier(CoreProperties.Beans.WORKER_JDBC) JdbcTemplate workerJdbcTemplate,
             OutboxWriter outbox) {
         this.jdbc = orchestrationJdbcTemplate;
         this.workerJdbc = workerJdbcTemplate;
@@ -340,7 +341,7 @@ public class SagaRecords {
      * <p>Read as the worker's role, which sees across tenants — a worker has no tenant context of
      * its own, because it serves all of them.
      */
-    @Transactional(transactionManager = "workerTransactionManager", readOnly = true)
+    @Transactional(transactionManager = CoreProperties.Beans.WORKER_TX, readOnly = true)
     public Pending loadPending(UUID sagaId) {
         return workerJdbc.query(
                 """
@@ -374,7 +375,7 @@ public class SagaRecords {
      * <p>Nothing is compensated and the reservation stays held: the money may have moved, and
      * releasing the headroom would let a second transfer breach the limit if it did.
      */
-    @Transactional(transactionManager = "workerTransactionManager")
+    @Transactional(transactionManager = CoreProperties.Beans.WORKER_TX)
     public void escalate(UUID tenantId, UUID sagaId) {
         workerJdbc.update(
                 "UPDATE orchestration.sagas SET state = 'PENDING_RESOLUTION',"

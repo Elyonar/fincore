@@ -8,7 +8,7 @@ entry first.
 
 ---
 
-## [1.10.0] — 2026-08-06 · MINOR
+## [1.11.0] — 2026-08-07 · MINOR
 
 **Customers get a language. `customer/V6__customer_locale.sql`.**
 
@@ -32,6 +32,54 @@ entry first.
 - **Tests:** `ContactAndConsentApiTest.locale_is_carried_and_never_invented` —
   the language reaches the lookup, and absence stays absent.
 - **Migration:** `customer/V6__customer_locale.sql`.
+
+---
+
+## [1.10.0] — 2026-08-06 · MINOR
+
+**An error contract a non-anglophone caller can render from.**
+
+- **Docs:** `api.md` (error catalog rewritten, reasons table added)
+- **Convention:** [`docs/conventions/error-contract.md`](../../../docs/conventions/error-contract.md)
+- **Why:** Core's rejections were not machine-readable at all. The
+  `IllegalArgumentException` handler put `e.getMessage()` into the `code` field,
+  so a caller branching on the code was branching on an English sentence —
+  literally `{"code": "amountMinor must be positive"}`. The same field also
+  carried real codes like `WASH_TRANSACTION`, so what it held depended on which
+  validation happened to fail first. A channel serving francophone customers
+  could not translate either kind, and could not reliably tell them apart.
+- **Change:** the error body gains `reason` and `details` and drops prose from
+  `code`. `ErrorCode` is an enum, `TransferRefused` and `NotReversible` carry it
+  rather than a free string, and command validation throws `CoreException`
+  instead of `IllegalArgumentException`. `message` is now explicitly developer
+  English: never displayed, never parsed, reworded without an amendment.
+- **New codes documented:** `COMMAND_INVALID`, `TILL_NOT_OPEN`,
+  `FEE_EXCEEDS_DEPOSIT`, `LEDGER_UNREACHABLE`, `OUTCOME_UNKNOWN`,
+  `LEDGER_REFUSED` — all of these could already reach a caller; none was in the
+  catalog. That gap is the reason the guardrail below exists.
+- **The Ledger's codes are mapped, not forwarded.** A Ledger error Core does not
+  model becomes `LEDGER_REFUSED` with the original in `details.ledgerCode`.
+  Forwarding it verbatim would put codes in Core's responses that Core's own
+  catalog does not document, silently merging two contracts.
+- **Impact:** breaking for anyone who parsed `code` as prose — which nothing
+  should have been doing, and which is exactly why this is worth fixing before
+  Core has consumers. Callers keying on documented codes are unaffected.
+- **Tests:** `ErrorCodeCatalogTest` — fails the build when a code or reason
+  exists without documentation, and when `api.md` documents one that no longer
+  exists. Mutation-tested in both directions before it was trusted. It also
+  asserts every `ProductDecision.Refusal` has a matching `ErrorCode`, because
+  `TransferService` maps them by `valueOf` and a drift there is a runtime
+  failure on a money path.
+- **Also:** `EXTERNAL_REF_TAKEN`, `ACCOUNT_ALREADY_HELD`, `REASON_REQUIRED`,
+  `TIER_UNCHANGED`, `CONSENT_INCOMPLETE`, `PRODUCT_CODE_TAKEN`,
+  `INVALID_PRODUCT_TYPE`, `PRODUCT_VERSION_NOT_FOUND`,
+  `VERSION_ALREADY_PUBLISHED` and `PUBLISHER_IS_AUTHOR` — added in v1.7 as
+  string literals in Customer's and Product's HTTP layers — become
+  `CustomerErrorCode` and `ProductErrorCode`. Each module owns its own
+  catalog: a single platform-wide enum would make every module compile
+  against Orchestration, which is the cross-module dependency ADR 0006
+  exists to prevent.
+- **Migration:** none — no schema change.
 
 ---
 

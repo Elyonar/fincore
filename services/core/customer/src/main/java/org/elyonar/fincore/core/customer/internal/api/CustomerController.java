@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+import org.elyonar.fincore.core.customer.api.CustomerErrorCode;
 
 /**
  * Who the tenant's customers are.
@@ -75,7 +76,7 @@ public class CustomerController {
     public CustomerRecords.TierChange changeTier(@PathVariable UUID id, @RequestBody ChangeTier request) {
         var identity = Authorization.require("customers:tier");
         if (request.reason() == null || request.reason().isBlank()) {
-            throw new IllegalArgumentException("REASON_REQUIRED");
+            throw new IllegalArgumentException(CustomerErrorCode.REASON_REQUIRED.code());
         }
         return customers.changeTier(
                 identity.tenantId(), id, request.toTier(), request.reason(), Authorization.initiatedBy());
@@ -127,7 +128,7 @@ public class CustomerController {
     public CustomerRecords.Consent recordConsent(@PathVariable UUID id, @RequestBody RecordConsent request) {
         var identity = Authorization.require("customers:consent");
         if (request.category() == null || request.channel() == null || request.granted() == null) {
-            throw new IllegalArgumentException("CONSENT_INCOMPLETE");
+            throw new IllegalArgumentException(CustomerErrorCode.CONSENT_INCOMPLETE.code());
         }
         return customers.recordConsent(
                 identity.tenantId(),

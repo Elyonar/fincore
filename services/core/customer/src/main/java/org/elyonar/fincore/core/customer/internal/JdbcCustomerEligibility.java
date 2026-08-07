@@ -7,6 +7,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.elyonar.fincore.core.customer.api.CustomerBeans;
 
 /**
  * Customer's answers to the two questions Orchestration is allowed to ask.
@@ -24,12 +25,12 @@ public class JdbcCustomerEligibility implements CustomerEligibility {
 
     private final JdbcTemplate jdbc;
 
-    public JdbcCustomerEligibility(@Qualifier("customerJdbcTemplate") JdbcTemplate customerJdbcTemplate) {
+    public JdbcCustomerEligibility(@Qualifier(CustomerBeans.JDBC) JdbcTemplate customerJdbcTemplate) {
         this.jdbc = customerJdbcTemplate;
     }
 
     @Override
-    @Transactional(readOnly = true, transactionManager = "customerTransactionManager")
+    @Transactional(readOnly = true, transactionManager = CustomerBeans.TRANSACTION_MANAGER)
     public EligibilityResult check(UUID tenantId, UUID customerId) {
         // SET LOCAL, never a session SET: connections are pooled across tenants, and a session
         // variable would travel back into the pool carrying the last tenant's identity.
@@ -56,7 +57,7 @@ public class JdbcCustomerEligibility implements CustomerEligibility {
     }
 
     @Override
-    @Transactional(readOnly = true, transactionManager = "customerTransactionManager")
+    @Transactional(readOnly = true, transactionManager = CustomerBeans.TRANSACTION_MANAGER)
     public boolean holdsAccount(UUID tenantId, UUID customerId, UUID ledgerAccountId) {
         jdbc.queryForObject("SELECT set_config(\'app.tenant_id\', ?, true)", String.class, tenantId.toString());
 

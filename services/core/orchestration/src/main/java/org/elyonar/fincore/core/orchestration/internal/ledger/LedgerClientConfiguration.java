@@ -5,6 +5,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import tools.jackson.databind.json.JsonMapper;
+import org.elyonar.fincore.core.orchestration.api.CoreProperties;
 
 /**
  * The Ledger client bean.
@@ -19,11 +20,11 @@ public class LedgerClientConfiguration {
 
     @Bean
     public LedgerClient ledgerClient(
-            @Value("${fincore.core.ledger.base-url:http://localhost:8080}") String baseUrl,
-            @Value("${fincore.core.ledger.connect-timeout-ms:2000}") long connectMs,
+            @Value("${" + CoreProperties.LEDGER_BASE_URL + ":http://localhost:8080}") String baseUrl,
+            @Value("${" + CoreProperties.LEDGER_CONNECT_TIMEOUT_MS + ":2000}") long connectMs,
             // Shorter than a caller would tolerate waiting. An unresponsive Ledger must become an
             // UNKNOWN we retry, not a thread held until someone gives up.
-            @Value("${fincore.core.ledger.read-timeout-ms:5000}") long readMs) {
+            @Value("${" + CoreProperties.LEDGER_READ_TIMEOUT_MS + ":5000}") long readMs) {
         return new HttpLedgerClient(
                 baseUrl, Duration.ofMillis(connectMs), Duration.ofMillis(readMs), JsonMapper.builder().build());
     }

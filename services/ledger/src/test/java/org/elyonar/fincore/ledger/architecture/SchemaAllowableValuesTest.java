@@ -14,6 +14,8 @@ import java.util.stream.Stream;
 import org.elyonar.fincore.ledger.account.AccountController;
 import org.elyonar.fincore.ledger.hold.HoldController;
 import org.elyonar.fincore.ledger.hold.HoldReleaseOutcome;
+import org.elyonar.fincore.ledger.invariant.InvariantController;
+import org.elyonar.fincore.ledger.shared.InvariantStatus;
 import org.elyonar.fincore.ledger.posting.TransactionController;
 import org.elyonar.fincore.ledger.shared.HoldStatus;
 import org.elyonar.fincore.ledger.shared.TransactionStatus;
@@ -72,6 +74,16 @@ class SchemaAllowableValuesTest {
         Set<String> expected = names(HoldReleaseOutcome.class);
         assertThat(documented(HoldController.class, expected))
                 .as("the release response documents outcomes HoldReleaseOutcome does not define")
+                .isNotEmpty()
+                .allSatisfy(values -> assertThat(values).isEqualTo(expected));
+    }
+
+    @Test
+    @DisplayName("invariant statuses list exactly the InvariantStatus constants")
+    void invariantStatusMatches() {
+        Set<String> expected = names(InvariantStatus.class);
+        assertThat(documented(InvariantController.class, expected))
+                .as("a @Schema listing invariant statuses is out of step with InvariantStatus")
                 .isNotEmpty()
                 .allSatisfy(values -> assertThat(values).isEqualTo(expected));
     }

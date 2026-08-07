@@ -14,6 +14,7 @@ import org.elyonar.fincore.core.product.api.ProductDecision;
 import org.elyonar.fincore.core.product.api.ProductDecisions;
 import org.elyonar.fincore.core.product.api.ProductRequest;
 import org.springframework.stereotype.Service;
+import org.elyonar.fincore.core.orchestration.api.ErrorCode;
 
 /**
  * Cash over the counter: deposits and withdrawals.
@@ -64,21 +65,21 @@ public class CashService {
         if (!eligibility.eligible()) {
             throw new TransferService.TransferRefused(
                     eligibility.reason() == EligibilityResult.Reason.NOT_FOUND
-                            ? "CUSTOMER_NOT_FOUND"
-                            : "CUSTOMER_NOT_ACTIVE");
+                            ? ErrorCode.CUSTOMER_NOT_FOUND
+                            : ErrorCode.CUSTOMER_NOT_ACTIVE);
         }
         if (!customers.holdsAccount(command.tenantId(), command.customerId(), command.customerAccountId())) {
-            throw new TransferService.TransferRefused("ACCOUNT_NOT_LINKED");
+            throw new TransferService.TransferRefused(ErrorCode.ACCOUNT_NOT_LINKED);
         }
 
         TillRecords.Till till = tills.openTill(command.tenantId(), command.tillId());
         if (till == null) {
             // Closed, unknown, or another tenant's. Cash cannot move through a till that is not
             // open — that is the whole point of opening and closing one.
-            throw new TransferService.TransferRefused("TILL_NOT_OPEN");
+            throw new TransferService.TransferRefused(ErrorCode.TILL_NOT_OPEN);
         }
         if (!till.currency().equals(command.currency())) {
-            throw new TransferService.TransferRefused("CURRENCY_MISMATCH");
+            throw new TransferService.TransferRefused(ErrorCode.CURRENCY_MISMATCH);
         }
 
         ProductDecision decision =
@@ -94,14 +95,14 @@ public class CashService {
                                 command.amountMinor(),
                                 command.currency()));
         if (!decision.permitted()) {
-            throw new TransferService.TransferRefused(decision.refusal().name());
+            throw new TransferService.TransferRefused(ErrorCode.valueOf(decision.refusal().name()));
         }
         if (command.operation() == CashCommand.Operation.DEPOSIT
                 && decision.feeMinor() >= command.amountMinor()) {
             // The customer would be credited nothing, or less than nothing. That is a product
             // misconfiguration rather than a transaction, and it should say so instead of failing
             // downstream on a zero-amount entry.
-            throw new TransferService.TransferRefused("FEE_EXCEEDS_DEPOSIT");
+            throw new TransferService.TransferRefused(ErrorCode.FEE_EXCEEDS_DEPOSIT);
         }
 
         UUID sagaId =
@@ -119,7 +120,7 @@ public class CashService {
                     sagas.complete(command.tenantId(), sagaId, success.ledgerTransactionId());
             case LedgerOutcome.DefiniteFailure failure -> {
                 sagas.fail(command.tenantId(), sagaId, failure.errorCode());
-                throw new TransferService.TransferRefused(failure.errorCode());
+                throw TransferService.TransferRefused.fromLedger(failure.errorCode());
             }
             case LedgerOutcome.Unknown unknown -> {
                 sagas.recordUnknownAttempt(command.tenantId(), sagaId, unknown.reason());

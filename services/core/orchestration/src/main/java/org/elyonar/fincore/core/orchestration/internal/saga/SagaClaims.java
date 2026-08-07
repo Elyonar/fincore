@@ -7,6 +7,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
+import org.elyonar.fincore.core.orchestration.api.CoreProperties;
 
 /**
  * Claiming outstanding sagas across instances.
@@ -34,7 +35,7 @@ public class SagaClaims {
 
     private final JdbcTemplate jdbc;
 
-    public SagaClaims(@Qualifier("workerJdbcTemplate") JdbcTemplate jdbc) {
+    public SagaClaims(@Qualifier(CoreProperties.Beans.WORKER_JDBC) JdbcTemplate jdbc) {
         this.jdbc = jdbc;
     }
 
@@ -44,7 +45,7 @@ public class SagaClaims {
      * <p>{@code FOR UPDATE SKIP LOCKED} means concurrent workers step over each other's rows rather
      * than queueing behind them, so throughput scales with instances instead of serialising.
      */
-    @Transactional(transactionManager = "workerTransactionManager")
+    @Transactional(transactionManager = CoreProperties.Beans.WORKER_TX)
     public List<UUID> claim(String worker, Duration lease, int batch) {
         List<UUID> claimed =
                 jdbc.queryForList(
@@ -87,7 +88,7 @@ public class SagaClaims {
      * <p>Only the holder may extend, so a worker that lost its lease cannot silently take it back
      * while another instance is already retrying the same saga.
      */
-    @Transactional(transactionManager = "workerTransactionManager")
+    @Transactional(transactionManager = CoreProperties.Beans.WORKER_TX)
     public boolean heartbeat(UUID sagaId, String worker, Duration lease) {
         return jdbc.update(
                         """
@@ -102,7 +103,7 @@ public class SagaClaims {
     }
 
     /** Releases a claim without changing state — used when a worker shuts down cleanly. */
-    @Transactional(transactionManager = "workerTransactionManager")
+    @Transactional(transactionManager = CoreProperties.Beans.WORKER_TX)
     public void release(UUID sagaId, String worker) {
         jdbc.update(
                 "UPDATE orchestration.sagas SET claimed_by = NULL, claim_expires_at = NULL"
@@ -121,7 +122,7 @@ public class SagaClaims {
      * writers on one counter made attempt numbers skip, and a re-resolve then collided on
      * {@code (saga_id, attempt_no)}.
      */
-    @Transactional(transactionManager = "workerTransactionManager")
+    @Transactional(transactionManager = CoreProperties.Beans.WORKER_TX)
     public void scheduleRetry(UUID sagaId, String worker, Duration backoff) {
         jdbc.update(
                 """
