@@ -36,6 +36,8 @@ class SendWorkerTest {
     @Autowired private AddressCipher cipher;
     @Autowired @Qualifier("workerTransactionManager") private PlatformTransactionManager workerTx;
 
+    @Autowired private org.elyonar.fincore.notification.internal.TenantRegistry tenantRegistry;
+
     private UUID tenant;
     private UUID notificationId;
     private final List<String> references = new ArrayList<>();
@@ -43,6 +45,7 @@ class SendWorkerTest {
     @BeforeEach
     void seed() {
         tenant = UUID.randomUUID();
+        tenantRegistry.register(tenant, "test tenant", "test");
         references.clear();
         app.execute("SET app.tenant_id = '" + tenant + "'");
         notificationId = queue("+2348000000001");

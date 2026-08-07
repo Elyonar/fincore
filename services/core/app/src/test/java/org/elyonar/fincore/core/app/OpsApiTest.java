@@ -26,11 +26,22 @@ import org.springframework.test.context.DynamicPropertySource;
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class OpsApiTest {
 
+    // Every tenant a test uses must be registered, because Core now refuses one it has
+    // never heard of. Registering here rather than weakening the gate for tests: a guard
+    // switched off under test is a guard nobody has tested.
+    @Autowired private TenantRegistry tenantRegistry;
+
     @LocalServerPort private int port;
     @Autowired private EventPublisher publisher;
     private final HttpClient http = HttpClient.newHttpClient();
 
     private final UUID tenantId = UUID.randomUUID();
+
+    @org.junit.jupiter.api.BeforeEach
+    void registerTheTenant() {
+        // A field initializer cannot do this, and Core now refuses a tenant it has never heard of.
+        tenantRegistry.register(tenantId, "test tenant", "test");
+    }
 
     @DynamicPropertySource
     static void quiet(DynamicPropertyRegistry registry) {

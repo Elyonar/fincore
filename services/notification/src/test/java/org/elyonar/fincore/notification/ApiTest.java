@@ -48,11 +48,14 @@ class ApiTest {
     private RequestMappingHandlerMapping handlerMapping;
 
     private final HttpClient http = HttpClient.newHttpClient();
+    @Autowired private org.elyonar.fincore.notification.internal.TenantRegistry tenantRegistry;
+
     private UUID tenant;
 
     @BeforeEach
     void freshTenant() {
         tenant = UUID.randomUUID();
+        tenantRegistry.register(tenant, "test tenant", "test");
     }
 
     // ------------------------------------------------------------------ templates

@@ -23,6 +23,15 @@ public enum Suppressed {
     /** No live customer holds the account the event names. */
     UNKNOWN_ACCOUNT,
 
+    /**
+     * The event named a tenant this service has never been provisioned for.
+     *
+     * <p>Recorded rather than dropped, and deliberately not an exception: a misrouted topic or a
+     * half-finished provisioning would otherwise stall the consumer on every poll, and the queue
+     * behind it would stop for tenants that are perfectly real.
+     */
+    UNKNOWN_TENANT,
+
     /** The customer has no address for any channel the tenant configured for this category. */
     NO_ADDRESS,
 

@@ -22,7 +22,8 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
@@ -56,6 +57,12 @@ public class EventIntake {
             List.of(new Side("debit.alert", Party.FROM), new Side("credit.alert", Party.TO)));
 
     private final JdbcTemplate jdbc;
+    // Explicit rather than @Transactional, because this boundary is load-bearing: the tenant scope
+    // is a SET LOCAL and evaporates without a transaction around it, taking row-level security's
+    // WITH CHECK with it. An annotation only applies through a proxy, so a directly constructed
+    // intake would run every statement unscoped — which is exactly how a test found this.
+    private final TransactionTemplate transaction;
+    private final org.elyonar.fincore.notification.internal.TenantRegistry tenants;
     private final TransactionAccounts transactions;
     private final ContactDirectory directory;
     private final DeliveryPolicy policies;
@@ -71,6 +78,8 @@ public class EventIntake {
     @Autowired
     public EventIntake(
             @Qualifier("appJdbcTemplate") JdbcTemplate jdbc,
+            @Qualifier("appTransactionManager") PlatformTransactionManager transactionManager,
+            org.elyonar.fincore.notification.internal.TenantRegistry tenants,
             TransactionAccounts transactions,
             ContactDirectory directory,
             DeliveryPolicy policies,
@@ -80,13 +89,15 @@ public class EventIntake {
             @Value("${fincore.notification.max-event-age-ms:900000}") long maxEventAgeMs,
             @Value("${fincore.notification.trusted-epoch:1}") long trustedEpoch) {
         this(
-                jdbc, transactions, directory, policies, templates, channels, cipher,
+                jdbc, transactionManager, tenants, transactions, directory, policies, templates, channels, cipher,
                 Duration.ofMillis(maxEventAgeMs), trustedEpoch, Clock.systemUTC());
     }
 
     /** Visible for tests, which need to place an event at a chosen point in a quiet-hours window. */
     public EventIntake(
             JdbcTemplate jdbc,
+            PlatformTransactionManager transactionManager,
+            org.elyonar.fincore.notification.internal.TenantRegistry tenants,
             TransactionAccounts transactions,
             ContactDirectory directory,
             DeliveryPolicy policies,
@@ -97,6 +108,8 @@ public class EventIntake {
             long trustedEpoch,
             Clock clock) {
         this.jdbc = jdbc;
+        this.transaction = new TransactionTemplate(transactionManager);
+        this.tenants = tenants;
         this.transactions = transactions;
         this.directory = directory;
         this.policies = policies;
@@ -120,13 +133,23 @@ public class EventIntake {
         ALREADY_HANDLED
     }
 
-    @Transactional(transactionManager = "appTransactionManager")
     public Disposition handle(String publisher, String envelopeJson) {
+        return transaction.execute(status -> handleScoped(publisher, envelopeJson));
+    }
+
+    private Disposition handleScoped(String publisher, String envelopeJson) {
         EventEnvelope event = EventEnvelope.parse(envelopeJson);
         scopeTo(event.tenantId());
 
         if (alreadyHandled(publisher, event.eventId())) {
             return Disposition.ALREADY_HANDLED;
+        }
+
+        // Before anything is decided about the event, decide whether the tenant is real. An event
+        // naming a tenant nobody provisioned here would otherwise accumulate suppressions — and
+        // eventually messages — under an id that means nothing.
+        if (!tenants.isActive(event.tenantId())) {
+            return suppressEvent(publisher, event, Suppressed.UNKNOWN_TENANT, Map.of());
         }
 
         // Fenced before anything else is decided. An event from a generation this consumer has been

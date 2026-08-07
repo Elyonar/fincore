@@ -32,16 +32,19 @@ class SchemaTest {
     // about the trigger — and the trigger is what protects the one identity the grant cannot.
     @Autowired private javax.sql.DataSource ownerDataSource;
 
+    @Autowired private org.elyonar.fincore.notification.internal.TenantRegistry tenantRegistry;
+
     private UUID tenant;
 
     @BeforeEach
     void scopeToAFreshTenant() {
         tenant = UUID.randomUUID();
+        tenantRegistry.register(tenant, "test tenant", "test");
         app.execute("SET app.tenant_id = '" + tenant + "'");
     }
 
     @Test
-    @DisplayName("all six tables exist")
+    @DisplayName("all seven tables exist")
     void the_tables_exist() {
         List<String> tables = app.queryForList(
                 // flyway_schema_history is Flyway's bookkeeping, not this design's. Excluded by
@@ -58,7 +61,8 @@ class SchemaTest {
                         "delivery_attempts",
                         "notifications",
                         "suppressions",
-                        "templates");
+                        "templates",
+                        "tenants");
     }
 
     @Test
@@ -72,7 +76,10 @@ class SchemaTest {
                 SELECT c.relname FROM pg_class c
                   JOIN pg_namespace n ON n.oid = c.relnamespace
                  WHERE n.nspname = 'notification' AND c.relkind = 'r'
-                   AND c.relname NOT IN ('channels', 'flyway_schema_history')
+                   -- channels is a deployment fact, not a tenant's. tenants is the registry a
+                   -- request consults *before* it has a tenant context to be scoped by — securing
+                   -- it by tenant would make "is this tenant real?" unanswerable.
+                   AND c.relname NOT IN ('channels', 'tenants', 'flyway_schema_history')
                    AND (c.relrowsecurity IS FALSE OR c.relforcerowsecurity IS FALSE)
                 """,
                 String.class);
