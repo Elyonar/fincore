@@ -53,6 +53,46 @@ Recorded in [ADR 0011](../../docs/adr/0011-first-consumer-before-phase-three.md)
 | Channels | SMS and email, as rows in a channel registry — see below |
 | Gateway credentials | **never held here** — they live in the messaging connector (PRD §4.6) |
 
+## Run
+
+```bash
+# whole stack in Docker — database, broker, Core, and this service
+docker compose up --build
+curl http://localhost:58082/actuator/health/readiness  # {"status":"UP"}
+open  http://localhost:58082/docs                      # interactive API
+
+# infrastructure only, running the service from an IDE
+docker compose up -d postgres kafka core
+./mvnw -pl services/notification spring-boot:run
+```
+
+Published on host port **58082**, not 8082, for the same reason the ledger uses
+58080 and Core 58081: this service's own tests bind 8082, and a container
+holding it would mean `docker compose up` and `./mvnw verify` could not run at
+the same time.
+
+**Two banners at startup, and both are the point.** The senders announce that
+they deliver nowhere — the messaging connector is not built — and the address
+cipher announces that it is using a development key. A service that silently
+does its job badly is worse than one that fails.
+
+**The suite runs against `notification_test`, not `notification`.** A running
+deployable is a concurrent writer: this service's own send worker, in a
+container, drains the very queue a test is asserting about. `db/init/` creates
+both databases and the two roles, but only on an empty volume — if yours
+predates that:
+
+```bash
+docker compose exec postgres psql -U fincore -d postgres \
+  -c "CREATE DATABASE notification_test OWNER fincore;"
+```
+
+**Two database roles, deliberately.** `notification_app` serves requests and the
+intake, always scoped to one tenant; `notification_worker` claims the queue
+across every tenant and therefore opts into a narrow worker policy rather than
+holding `BYPASSRLS`, which would exempt it from row-level security on every
+table at once. Migrations run as the owner; traffic never does.
+
 ## Adding a channel
 
 A channel is a **row**, not an enum. It carries the only four things that vary:

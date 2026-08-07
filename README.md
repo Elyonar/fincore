@@ -48,7 +48,8 @@ Read the [ADRs](docs/adr/), then try to break the ledger —
 |---|---|
 | Understand what fincore is and why it exists | [`docs/prd.md`](docs/prd.md) — the product requirements doc |
 | See why the big technical choices were made | [`docs/adr/`](docs/adr/) — Architecture Decision Records |
-| Read the design of the first service | [`services/ledger/README.md`](services/ledger/README.md) — and its [`docs/`](services/ledger/docs/) |
+| Read a service's design | its own `README.md` and `docs/` — [ledger](services/ledger/README.md), [core](services/core/README.md), [notification](services/notification/README.md) |
+| Run the platform locally | [Running it](#running-it), below |
 | Contribute code or docs | [`.github/CONTRIBUTING.md`](.github/CONTRIBUTING.md) + [`.github/CLA.md`](.github/CLA.md) |
 | Report a security issue | [`.github/SECURITY.md`](.github/SECURITY.md) |
 | Work on this repo with an AI agent | [`AGENTS.md`](AGENTS.md) — the canonical memory map |
@@ -59,13 +60,20 @@ Read the [ADRs](docs/adr/), then try to break the ledger —
 |---|---|---|---|
 | **Ledger** | Double-entry posting engine — the single source of monetary truth. Accounts, entries, balances, holds. | ✅ Design AGREED v1.8 · implemented (pre-1.0) | [README](services/ledger/README.md) · [design](services/ledger/docs/design.md) · [data model](services/ledger/docs/data-model.md) · [architecture](services/ledger/docs/architecture.md) · [API](services/ledger/docs/api.md) · [posting algorithm](services/ledger/docs/posting-algorithm.md) · [testing](services/ledger/docs/testing.md) |
 | **Core** | One deployable, three modules — `core/customer`, `core/product`, `core/orchestration`. Owns sagas, fee application and limits; the only caller of the Ledger's write API. | ✅ Design AGREED v1.11 · implemented (pre-1.0) | [README](services/core/README.md) · [design](services/core/docs/design.md) · [outcome protocol](services/core/docs/outcome-protocol.md) · [saga protocol](services/core/docs/saga-protocol.md) · [data model](services/core/docs/data-model.md) · [API](services/core/docs/api.md) · [testing](services/core/docs/testing.md) |
-| Identity | Keycloak, self-hosted: auth, tenants, roles, maker-checker. Configured, not built. | Planned | — |
+| Identity | Keycloak, self-hosted: auth, tenants, roles, maker-checker. **Configured, never built** — it is commodity software, and the platform's side of it is [`libs/auth`](libs/auth/README.md), which every service imports. Keycloak runs in compose behind the `identity` profile; no realm is seeded yet, so services default to a development identity that announces itself at startup | Partial | [ADR 0010](docs/adr/0010-keycloak-realm-per-tenant.md) |
 | **Notification** | The platform's first event consumer. Turns Core's business events into messages over a registry of channels; writes no money and holds no gateway credentials. | ✅ Design AGREED v1.2 · implemented (pre-1.0) | [README](services/notification/README.md) · [design](services/notification/docs/design.md) · [architecture](services/notification/docs/architecture.md) · [data model](services/notification/docs/data-model.md) · [API](services/notification/docs/api.md) · [testing](services/notification/docs/testing.md) |
 | Lending · Compliance · Connectors | Further domains around the ledger. | Planned | — |
 
 A **deployable** owns its own process and database; a **module** inside one owns
 a schema and is reached only through its interface, never its tables
 (PRD §3.4). New deployables get a row here when they land.
+
+**Shared libraries**, extracted only once a second consumer existed rather than
+in anticipation of one: [`libs/auth`](libs/auth/README.md) — token validation,
+identity context and the `require` helpers (ADR 0009); `libs/events` — the
+Kafka/RabbitMQ/logging publishers behind one seam, and the one renderer of
+ADR 0008's envelope. Neither owns a database or a process, which is what makes
+them libraries rather than deployables (PRD §3.4).
 
 ### Decision records
 
@@ -127,14 +135,57 @@ correctness, and it's public: clone the ledger and try to break it. The build
 journey is documented openly (videos and posts) as part of the project's
 trust-first philosophy.
 
+## Running it
+
+```bash
+docker compose up --build          # PostgreSQL, Kafka, and all three deployables
+```
+
+| | Health | Interactive API |
+|---|---|---|
+| Ledger | http://localhost:58080/actuator/health/readiness | http://localhost:58080/docs |
+| Core | http://localhost:58081/actuator/health/readiness | http://localhost:58081/docs |
+| Notification | http://localhost:58082/actuator/health/readiness | http://localhost:58082/docs |
+
+Host ports are deliberately not 8080–8082: each service's own test suite binds
+its real port, and a container holding it would mean `docker compose up` and
+`./mvnw verify` could not run at the same time. A stack should never be able to
+break the build, or the other way round. Inside the compose network the ports
+are unchanged.
+
+RabbitMQ is available as an alternative backbone
+(`FINCORE_EVENTS_BROKER=rabbit`), and Keycloak runs under
+`docker compose --profile identity up`.
+
+**Two things announce themselves loudly at startup, and both are meant to.**
+Services run with a development identity — headers, not tokens — until a
+Keycloak realm is provisioned (ADR 0010); and Notification's senders deliver
+nowhere, because the messaging connector that would make them real is not built.
+A component that silently does its job badly is worse than one that fails.
+
 ## Building
 
 ```bash
-./mvnw verify        # build everything, run all tests
+./mvnw verify        # build everything, run every test
 ```
 
-Requires Java 25. Local PostgreSQL comes up automatically in dev via
-`compose.yaml` (Spring Boot docker-compose support).
+Requires Java 25 and a running PostgreSQL — `docker compose up -d postgres`.
+
+**The suites run against `*_test` databases, never the ones the stack uses.** A
+running deployable is a concurrent writer, and it took two mystifying failures
+to establish that no amount of waiting inside a test makes one go away.
+`db/init/` creates every database and role, but only on an empty volume; if your
+volume predates that, add them in place:
+
+```bash
+docker compose exec postgres psql -U fincore -d postgres \
+  -c "CREATE DATABASE ledger_test OWNER fincore;" \
+  -c "CREATE DATABASE core_test OWNER fincore;" \
+  -c "CREATE DATABASE notification_test OWNER fincore;"
+```
+
+Each service's README carries the detail — the roles, the deliberate
+exceptions, and what its own suite covers.
 
 ## License
 
