@@ -64,13 +64,14 @@ jobs:
           set -euo pipefail
 
           # Databases beyond POSTGRES_DB, which already created "ledger".
-          DATABASES="core"
+          DATABASES="core notification"
 
           # Restricted roles. One per service, and one per module where a deployable holds
           # several (ADR 0006) — a cross-module query then fails at runtime rather than
           # surviving until someone tries to extract a module. The password matches the role
           # name in CI only; deployments provision real secrets.
-          ROLES="ledger_app core_customer core_product core_orchestration core_relay core_worker"
+          ROLES="ledger_app core_customer core_product core_orchestration core_relay core_worker \
+                 notification_app notification_worker"
 
           for db in $DATABASES; do
             echo "creating database $db"
@@ -120,6 +121,19 @@ jobs:
         run: ./mvnw --batch-mode verify -pl services/core/customer,services/core/product,services/core/orchestration,services/core/app
         env:
           SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/core
+          SPRING_DATASOURCE_USERNAME: fincore
+          SPRING_DATASOURCE_PASSWORD: fincore
+          SPRING_FLYWAY_USER: fincore
+          SPRING_FLYWAY_PASSWORD: fincore
+
+      # Notification is a deployable like the others and was not tested here at all: the module
+      # built during "Build everything once" and then nothing ran it, so its 50 tests were green
+      # only on a developer's machine. A module absent from this list is a module CI does not
+      # check, and nothing says so — which is why the list is the thing to update when one is added.
+      - name: Test — the Notification deployable
+        run: ./mvnw --batch-mode verify -pl services/notification
+        env:
+          SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/notification
           SPRING_DATASOURCE_USERNAME: fincore
           SPRING_DATASOURCE_PASSWORD: fincore
           SPRING_FLYWAY_USER: fincore
