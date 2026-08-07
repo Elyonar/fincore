@@ -5,6 +5,8 @@ import io.swagger.v3.oas.models.OpenAPI;
 import io.swagger.v3.oas.models.info.Info;
 import io.swagger.v3.oas.models.info.License;
 import io.swagger.v3.oas.models.parameters.Parameter;
+import io.swagger.v3.oas.models.security.SecurityRequirement;
+import io.swagger.v3.oas.models.security.SecurityScheme;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -51,8 +53,25 @@ public class OpenApiConfig {
                                         environment the mode is `jwt` and these headers are ignored.
                                         """)
                                 .license(new License().name("AGPL-3.0-only")))
+                .addSecurityItem(new SecurityRequirement().addList("bearer"))
                 .components(
                         new Components()
+                                .addSecuritySchemes(
+                                        "bearer",
+                                        // Without this, Swagger UI has no Authorize button and every protected
+                                        // endpoint answers 401 from a page that looks like it should work. The
+                                        // token comes from Keycloak — see keycloak/README.md.
+                                        new SecurityScheme()
+                                                .type(SecurityScheme.Type.HTTP)
+                                                .scheme("bearer")
+                                                .bearerFormat("JWT")
+                                                .description(
+                                                        "Paste an access token. Get one with:\n\n"
+                                                            + "```\ncurl -s -X POST http://localhost:8180/realms/"
+                                                            + "fincore-dev/protocol/openid-connect/token \\\n"
+                                                            + "  -d grant_type=password -d client_id=fincore-cli"
+                                                            + " \\\n  -d username=ada -d password=password\n```\n\n"
+                                                            + "Users and what each may do: keycloak/README.md."))
                                 .addParameters(
                                         "DevTenant",
                                         new Parameter()
