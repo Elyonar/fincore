@@ -1,0 +1,60 @@
+# Tests run against real PostgreSQL — never an in-memory substitute. The trigger, constraint and
+# row-level-security behaviour under test is PostgreSQL's.
+#
+# And against `notification_test`, not `notification`: a running deployable is a concurrent writer,
+# and the send worker inside a container drains the very queue a test is asserting about. The
+# ledger and Core both learned this the same way — see their CHANGELOGs — so this service starts
+# where they ended up rather than rediscovering it.
+#
+# NOTE: this file *replaces* src/main/resources/application.yml rather than overlaying it —
+# test-classes come first on the classpath and Boot loads one application.yml. Anything the tests
+# need to behave like production has to be repeated here. Core learned this twice, silently, and
+# wrote the warning into its own test config; treat a setting's absence here as a bug.
+spring:
+  profiles:
+    active: test
+  datasource:
+    hikari:
+      maximum-pool-size: 1
+      minimum-idle: 0
+      idle-timeout: 10000
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:55432/notification_test}
+    username: ${SPRING_DATASOURCE_USERNAME:fincore}
+    password: ${SPRING_DATASOURCE_PASSWORD:fincore}
+  # Off, and wired in Migrations instead — the same arrangement Core uses, for the same reason:
+  # three datasources exist and only the owner may run DDL, which autoconfiguration cannot know.
+  flyway:
+    enabled: false
+  # No broker in the unit suite. The intake is a method; the listener is a thin adapter over it,
+  # and testing the adapter needs a broker while testing the contract does not.
+  kafka:
+    listener:
+      auto-startup: false
+
+fincore:
+  auth:
+    mode: dev
+  notification:
+    datasource:
+      app:
+        maximum-pool-size: 2
+        minimum-idle: 0
+        idle-timeout: 10000
+        jdbc-url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:55432/notification_test}
+        username: notification_app
+        password: notification_app
+      worker:
+        maximum-pool-size: 1
+        minimum-idle: 0
+        idle-timeout: 10000
+        jdbc-url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:55432/notification_test}
+        username: notification_worker
+        password: notification_worker
+    core:
+      base-url: http://localhost:0
+      timeout-ms: 500
+    max-event-age-ms: 900000
+
+springdoc:
+  swagger-ui:
+    path: /docs

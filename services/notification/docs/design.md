@@ -1,6 +1,6 @@
 # Notification — Design & Decision Log
 
-**Status:** AGREED v1.1 (2026-08-06) — implemented from here; amendments via
+**Status:** AGREED v1.2 (2026-08-06) — implemented from here; amendments via
 [`CHANGELOG.md`](CHANGELOG.md) and the
 [design-change convention](../../../docs/conventions/design-changes.md). Code
 that contradicts this document is a bug even if it works.
@@ -15,6 +15,20 @@ that contradicts this document is a bug even if it works.
 (why this is built now).
 
 ---
+
+## The design, by topic
+
+| Topic | Doc |
+|---|---|
+| Boundaries, traffic, the intake pipeline, concurrency, DR posture | [`architecture.md`](architecture.md) |
+| The seven tables, ownership rules, decided edge cases | [`data-model.md`](data-model.md) |
+| Endpoint surface, error catalog, suppression reasons | [`api.md`](api.md) |
+| The nine invariants and every test suite, with status markers | [`testing.md`](testing.md) |
+| Amendments since this design was agreed | [`CHANGELOG.md`](CHANGELOG.md) |
+
+This design is **AGREED**. Changes to it are amendments recorded in
+[`CHANGELOG.md`](CHANGELOG.md), in their own PR, ahead of the code — never
+silent edits. Code that contradicts it is a bug even if it works.
 
 ## One paragraph
 
@@ -263,83 +277,34 @@ NOBYPASSRLS` role for traffic and a separate owner for migrations. The consumer
 path sets tenant context from the envelope's `tenantId`, which ADR 0008
 guarantees is always present.
 
+**D-24 · Locale is the customer's, then the tenant's — never a constant.** A
+template is keyed by locale and PRD §4.9 wants Hausa, Yoruba and Igbo as tenant
+content, so the selection has to come from somewhere: Customer holds the
+person's language (Core v1.10), `channel_policy` holds the tenant's default.
+
+The fallback carries the weight. A customer's locale with no published template
+falls through to the tenant's default rather than suppressing, so a tenant can
+translate one alert at a time without silencing anyone in the meantime. Only
+when no preferred locale has a template is it `NO_TEMPLATE`, and the suppression
+records which locales were tried — otherwise "no template" is true and useless.
+
+The customer's locale is nullable and the tenant's is not. A person nobody asked
+is ordinary; a tenant with no language to fall back to would make the fallback
+meaningless.
+
 **D-23 · Identity per ADR 0009.** The admin and query APIs validate tokens via
 `libs/auth` and are deny-by-default. The consumer path carries no human
 principal; its attribution is the service identity plus the source event id.
 
 ---
 
-## Data model
+## Where the detail lives
 
-One schema, `notification`. Each table with the rule it exists to enforce.
-
-| Table | Holds | Notes |
-|---|---|---|
-| `channels` | id, address_kind, required_parts, content_model, max_units, enabled | the registry of D-13. A new channel is a row here, not a migration |
-| `templates` | tenant, key, channel → `channels`, locale, version, status, parts (JSONB), effective_from, published_by | append-only versions (D-11); publish validates `parts` against the channel's `required_parts` and computes units under its content model (D-14) |
-| `consumed_events` | publisher, event_id, tenant_id, occurred_at, epoch, disposition | the `(publisher, event_id)` unique index (D-4); every row reaches a terminal disposition |
-| `notifications` | tenant, business_moment_key, category, channel → `channels`, template_key, template_version, locale, recipient_ref, recipient_address (encrypted), units, state, created_at | unique on `(tenant_id, business_moment_key, category, channel, recipient_ref)` (D-4) |
-| `delivery_attempts` | notification_id, attempt_no, outcome, client_reference, gateway_ref, error_code, attempted_at | append-only (D-19) |
-| `suppressions` | notification or event reference, reason_code, tenant, recorded_at | reason codes are an enum, documented and catalog-tested (D-17) |
-| `channel_policy` | tenant, category, ordered channels → `channels`, quiet-hours window, timezone | D-13's fallback order and D-10's windows |
-
-State machine on `notifications`: `PENDING → SENDING → SENT | FAILED |
-SUPPRESSED`. Terminal states are terminal, trigger-enforced rather than asserted
-in code — the discipline Core already applies to sagas.
-
-## Invariants
-
-Checked per tenant, after every test scenario and on a schedule.
-
-1. **Every consumed event reaches exactly one terminal disposition** — a
-   notification created, or a suppression recorded with a reason. No silent
-   drops, ever.
-2. **At most one successful delivery** per `(tenant, business_moment_key,
-   category, channel, recipient)`.
-3. **No `(publisher, event_id)` is processed twice.**
-4. **Every `SENT` notification records the template version that produced it.**
-5. **No message is sent from an event older than `max-event-age`**, nor from a
-   fenced epoch.
-6. **Terminal states are terminal**, trigger-enforced.
-7. **No recipient address appears in any log**, and none survives its retention
-   window.
-8. **No message exceeds its channel's `max_units`**, and every message records
-   the unit count it was billed at, under its channel's content model.
-9. **Every enabled channel has exactly one sender**, checked at startup. A
-   channel with none queues forever; a channel with two sends twice.
-
-## Testing plan
-
-Every suite starts **PLANNED**; only IMPLEMENTED suites gate merges, and moving
-a marker requires the tests to exist (scaffold §7).
-
-| Suite | Proves | Status |
-|---|---|---|
-| Schema-presence | every trigger, policy, partial index and CHECK exists *and fires* | PLANNED |
-| Schema-enforcement | raw SQL cannot violate what the schema forbids | PLANNED |
-| ArchUnit + empty-import canary | boundaries hold; the suite is not passing vacuously | PLANNED |
-| Consumer contract | duplicate delivery, out-of-order per aggregate, epoch fencing, unknown tenant | PLANNED |
-| Replay safety | a topic redriven from earliest produces zero sends (D-5) | PLANNED |
-| Policy | quiet-hours boundaries across timezones; transactional exemption; opt-out; channel fallback and exhaustion | PLANNED |
-| Rendering | determinism; missing-variable suppression; GSM-7 vs UCS-2 segment counts on Hausa, Yoruba and Igbo samples; a template missing a part its channel requires is rejected at publish | PLANNED |
-| Channel registry | a channel added by row alone reaches send with no code outside its sender; an enabled channel with no sender fails startup; fallback exhaustion suppresses with a reason | PLANNED |
-| Failure injection | gateway timeout (retried), definite rejection (terminal), adapter absent, Customer lookup unavailable | PLANNED |
-| Error catalog | `ErrorCodeCatalogTest` copy — no undocumented code, no documented non-code | PLANNED |
-
-Real PostgreSQL throughout; no in-memory substitutes. Hard rule 7's money-path
-merge gate does **not** attach here — this service moves no money, and saying so
-explicitly is better than leaving a reader to infer it.
-
-## Dependencies
-
-| Needed | From | State |
-|---|---|---|
-| Account → customer contact **and consent**, one call | Core (`customer`) | **Does not exist.** A Core contract addition (D-7, D-20), landing as a Core amendment first |
-| `transfer.completed` on the bus | Core outbox + relay | Publishing is real — `libs/events` ships Kafka, RabbitMQ and logging publishers. Nothing has ever consumed it |
-| The ADR 0008 envelope, all seven fields | both publishers | **Landed** — ledger CHANGELOG v1.7, Core v1.5 |
-| `transfer.reversed` | Core | **Not emitted.** Documented in `architecture.md`, absent from the code, which emits `transfer.reversal_initiated`. Core's to settle |
-| Messaging connector | not built, by decision | v1 uses `log` adapters (D-15) |
-| Consumer-side dedupe as shared code | `libs/events` | The library carries publishers only. This service is the platform's first consumer, so the consumer half is built here and extracted at the second consumer — Compliance |
+The tables are in [`data-model.md`](data-model.md), the invariants and suites in
+[`testing.md`](testing.md), the endpoint surface in [`api.md`](api.md), and the
+pipeline and boundaries in [`architecture.md`](architecture.md). This document
+is the index and the decision log — the README is the map, this is the reasoning,
+and neither is the territory.
 
 ## Known limitations of v1
 
