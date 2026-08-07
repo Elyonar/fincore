@@ -8,6 +8,37 @@ Newest entry first.
 
 ---
 
+## [1.3.0] — 2026-08-07 · MINOR
+
+**A tenant must exist — on both doors. `V4__tenant_registry.sql`.**
+
+- **Docs:** `data-model.md`, `architecture.md`, `testing.md`
+- **Why:** the same gap Core had, doubled. This service has two entrances and
+  neither proved a tenant was real: a request arrives with a validated token, and
+  an event arrives with a tenant in its envelope. An event naming a tenant nobody
+  provisioned here would have accumulated suppressions — and eventually
+  messages — under an id that means nothing.
+- **Impact:** requests for an unknown or suspended tenant are refused with 404
+  before any handler. Events for one are **suppressed with `UNKNOWN_TENANT`**,
+  not thrown: an exception would stall the consumer on every poll and stop the
+  queue for tenants that are perfectly real. It is the service's founding rule
+  applied to itself — every consumed event ends as a message or as a reason.
+- **Supersedes:** `EventIntake`'s `@Transactional`. The intake now opens its
+  transaction explicitly, because the tenant scope is a `SET LOCAL` that
+  evaporates without one — and an annotation only applies through a proxy. A
+  directly constructed intake ran every statement unscoped, which row-level
+  security caught the moment a test wrote a suppression for a foreign tenant.
+  The send worker had already been converted for the same reason; this is the
+  second instance of one pattern.
+- **Tests:** `EventIntakeTest.an_unknown_tenant_is_refused_on_the_event_path`,
+  plus `SchemaTest` updated for the seventh table and its deliberate absence
+  from row-level security — the registry is what a request consults *before* it
+  has a tenant context to be scoped by.
+- **Migration:** `V4__tenant_registry.sql`, backfilling from existing policy and
+  templates.
+
+---
+
 ## [1.2.0] — 2026-08-06 · MINOR
 
 **Locale is selected, not assumed. `V3__tenant_default_locale.sql`.**

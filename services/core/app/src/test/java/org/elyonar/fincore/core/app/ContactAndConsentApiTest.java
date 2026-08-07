@@ -36,6 +36,11 @@ import org.springframework.test.context.DynamicPropertySource;
 @DisplayName("contact and consent — what a sender may ask, and no more")
 class ContactAndConsentApiTest {
 
+    // Every tenant a test uses must be registered, because Core now refuses one it has
+    // never heard of. Registering here rather than weakening the gate for tests: a guard
+    // switched off under test is a guard nobody has tested.
+    @Autowired private TenantRegistry tenantRegistry;
+
     @LocalServerPort private int port;
     private final HttpClient http = HttpClient.newHttpClient();
 
@@ -52,6 +57,7 @@ class ContactAndConsentApiTest {
     @BeforeEach
     void freshTenant() {
         tenantId = UUID.randomUUID();
+        tenantRegistry.register(tenantId, "test tenant", "test");
     }
 
     // ------------------------------------------------------------------ harness

@@ -21,8 +21,17 @@ import org.springframework.context.annotation.Configuration;
 @Configuration
 public class FlywayConfiguration {
 
-    /** The modules, in a fixed order so a failure is reproducible rather than arbitrary. */
-    private static final String[] MODULES = {"customer", "product", "orchestration"};
+    /**
+     * The schemas this deployable migrates, in a fixed order so a failure is reproducible rather
+     * than arbitrary.
+     *
+     * <p>{@code platform} is not a module and owns no domain: it holds the tenant registry, which
+     * is a fact about the deployable rather than about customer, product or orchestration. Putting
+     * it in a module's schema would force the other two to read another module's table, which
+     * ADR 0006 forbids outright. It migrates last because its backfill reads the three that
+     * precede it.
+     */
+    private static final String[] MODULES = {"customer", "product", "orchestration", "platform"};
 
     @Bean
     public InitializingBean migrateEveryModule(DataSource ownerDataSource) {

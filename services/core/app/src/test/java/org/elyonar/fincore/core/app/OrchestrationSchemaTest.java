@@ -26,6 +26,11 @@ import org.springframework.transaction.support.TransactionTemplate;
 @SpringBootTest
 class OrchestrationSchemaTest {
 
+    // Every tenant a test uses must be registered, because Core now refuses one it has
+    // never heard of. Registering here rather than weakening the gate for tests: a guard
+    // switched off under test is a guard nobody has tested.
+    @Autowired private TenantRegistry tenantRegistry;
+
     // Catalog reads need no tenant context; the worker role sees the schema without one.
     @Autowired @Qualifier("workerJdbcTemplate") private JdbcTemplate catalog;
 
@@ -42,6 +47,7 @@ class OrchestrationSchemaTest {
      */
     private void inFreshTenant(java.util.function.Consumer<UUID> work) {
         UUID tenantId = UUID.randomUUID();
+        tenantRegistry.register(tenantId, "test tenant", "test");
         new TransactionTemplate(tx)
                 .executeWithoutResult(
                         s -> {

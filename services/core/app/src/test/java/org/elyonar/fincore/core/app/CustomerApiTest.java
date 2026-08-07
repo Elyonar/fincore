@@ -33,6 +33,11 @@ import org.springframework.transaction.support.TransactionTemplate;
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class CustomerApiTest {
 
+    // Every tenant a test uses must be registered, because Core now refuses one it has
+    // never heard of. Registering here rather than weakening the gate for tests: a guard
+    // switched off under test is a guard nobody has tested.
+    @Autowired private TenantRegistry tenantRegistry;
+
     @LocalServerPort private int port;
     private final HttpClient http = HttpClient.newHttpClient();
 
@@ -50,6 +55,7 @@ class CustomerApiTest {
     @BeforeEach
     void freshTenant() {
         tenantId = UUID.randomUUID();
+        tenantRegistry.register(tenantId, "test tenant", "test");
     }
 
     // ------------------------------------------------------------------ harness
@@ -128,7 +134,9 @@ class CustomerApiTest {
         String ref = "CUST-" + UUID.randomUUID();
         assertThat(createCustomer(ref).statusCode()).isEqualTo(201);
 
-        tenantId = UUID.randomUUID(); // a different bank, numbering its own customers
+        tenantId = UUID.randomUUID();
+
+        tenantRegistry.register(tenantId, "test tenant", "test"); // a different bank, numbering its own customers
         assertThat(createCustomer(ref).statusCode()).isEqualTo(201);
     }
 
@@ -139,6 +147,8 @@ class CustomerApiTest {
         String id = field(createCustomer("CUST-" + UUID.randomUUID()).body(), "customerId");
 
         tenantId = UUID.randomUUID();
+
+        tenantRegistry.register(tenantId, "test tenant", "test");
         HttpResponse<String> read = send(as("/v1/customers/" + id, "customers:read").GET().build());
 
         // 404 and not 403: a 403 would confirm the customer exists somewhere, which is exactly what

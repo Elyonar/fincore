@@ -38,6 +38,11 @@ import org.springframework.test.context.DynamicPropertySource;
 @SpringBootTest
 class TransferEndToEndTest {
 
+    // Every tenant a test uses must be registered, because Core now refuses one it has
+    // never heard of. Registering here rather than weakening the gate for tests: a guard
+    // switched off under test is a guard nobody has tested.
+    @Autowired private TenantRegistry tenantRegistry;
+
     private static HttpServer ledger;
     private static final AtomicInteger status = new AtomicInteger(201);
     private static final AtomicReference<String> body = new AtomicReference<>();
@@ -114,6 +119,7 @@ class TransferEndToEndTest {
     @BeforeEach
     void seedATenant() {
         tenantId = UUID.randomUUID();
+        tenantRegistry.register(tenantId, "test tenant", "test");
         customerId = UUID.randomUUID();
         fromAccount = UUID.randomUUID();
         toAccount = UUID.randomUUID();

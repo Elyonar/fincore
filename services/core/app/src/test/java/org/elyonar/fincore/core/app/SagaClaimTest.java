@@ -28,6 +28,11 @@ import org.springframework.transaction.support.TransactionTemplate;
 @SpringBootTest
 class SagaClaimTest {
 
+    // Every tenant a test uses must be registered, because Core now refuses one it has
+    // never heard of. Registering here rather than weakening the gate for tests: a guard
+    // switched off under test is a guard nobody has tested.
+    @Autowired private TenantRegistry tenantRegistry;
+
     @Autowired private SagaClaims claims;
 
     // The worker's connection: it claims across tenants, so it is the one that can see the rows
@@ -58,6 +63,7 @@ class SagaClaimTest {
 
     private UUID insertClaimableSaga() {
         UUID tenantId = UUID.randomUUID();
+        tenantRegistry.register(tenantId, "test tenant", "test");
         return seedSaga(
                 tenantId,
                 """
@@ -112,6 +118,7 @@ class SagaClaimTest {
     @Test
     void a_terminal_saga_is_never_claimed() {
         UUID tenantId = UUID.randomUUID();
+        tenantRegistry.register(tenantId, "test tenant", "test");
         UUID sagaId =
                 seedSaga(
                         tenantId,

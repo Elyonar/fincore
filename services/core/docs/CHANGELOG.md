@@ -8,6 +8,56 @@ entry first.
 
 ---
 
+## [1.12.0] — 2026-08-07 · MINOR
+
+**A tenant must exist before Core will serve it. `platform/V1__tenant_registry.sql`.**
+
+- **Docs:** `architecture.md`, `testing.md`
+- **Why:** row-level security isolates tenants from one another and has nothing
+  to say about whether a tenant is *real*. Any UUID in a validated token was a
+  working tenant: it got its own empty, functioning slice of Core, and every
+  isolation test passed throughout — because isolation was never what was
+  broken. A typo during provisioning would have produced a parallel universe of
+  data that nobody noticed until someone asked where a bank's customers had
+  gone. The ledger reached this conclusion in its own V6; this is the second
+  deployable to need the same medicine, and it will not be the last.
+- **Impact:** a request whose tenant is unregistered or suspended is refused with
+  **404**, before any handler. 404 rather than 403 because telling a caller which
+  tenant ids exist is an enumeration oracle, and a caller with no valid tenant
+  has nothing legitimate to do with the answer — the same choice the ledger made
+  and the same one Core already makes for another tenant's customer.
+- **Design decisions worth recording:**
+  - **Its own `platform` schema, not a module's.** A tenant is a fact about the
+    deployable. Putting the registry in one module's schema would force the
+    other two to read another module's table, which ADR 0006 forbids outright.
+  - **One gate, at the request boundary.** Doing it per module would be three
+    implementations of one rule, and two of them would eventually disagree with
+    the third.
+  - **Two identities in `TenantRegistry`.** The check runs as a module role
+    holding SELECT; registration runs as the owner. So a request path cannot
+    enrol its own caller's tenant even if somebody later wires an endpoint to
+    that method — which would be back to trusting the claim.
+  - **Suspension is the same refusal as absence.** Entitlements are a control
+    plane concern and this is the seam they will act through: suspending a
+    tenant has to stop traffic, not merely record an intention.
+- **Tests:** `TenantGateTest` (5) — an unregistered tenant refused whatever its
+  permissions say; the refusal not confirming what exists; a registered tenant
+  served and then judged on permission; suspension closing an open tenant; and
+  health and the service identity staying reachable, because an orchestrator's
+  probe holds no token and a gate that demanded one would make the service
+  unschedulable. Every existing test now registers the tenant it uses, rather
+  than the gate being exempted under test — a guard switched off under test is a
+  guard nobody has tested.
+- **Migration:** `platform/V1__tenant_registry.sql`, which backfills from
+  existing customers, sagas and products. A security fix that silently drops the
+  traffic a deployment is already serving is a data-loss bug in better clothes.
+
+*Known gap, stated rather than implied: nothing provisions a tenant. `register`
+exists and no endpoint calls it, so today a tenant is created by the test suite
+or by hand. The control plane that would own this is designed and unbuilt.*
+
+---
+
 ## [1.11.0] — 2026-08-07 · MINOR
 
 **Customers get a language. `customer/V6__customer_locale.sql`.**

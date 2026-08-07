@@ -9,6 +9,7 @@ import java.net.http.HttpResponse;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -26,6 +27,11 @@ import org.springframework.test.context.DynamicPropertySource;
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class ProductApiTest {
 
+    // Every tenant a test uses must be registered, because Core now refuses one it has
+    // never heard of. Registering here rather than weakening the gate for tests: a guard
+    // switched off under test is a guard nobody has tested.
+    @Autowired private TenantRegistry tenantRegistry;
+
     @LocalServerPort private int port;
     private final HttpClient http = HttpClient.newHttpClient();
 
@@ -40,6 +46,7 @@ class ProductApiTest {
     @BeforeEach
     void freshTenant() {
         tenantId = UUID.randomUUID();
+        tenantRegistry.register(tenantId, "test tenant", "test");
     }
 
     private HttpRequest.Builder as(String path, String permissions, String principal) {
@@ -99,6 +106,8 @@ class ProductApiTest {
         assertThat(again.body()).contains("PRODUCT_CODE_TAKEN");
 
         tenantId = UUID.randomUUID();
+
+        tenantRegistry.register(tenantId, "test tenant", "test");
         assertThat(createProduct(code, "user:author").statusCode()).isEqualTo(201);
     }
 
@@ -129,6 +138,8 @@ class ProductApiTest {
         assertThat(mine.body()).contains(code);
 
         tenantId = UUID.randomUUID();
+
+        tenantRegistry.register(tenantId, "test tenant", "test");
         HttpResponse<String> theirs = send(as("/v1/products", "products:read", "user:teller").GET().build());
         assertThat(theirs.statusCode()).isEqualTo(200);
         assertThat(theirs.body()).doesNotContain(code);
@@ -213,6 +224,8 @@ class ProductApiTest {
         String id = field(createProduct("SAV-" + UUID.randomUUID(), "user:author").body(), "productId");
 
         tenantId = UUID.randomUUID();
+
+        tenantRegistry.register(tenantId, "test tenant", "test");
         HttpResponse<String> published =
                 send(
                         as("/v1/products/" + id + "/versions/1/publish", "products:publish", "user:supervisor")

@@ -47,6 +47,15 @@ class EventIntakeTest {
     @Autowired private Templates templates;
     @Autowired private AddressCipher cipher;
 
+    // Every tenant a test uses must be provisioned, because the intake now refuses one it has
+    // never heard of. Registering here rather than exempting tests: a guard switched off under
+    // test is a guard nobody has tested.
+    @Autowired private org.elyonar.fincore.notification.internal.TenantRegistry tenantRegistry;
+
+    @Autowired
+    @Qualifier("appTransactionManager")
+    private org.springframework.transaction.PlatformTransactionManager appTx;
+
     private UUID tenant;
     private UUID fromAccount;
     private UUID toAccount;
@@ -71,6 +80,7 @@ class EventIntakeTest {
         contacts.put(fromAccount, contact(sender, Map.of("PHONE", "+2348000000001"), List.of()));
         contacts.put(toAccount, contact(receiver, Map.of("PHONE", "+2348000000002"), List.of()));
 
+        tenantRegistry.register(tenant, "test tenant", "test");
         app.execute("SET app.tenant_id = '" + tenant + "'");
         policy(List.of("SMS"), null, null);
     }
@@ -308,6 +318,30 @@ class EventIntakeTest {
         assertThat(channelFor(receiver)).isEqualTo("EMAIL");
     }
 
+    @Test
+    @DisplayName("an event for a tenant nobody provisioned is recorded, not acted on")
+    void an_unknown_tenant_is_refused_on_the_event_path() {
+        seedSmsTemplates();
+        // A tenant this service has never been provisioned for — a misrouted topic, or provisioning
+        // that got half way. The envelope is otherwise perfect.
+        UUID stranger = UUID.randomUUID();
+        String event = envelope(nextEventId++, "transfer.completed", "1").replace(tenant.toString(), stranger.toString());
+
+        assertThat(intake().handle("core", event)).isEqualTo(EventIntake.Disposition.SUPPRESSED);
+
+        // Suppressed rather than thrown: an exception would stall the consumer on every poll and
+        // stop the queue for tenants that are perfectly real.
+        app.execute("SET app.tenant_id = '" + stranger + "'");
+        assertThat(app.queryForList(
+                        "SELECT reason_code FROM notification.suppressions WHERE tenant_id = ?",
+                        String.class, stranger))
+                .containsExactly("UNKNOWN_TENANT");
+        assertThat(app.queryForList(
+                        "SELECT recipient_ref FROM notification.notifications WHERE tenant_id = ?",
+                        UUID.class, stranger))
+                .isEmpty();
+    }
+
     // ------------------------------------------------------------------ locale
 
     @Test
@@ -384,6 +418,8 @@ class EventIntakeTest {
     private EventIntake intake(Clock clock) {
         return new EventIntake(
                 app,
+                appTx,
+                tenantRegistry,
                 (t, id) -> Optional.ofNullable(accounts),
                 (t, account) -> Optional.ofNullable(contacts.get(account)),
                 policies,
