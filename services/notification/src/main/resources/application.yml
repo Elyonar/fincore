@@ -1,0 +1,85 @@
+spring:
+  application:
+    name: notification
+
+  # Migrations run as the owner; traffic connects as restricted roles. The owner connection never
+  # serves a request, so it holds one connection rather than a pool's worth for the process's life.
+  datasource:
+    hikari:
+      maximum-pool-size: 1
+      minimum-idle: 0
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:55432/notification}
+    username: ${SPRING_DATASOURCE_USERNAME:fincore}
+    password: ${SPRING_DATASOURCE_PASSWORD:fincore}
+
+  # Off, and wired in Migrations instead — the same arrangement Core uses, for the same reason:
+  # three datasources exist and only the owner may run DDL, which autoconfiguration cannot know.
+  flyway:
+    enabled: false
+
+  kafka:
+    bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      group-id: ${FINCORE_NOTIFICATION_GROUP:notification}
+      # Never `earliest`. Kafka retains history for Compliance's benefit; notifications care only
+      # about what is happening now (ADR 0005), and a consumer starting from the beginning of a
+      # retained topic would send weeks of stale alerts on its first deployment. The max-event-age
+      # guard below is the second, independent line of defence — because an offset is an
+      # operational detail somebody eventually resets.
+      auto-offset-reset: latest
+      enable-auto-commit: false
+
+fincore:
+  auth:
+    mode: ${FINCORE_AUTH_MODE:jwt}
+    issuer-uri: ${FINCORE_AUTH_ISSUER_URI:}
+
+  notification:
+    datasource:
+      app:
+        maximum-pool-size: ${FINCORE_NOTIFICATION_POOL:10}
+        minimum-idle: 2
+        connection-timeout: 3000
+        jdbc-url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:55432/notification}
+        username: ${FINCORE_NOTIFICATION_DB_USER:notification_app}
+        password: ${FINCORE_NOTIFICATION_DB_PASSWORD:notification_app}
+      worker:
+        # Background batch work. Several instances drain the queue through FOR UPDATE SKIP LOCKED
+        # rather than through a bigger pool.
+        maximum-pool-size: ${FINCORE_NOTIFICATION_WORKER_POOL:2}
+        minimum-idle: 0
+        jdbc-url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:55432/notification}
+        username: notification_worker
+        password: notification_worker
+
+    core:
+      # The only outbound dependency on the send path. There is no ledger client here and no
+      # gateway SDK — the POM is where a reviewer checks that.
+      base-url: ${FINCORE_CORE_URL:http://localhost:8081}
+      timeout-ms: 2000
+
+    # An event older than this is suppressed rather than sent, whatever the consumer offset says.
+    # Fifteen minutes is longer than any plausible relay backlog or pod restart, and short enough
+    # that nobody receives an alert about something they have long since forgotten.
+    max-event-age-ms: ${FINCORE_MAX_EVENT_AGE_MS:900000}
+
+management:
+  health:
+    # A broker outage delays consumption; it does not make this service unhealthy.
+    kafka:
+      enabled: false
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+springdoc:
+  swagger-ui:
+    path: /docs
+
+server:
+  port: ${SERVER_PORT:8082}

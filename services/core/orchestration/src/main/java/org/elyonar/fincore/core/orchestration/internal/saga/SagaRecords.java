@@ -57,7 +57,7 @@ public class SagaRecords {
         return jdbc.query(
                 """
                 SELECT id, request_fingerprint, state, amount_minor, fee_minor, currency,
-                       product_version, ledger_transaction_id
+                       product_version, ledger_transaction_id, from_account_id, to_account_id
                   FROM orchestration.sagas
                  WHERE channel_idempotency_key = ?
                 """,
@@ -74,7 +74,9 @@ public class SagaRecords {
                                     rs.getLong("fee_minor"),
                                     rs.getString("currency"),
                                     rs.getInt("product_version"),
-                                    rs.getObject("ledger_transaction_id", UUID.class)));
+                                    rs.getObject("ledger_transaction_id", UUID.class),
+                                    rs.getObject("from_account_id", UUID.class),
+                                    rs.getObject("to_account_id", UUID.class)));
                 },
                 idempotencyKey);
     }
@@ -315,7 +317,7 @@ public class SagaRecords {
         return jdbc.queryForObject(
                 """
                 SELECT id, state, amount_minor, fee_minor, currency, product_version,
-                       ledger_transaction_id
+                       ledger_transaction_id, from_account_id, to_account_id
                   FROM orchestration.sagas WHERE id = ?
                 """,
                 (rs, row) ->
@@ -326,7 +328,9 @@ public class SagaRecords {
                                 rs.getLong("fee_minor"),
                                 rs.getString("currency"),
                                 rs.getInt("product_version"),
-                                rs.getObject("ledger_transaction_id", UUID.class)),
+                                rs.getObject("ledger_transaction_id", UUID.class),
+                                rs.getObject("from_account_id", UUID.class),
+                                rs.getObject("to_account_id", UUID.class)),
                 sagaId);
     }
 

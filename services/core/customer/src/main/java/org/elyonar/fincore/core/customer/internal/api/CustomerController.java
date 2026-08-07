@@ -46,6 +46,7 @@ public class CustomerController {
                 request.fullName(),
                 request.phone(),
                 request.email(),
+                request.locale(),
                 // A tier the caller omits is the lowest one. Defaulting upward would hand out
                 // limits by accident, and the safe direction here is obvious.
                 request.kycTier() == null ? "TIER_1" : request.kycTier(),
@@ -138,8 +139,13 @@ public class CustomerController {
     }
 
     /** @param externalRef the tenant's own customer number; unique within the tenant */
+    /**
+     * @param locale BCP 47, and optional. Omitting it means nobody asked — the sending service
+     *     falls back to the tenant default rather than this record claiming the customer chose
+     *     English.
+     */
     public record CreateCustomer(
-            String externalRef, String fullName, String phone, String email, String kycTier) {}
+            String externalRef, String fullName, String phone, String email, String locale, String kycTier) {}
 
     /**
      * @param granted boxed deliberately — an absent answer must be rejected, not silently read as

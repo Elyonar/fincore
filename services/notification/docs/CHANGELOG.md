@@ -8,6 +8,37 @@ Newest entry first.
 
 ---
 
+## [1.2.0] — 2026-08-06 · MINOR
+
+**Locale is selected, not assumed. `V3__tenant_default_locale.sql`.**
+
+- **Docs:** `design.md` (D-24), `data-model.md`, `testing.md`
+- **Why:** v1.1 shipped with the locale hardcoded to `en` in the intake, with a
+  comment saying why: the schema keyed templates by locale, but no per-customer
+  language existed to select with. Core v1.10 adds it, so the gap closes. The
+  comment was honest and the behaviour was still wrong — a platform whose first
+  market speaks Hausa, Yoruba and Igbo cannot ship a sender that only writes
+  English.
+- **Impact:** internal. `channel_policy` gains `default_locale`, NOT NULL with
+  `'en'` — unlike the customer's own locale, a tenant must always have a language
+  to fall back to or the fallback is not one. The notification row now records the
+  locale the template was actually chosen in, rather than a constant.
+- **The selection is a chain, and the fallback is the point:** the customer's
+  language, then the tenant's default. A locale with no published template falls
+  back rather than suppressing, which is what makes translating one alert at a
+  time safe — adding a Yoruba-speaking customer must not silence them until
+  somebody finishes translating. Only when *no* preferred locale has a template
+  is it `NO_TEMPLATE`, and the suppression names the locales it tried.
+- **Supersedes:** `EventIntake.LOCALE`, and the design note explaining its
+  existence.
+- **Tests:** four new cases in `EventIntakeTest` — the customer's language wins;
+  an untranslated locale falls back; the tenant's default is the tenant's rather
+  than the platform's; and no template in any preferred language records which
+  ones were tried.
+- **Migration:** `V3__tenant_default_locale.sql`.
+
+---
+
 ## [1.1.0] — 2026-08-06 · MINOR
 
 **A channel is a registry row, not an enum. Adding one costs no migration.**
