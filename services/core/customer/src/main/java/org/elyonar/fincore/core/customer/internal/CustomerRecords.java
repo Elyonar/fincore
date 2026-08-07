@@ -50,6 +50,7 @@ public class CustomerRecords {
             String fullName,
             String phone,
             String email,
+            String locale,
             String kycTier,
             String createdBy) {
 
@@ -59,12 +60,12 @@ public class CustomerRecords {
                     jdbc.queryForObject(
                             """
                             INSERT INTO customer.customers
-                                (tenant_id, external_ref, full_name, phone, email, kyc_tier, created_by)
-                            VALUES (?,?,?,?,?,?,?)
+                                (tenant_id, external_ref, full_name, phone, email, locale, kyc_tier, created_by)
+                            VALUES (?,?,?,?,?,?,?,?)
                             RETURNING id
                             """,
                             UUID.class,
-                            tenantId, externalRef, fullName, phone, email, kycTier, createdBy);
+                            tenantId, externalRef, fullName, phone, email, locale, kycTier, createdBy);
             return read(tenantId, id);
         } catch (DuplicateKeyException e) {
             // The tenant already numbered this customer. A 409 rather than a silent second record:
@@ -81,7 +82,7 @@ public class CustomerRecords {
         Profile profile =
                 jdbc.query(
                         """
-                        SELECT id, external_ref, full_name, phone, email, status, kyc_tier, created_at
+                        SELECT id, external_ref, full_name, phone, email, locale, status, kyc_tier, created_at
                           FROM customer.customers WHERE id = ?
                         """,
                         rs ->
@@ -92,6 +93,7 @@ public class CustomerRecords {
                                                 rs.getString("full_name"),
                                                 rs.getString("phone"),
                                                 rs.getString("email"),
+                                                rs.getString("locale"),
                                                 rs.getString("status"),
                                                 rs.getString("kyc_tier"),
                                                 rs.getObject("created_at", OffsetDateTime.class),
@@ -207,6 +209,7 @@ public class CustomerRecords {
             String fullName,
             String phone,
             String email,
+            String locale,
             String status,
             String kycTier,
             OffsetDateTime createdAt,
@@ -214,7 +217,7 @@ public class CustomerRecords {
 
         Profile withAccounts(List<Link> accounts) {
             return new Profile(
-                    customerId, externalRef, fullName, phone, email, status, kycTier, createdAt, accounts);
+                    customerId, externalRef, fullName, phone, email, locale, status, kycTier, createdAt, accounts);
         }
     }
 
@@ -261,7 +264,7 @@ public class CustomerRecords {
 
         ContactAndConsent contact =
                 jdbc.query(
-                        "SELECT id, status, phone, email FROM customer.customers WHERE id = ?",
+                        "SELECT id, status, phone, email, locale FROM customer.customers WHERE id = ?",
                         rs -> {
                             if (!rs.next()) {
                                 return null;
@@ -276,7 +279,14 @@ public class CustomerRecords {
                                 addresses.put(AddressKind.EMAIL, rs.getString("email"));
                             }
                             return new ContactAndConsent(
-                                    rs.getObject("id", UUID.class), rs.getString("status"), addresses, List.of());
+                                    rs.getObject("id", UUID.class),
+                                    rs.getString("status"),
+                                    // Null when nobody asked. The sender falls back to the tenant
+                                    // default; inventing 'en' here would make a guess look like the
+                                    // customer's answer.
+                                    rs.getString("locale"),
+                                    addresses,
+                                    List.of());
                         },
                         customerId);
 
@@ -365,11 +375,16 @@ public class CustomerRecords {
         public static final String EMAIL = "EMAIL";
     }
 
+    /** @param locale BCP 47, or null when the customer was never asked */
     public record ContactAndConsent(
-            UUID customerId, String status, Map<String, String> addresses, List<Consent> consent) {
+            UUID customerId,
+            String status,
+            String locale,
+            Map<String, String> addresses,
+            List<Consent> consent) {
 
         ContactAndConsent withConsent(List<Consent> consent) {
-            return new ContactAndConsent(customerId, status, addresses, consent);
+            return new ContactAndConsent(customerId, status, locale, addresses, consent);
         }
     }
 

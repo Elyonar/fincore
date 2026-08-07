@@ -8,6 +8,33 @@ entry first.
 
 ---
 
+## [1.10.0] — 2026-08-06 · MINOR
+
+**Customers get a language. `customer/V6__customer_locale.sql`.**
+
+- **Docs:** `api.md`
+- **Why:** PRD §4.9 asks for Hausa, Yoruba and Igbo templates as tenant content,
+  and Notification keys every template by locale — so the schema was ready and
+  the *choice* was not. With nowhere to read a customer's language from, the
+  sending service hardcoded `en` at exactly the point where selection belongs: a
+  working system that could only ever speak one language, to a platform whose
+  first market has three major ones besides English.
+- **Impact:** additive. `locale` on `customers`, on the create request, on the
+  profile response, and on the contact lookup that Notification calls on every
+  send. Nothing existing changes shape.
+- **Nullable, deliberately.** A customer nobody asked is the normal case, not an
+  error, and the sender falls back to the tenant default rather than refusing to
+  write. Storing `'en'` as a column default would be a guess wearing the shape of
+  an answer — the same reasoning that keeps `communication_consent` to explicit
+  answers only, and the lookup returns `null` rather than inventing one.
+- **Supersedes:** nothing. It closes a gap that was recorded rather than hidden:
+  the hardcoded locale carried a comment saying why it was there.
+- **Tests:** `ContactAndConsentApiTest.locale_is_carried_and_never_invented` —
+  the language reaches the lookup, and absence stays absent.
+- **Migration:** `customer/V6__customer_locale.sql`.
+
+---
+
 ## [1.9.0] — 2026-08-06 · MINOR
 
 **The suite gets its own database.**
@@ -36,6 +63,48 @@ entry first.
 - **Migration:** `db/init/50-test-databases.sql`. It runs only on an empty
   volume, so an existing checkout needs the database created in place — the
   command is in `README.md`. Nothing is dropped and no development data moves.
+
+---
+
+## [1.8.0] — 2026-08-06 · MINOR
+
+**`GET /v1/transactions/{id}` names the accounts the money moved between.**
+
+- **Docs:** `api.md`
+- **Why:** `transfer.completed` carries `{transactionId, amountMinor, feeMinor,
+  currency}` and `TransferResult` carried no accounts either, so **there was no
+  path anywhere on the platform from "a transfer happened" to "whose account
+  moved"**. For the channel that initiated the transfer this is invisible — it
+  supplied the accounts. For a *consumer* it is fatal: ADR 0008 keeps PII and
+  database shapes off the bus, so a consumer holds a saga id and reads state
+  back through the publisher's API. Found by building the first consumer, which
+  is the first thing that ever had to ask.
+- **Impact:** additive. `TransferResult` gains `fromAccountId` and
+  `toAccountId`, null on a reversal — which targets a transaction rather than a
+  pair of accounts. No request shape changes, no endpoint changes, **no
+  migration**: `V4__saga_posting_shape.sql` already added the columns for the
+  recovery worker, which needs them to rebuild an identical posting under the
+  same derived key.
+- **Why the read API rather than the event payload**, since both were available:
+  - ADR 0008 states the pattern outright — *"Consumers are state-based. React to
+    an event by fetching current state through the publisher's read API."* This
+    is the case that rule describes.
+  - Payloads stay thin. Serving one consumer by widening an event starts the
+    slide the ADR warns about: the next consumer wants its own field, and a
+    payload becomes database-shaped one addition at a time.
+  - A topic is retained for a long time and read by more consumers than an API
+    is. Account identifiers are not PII, but the smaller surface is still the
+    better default.
+  - The accepted cost, stated rather than elided: a consumer now makes a call it
+    would not have made, and its ability to address a customer depends on Core
+    being reachable. That is the right dependency — a consumer that cannot reach
+    Core should leave the event unconsumed for redelivery, not invent a
+    suppression reason that is false.
+- **Supersedes:** nothing. `TransferResult`'s doc comment now says why the two
+  fields exist, because "the caller already knows this" is the reasonable
+  objection and the answer is that the caller is not the only reader.
+- **Tests:** `TransferApiTest.the_status_read_names_the_accounts_the_money_moved_between`.
+- **Migration:** none.
 
 ---
 

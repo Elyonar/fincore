@@ -36,7 +36,7 @@ the first place.
 | `GET  /v1/customers/{id}` | customer profile, tier, status, linked accounts | customer | `customers:read` | teller, API |
 | `POST /v1/customers/{id}/tier` | change KYC tier (attributed, reason required) | customer | `customers:tier` | compliance, admin |
 | `POST /v1/customers/{id}/accounts` | link a ledger account to a customer | customer | `customers:link` | admin |
-| `GET  /v1/customers/by-account/{ledgerAccountId}` | contact addresses and consent for the holder of an account — **no name, no tier** | customer | `customers:contact` | notification, API |
+| `GET  /v1/customers/by-account/{ledgerAccountId}` | contact addresses, language and consent for the holder of an account — **no name, no tier** | customer | `customers:contact` | notification, API |
 | `POST /v1/customers/{id}/consent` | record what a customer agreed to, per category and channel | customer | `customers:consent` | admin, compliance |
 | `GET  /v1/products` | list products and their versions | product | `products:read` | teller, admin |
 | `POST /v1/products` | create a product with a DRAFT version 1 | product | `products:create` | admin |

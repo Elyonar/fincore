@@ -278,6 +278,23 @@ class TransferApiTest {
     }
 
     @Test
+    void the_status_read_names_the_accounts_the_money_moved_between() {
+        String created = post("api-accounts", 100_000, "transfers:create").body();
+        String id = created.substring(
+                created.indexOf("\"transactionId\":\"") + 17,
+                created.indexOf("\",", created.indexOf("\"transactionId\":\"")));
+
+        HttpResponse<String> response =
+                send(authed("/v1/transactions/" + id, "transfers:read").GET().build());
+
+        // For the caller who supplied them this is redundant. For a *consumer* it is the only path
+        // from "a transfer happened" to "whose account moved": an event carries identifiers and no
+        // PII (ADR 0008), so state is read back through here rather than reconstructed. Without
+        // these, nothing downstream can address a customer.
+        assertThat(response.body()).contains("\"fromAccountId\":\"").contains("\"toAccountId\":\"");
+    }
+
+    @Test
     void health_answers_without_a_caller_being_known() {
         // Readiness must not require authentication, or an orchestrator can never see the service.
         assertThat(

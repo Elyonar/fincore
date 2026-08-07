@@ -89,9 +89,14 @@ class ContactAndConsentApiTest {
     private record Fixture(String customerId, UUID accountId) {}
 
     private Fixture customerHoldingAnAccount(String phone, String email) {
+        return customerHoldingAnAccount(phone, email, null);
+    }
+
+    private Fixture customerHoldingAnAccount(String phone, String email, String locale) {
         String body = "{\"externalRef\":\"CUST-" + UUID.randomUUID() + "\",\"fullName\":\"Ada Lovelace\""
                 + (phone == null ? "" : ",\"phone\":\"" + phone + "\"")
                 + (email == null ? "" : ",\"email\":\"" + email + "\"")
+                + (locale == null ? "" : ",\"locale\":\"" + locale + "\"")
                 + "}";
         HttpResponse<String> created =
                 send(as("/v1/customers", "customers:create").POST(HttpRequest.BodyPublishers.ofString(body)).build());
@@ -206,6 +211,19 @@ class ContactAndConsentApiTest {
         // customers:read is the administrative grant. This endpoint returns PII to a machine, so it
         // carries its own — otherwise "let the notifier read contacts" means "let it read everything".
         assertThat(wrongGrant.statusCode()).isEqualTo(403);
+    }
+
+    @Test
+    @DisplayName("the customer's language reaches the lookup, and absence stays absent")
+    void locale_is_carried_and_never_invented() {
+        Fixture speaksYoruba = customerHoldingAnAccount("+2348000000020", null, "yo");
+        Fixture neverAsked = customerHoldingAnAccount("+2348000000021", null);
+
+        assertThat(lookup(speaksYoruba.accountId()).body()).contains("\"locale\":\"yo\"");
+        // Null, not "en". What to do about a customer nobody asked is the sending service's policy —
+        // a default stored here would make a guess look like the customer's answer, exactly as with
+        // consent.
+        assertThat(lookup(neverAsked.accountId()).body()).contains("\"locale\":null");
     }
 
     // ------------------------------------------------------------------ consent
