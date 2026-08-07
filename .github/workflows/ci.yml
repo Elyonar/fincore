@@ -142,8 +142,14 @@ jobs:
   # An AGREED design is a contract. If a PR edits one without recording the
   # amendment, the convention in docs/conventions/design-changes.md is being
   # skipped — so the build says so, rather than a reviewer having to notice.
+  # Runs on pushes as well as pull requests, and the two halves below differ in
+  # what they can check. The amendment half needs a base to diff against and is
+  # skipped on a push; the version half needs nothing but the tree, and skipping
+  # it was how Core reached a [1.11.0] entry with every header still saying
+  # v1.10 — caught by hand during a merge rather than by the guardrail that
+  # exists to catch it. A check that only runs on the path code usually takes is
+  # a check with a hole in it.
   design-changelog:
-    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -153,9 +159,15 @@ jobs:
       - name: Amended design docs require a CHANGELOG entry
         run: |
           set -euo pipefail
-          base="origin/${{ github.base_ref }}"
-          changed="$(git diff --name-only "$base"...HEAD)"
           status=0
+
+          # Only a pull request has a base to diff against. On a push this half is
+          # skipped and the version check below still runs.
+          changed=""
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="origin/${{ github.base_ref }}"
+            changed="$(git diff --name-only "$base"...HEAD)"
+          fi
 
           services="$(printf '%s\n' "$changed" \
             | awk -F/ '/^services\/[^/]+\/docs\/.*\.md$/ { print $2 }' | sort -u)"
