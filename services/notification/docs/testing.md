@@ -43,7 +43,7 @@ Checked per tenant, after every test scenario and on a schedule in production.
 | Rendering | Determinism, and GSM-7 vs UCS-2 segment counts on Hausa, Yoruba and Igbo samples. Missing-variable suppression and **locale selection with fallback** are covered by the intake suite | PARTIAL |
 | Channel registry | An enabled channel with no sender fails startup. A channel added by row alone reaching send is covered indirectly by the intake and API suites, not directly | PARTIAL |
 | Failure injection | Gateway timeout and a throwing sender are covered by the send-queue suite. Core unreachable leaving the event unconsumed, and an absent adapter, are not | PARTIAL |
-| ArchUnit + empty-import canary | No ledger client, no gateway SDK, `internal` stays private — and the suite is not passing vacuously | PLANNED |
+| **Boundaries** (`BoundaryTest`, 6) | No ledger client, no gateway SDK, no `BigDecimal` on a unit count, `java.time` only, internals stay internal — and an empty-import canary so none of it passes vacuously | **IMPLEMENTED** |
 | Error catalog | `ErrorCodeCatalogTest` copy: no undocumented code, no documented non-code | PLANNED |
 
 Real PostgreSQL throughout, never an in-memory substitute — the trigger,
@@ -80,6 +80,10 @@ presence in a table.
   suite to `notification_test` — following the ledger and Core — meant an empty database on the
   first run, and the channel registry read its table before Flyway created it. The fix is the
   ordering the service always needed; the dedicated database is what made the gap visible.
+- **The empty-import canary earned itself on its first run, for the second time on this
+  platform.** ArchUnit 1.3 cannot read Java 25 bytecode: it imports zero classes and every
+  `no…should…` rule passes while enforcing nothing. Core hit this and wrote the version pin down;
+  this module was still on 1.3.0, and the canary — not the version comment — is what said so.
 - **Append-only was proven by the wrong mechanism.** The first version of the
   attempts test used the app role, which has no `UPDATE` grant — so it passed
   while saying nothing about the trigger. Grants and triggers protect different

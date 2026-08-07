@@ -87,7 +87,12 @@
         <dependency>
             <groupId>com.tngtech.archunit</groupId>
             <artifactId>archunit-junit5</artifactId>
-            <version>1.3.0</version>
+            <!-- 1.4.x or newer: earlier ASM cannot read Java 25 bytecode (major 69) and silently
+                 imports zero classes, so every rule passes vacuously. This module was pinned to
+                 1.3.0 and the empty-import canary caught it on the boundary suite's very first
+                 run — the same way it caught it in Core. Twice now, which is the argument for
+                 the canary rather than for remembering the version. -->
+            <version>1.4.1</version>
             <scope>test</scope>
         </dependency>
     </dependencies>

@@ -183,3 +183,19 @@ Hard rules: [`AGENTS.md`](../../AGENTS.md). Amendment process:
 [`design-changes.md`](../../docs/conventions/design-changes.md). Scaffold
 requirements: [`service-scaffold.md`](../../docs/conventions/service-scaffold.md).
 License: [AGPL-3.0-only](../../LICENSE).
+
+## Known limitations
+
+Real, and listed where a reader will find them rather than left to be
+discovered. Per-suite status lives in [`docs/testing.md`](docs/testing.md).
+
+| Area | State |
+|---|---|
+| Money paths | Deposit, withdrawal, intra-tenant transfer and business reversal only. **No rails connector**, so money moves only between accounts within one institution |
+| Holds | Designed in `saga-protocol.md`, not built. They activate with the first connector, because a hold reserves funds across an external call and v1 has none |
+| Compensating reversal | Same: v1's single-step sagas have nothing to undo. The rules are written; the path is not |
+| Consumed events | None. Core is command-driven, so consumer-side dedupe and epoch fencing are not built here — Notification builds them first |
+| Interest accrual | Not built, and deliberately unassigned for deposits. Product's rule model carries FLAT/PERCENT fees and PER_TXN/DAILY limits only |
+| Identity | `libs/auth` validates tokens, but the deployed realm model is not provisioned; dev mode uses headers and announces itself |
+| Reconciliation | Invariant 6 — Core and the Ledger agree — is specified and **not yet running on a schedule** |
+| Performance | Targets in `architecture.md` are intent. Nothing has been benchmarked |

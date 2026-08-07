@@ -141,8 +141,8 @@ been stale twice, both times claiming less had been built than actually had. If
 you are about to build something this section says does not exist, check the
 service directory first.
 
-Verified by running the suites, not by reading the docs: **457 tests green** —
-26 `libs/auth`, 9 `libs/events`, 231 ledger, 191 Core.
+Verified by running the suites, not by reading the docs: **515 tests green** —
+26 `libs/auth`, 9 `libs/events`, 231 ledger, 193 Core, 56 Notification.
 
 - `services/ledger` — **design AGREED v1.8; implemented and merged to main.**
   Every documented endpoint exists. Do not re-implement the schema, posting
@@ -173,20 +173,35 @@ Verified by running the suites, not by reading the docs: **457 tests green** —
   HTTP.
 
   `customer` and `product` carry no unit tests of their own; both are covered by
-  `app`'s integration suite, which is why Core's 191 sit in two modules.
+  `app`'s integration suite, which is why Core's 193 sit in two modules.
 
   Read `services/core/docs/design.md` and then `outcome-protocol.md` before
   touching anything here. The rule that matters most: **an unknown outcome is
   never compensated and never reported as success** — it is a 503, the same key
   is retried, and the worker resolves it.
 
-- `services/notification` — **design AGREED v1.2; no code committed yet.**
-  The platform's first event *consumer*, taken ahead of its PRD phase for the
-  reasons in [ADR 0011](docs/adr/0011-first-consumer-before-phase-three.md):
+- `services/notification` — **design AGREED v1.2; implemented, merged, and
+  running.** The platform's first event *consumer*, taken ahead of its PRD phase
+  for the reasons in [ADR 0011](docs/adr/0011-first-consumer-before-phase-three.md):
   nothing had ever consumed an event, and designing a consumer immediately found
   that the two publishers were emitting different envelopes despite ADR 0008
-  mandating one. Its Core dependency — `GET /v1/customers/by-account/{id}` for
-  contact and consent — **is built** (Core v1.7), so it is unblocked.
+  mandating one — fixed before this service was built.
+
+  One schema, six tables, two database roles, its own image and compose service.
+  It consumes `transfer.completed`, resolves contact and consent from Core, and
+  queues a message per side of a transfer. **Every consumed event ends as a
+  message or as a suppression carrying a reason code** — that is the guarantee
+  to preserve if you touch it.
+
+  Known gaps, tracked with status markers in
+  `services/notification/docs/testing.md`:
+  - **nothing reaches a customer.** The `log` senders deliver nowhere and say so
+    at startup; the messaging connector that would make them real is not built,
+    by decision — connectors come last
+  - no error-catalog test and no metrics. The scaffold asks for both and
+    `testing.md` marks them PLANNED rather than implying coverage
+  - delivery receipts, bounce handling and monetary cost need a gateway to test
+    against, so they arrive with the connector
 
 - `libs/` — two libraries, each extracted only once a second consumer existed:
   `auth` (token validation, identity context, `require` helpers — ADR 0009) and
