@@ -22,8 +22,20 @@ is a feature this document must not fight.
 **v1 — the pilot's loan desk:**
 
 - Individual loans against a published loan product: application →
-  amount-tiered maker-checker approval → offer → acceptance → disbursement →
-  schedule → repayments → closure.
+  amount-tiered approval → offer → acceptance → disbursement → schedule →
+  repayments → closure.
+- **The decisioning spectrum, one model (PRD §4.5):** approval tiers start at
+  zero. A tier requiring no approvals is instant lending under a configured
+  ceiling (the deterministic policy decides; scores only advise, constitution
+  12); a one-approval tier is a solo lender approving their own book — the
+  mandatory maker-checker list in PRD §6.3 does not include loan approval, and
+  a one-person institution is a supported tenant shape; an N-approval tier is
+  a credit committee. Same table, same audit trail, same events — the segments
+  differ by configuration, never by code path.
+- **Early settlement:** a payoff quote as of a value date; flat-rate loans
+  rebate unearned interest (the quote must survive an early exit honestly),
+  declining-balance loans may carry a configured prepayment fee. Settlement is
+  an ordinary repayment saga whose allocation reaches payoff.
 - Schedule engine: **annuity** (equal installment), **flat**, **bullet**;
   grace periods on principal; day-count **ACT/365 fixed**.
 - Daily interest accrual with value-dated recognition postings.
@@ -37,6 +49,26 @@ is a feature this document must not fight.
 
 - **Group lending** (Grameen-style) → first cooperative design partner; also an
   ADR 0013 extraction trigger.
+- **Guarantors & collateral** → first secured-lending tenant. The design is
+  pre-shaped: a lien on savings is a **Ledger hold** on the pledged account
+  (the hold machinery is exactly this — no new ledger concept), guarantor
+  undertakings are lending-schema rows with their own exposure view, and
+  movable collateral registers through an NCR connector hook (connector era).
+  Collateral release joins the closure workflow when this lands.
+- **Credit life insurance** → first insurer relationship: premium as a
+  disbursement-time deduction per product configuration, remitted as a partner
+  settlement.
+- **Top-up / refinance** → first pilot request: a *new* loan whose disbursement
+  settles the predecessor's payoff, linked for history — never an in-place
+  schedule edit.
+- **Collections rails** (direct-debit e-mandates, GSI recovery, payroll
+  deduction files) → the NIBSS connector. Lending owns *what is due*;
+  connectors own *how it is collected*. Until then, repayments arrive as
+  book transfers like everything else.
+- **Disclosure pack** (total cost of credit / effective rate on the offer,
+  FCCPC data points, cooling-off) → country-pack configuration with Compliance
+  & Reporting; the offer's data model carries the computed totals from day one
+  so the pack renders from facts already recorded.
 - **Restructuring, rescheduling, write-off** → designed at the data-model level
   (nothing here forbids them) but no workflow in v1; they arrive with the
   pilot's collections practice, because designing a write-off approval chain
@@ -69,13 +101,19 @@ loan to `ACCEPTED` with the refusal recorded; an unknown leaves it
 `DISBURSING` — the saga's own worker and ops case machinery already own that
 uncertainty, and Lending does not build a second copy.
 
-**Approval chains are amount-tiered maker-checker, Lending's own.**
-`lending.approval_tiers` (per tenant: ceiling amount → required approvals)
-drives how many distinct checkers an application needs; every approval row
-records who, when, in which unit (the ADR 0012 snapshot, as in Orchestration's
-approvals), and maker ≠ any checker is a schema CHECK. Deliberately not
-Orchestration's `approvals` table: that one is bound to a saga and an amount,
-this one to an application and a chain — and modules do not share tables.
+**Approval chains are amount-tiered, from zero, Lending's own.**
+`lending.approval_tiers` (per tenant: ceiling amount → approvals required,
+**zero permitted**) drives how many distinct approvers an application needs.
+A zero tier auto-approves by deterministic policy and records
+`system:lending-policy` as the approver — attributed like any human decision,
+because "nobody approved this" and "the policy approved this" must never read
+alike in an audit. Where approvals are required, every row records who, when,
+in which unit (the ADR 0012 snapshot), and applicant ≠ approver is a schema
+CHECK — which for a solo lender means self-originated applications above their
+own zero-tier ceiling need a second principal, and that is a *configuration*
+conversation at onboarding, not a code path. Deliberately not Orchestration's
+`approvals` table: that one is bound to a saga and an amount, this one to an
+application and a chain — and modules do not share tables.
 
 **The schedule is rows, not a formula.** Generation happens once, at
 disbursement, into `loan_schedule` — one row per installment with due date,
@@ -127,7 +165,7 @@ worker policy for the cross-tenant jobs, transaction-local tenant context.
 
 | Table | Owns | Shape notes |
 |---|---|---|
-| `loan_applications` | The request and its lifecycle before money | state CHECK per §2; `product_code` + `product_version` pinned at approval; `officer` principal and `unit_code` snapshot (attribution, never authorization); amount, term, purpose |
+| `loan_applications` | The request and its lifecycle before money | state CHECK per §2; `product_code` + `product_version` pinned at approval; `officer` principal and `unit_code` snapshot (attribution, never authorization); amount, term, purpose; offer economics recorded at OFFERED (total interest, total cost, effective annual rate in basis points) — the disclosure pack renders from these facts later, so they are recorded now |
 | `loan_approvals` | The chain, append-only | FK to application; `approved_by`, `approved_in_unit`, sequence no; CHECK maker ≠ approver; unique (application, approver) |
 | `approval_tiers` | Tenant config: ceiling → approvals required | Small, admin-maintained; consulted at application submit |
 | `loans` | The live obligation | Created at disbursement; principal, rate bp, day count, schedule kind, `disbursement_saga_id` (no FK — another module's row, referenced by id like ledger ids are), state `ACTIVE/CLOSED/WRITTEN_OFF`, `accrued_interest_minor`, `accrual_through` date |
@@ -161,6 +199,18 @@ New permissions join the realm and the job composites (`job:loan-officer`
 composing apply/read/repay; `job:supervisor` gaining `loans:approve`;
 `job:admin` gaining tiers administration). Denials stay body-less.
 
+### Error catalog (moves to `api.md`'s tables as built)
+
+`LendingErrorCode`, module-local like every other catalog, catalog-tested on
+arrival: `LOAN_NOT_FOUND` (absent or another tenant's, indistinguishable),
+`APPLICATION_STATE_INVALID` (with `reason` naming the refused transition),
+`PRODUCT_NOT_LENDABLE` (no published LOAN version in effect),
+`AMOUNT_OUT_OF_BOUNDS`, `TERM_OUT_OF_BOUNDS` (both per product version),
+`APPROVAL_SEQUENCE_INVALID` (duplicate approver, applicant approving, or a
+tier already satisfied), `OFFER_EXPIRED`, `REPAYMENT_EXCEEDS_PAYOFF` (422 at
+intake — overpayment is refused, never parked), `LOAN_NOT_ACTIVE`. Denials
+stay body-less; not-found and wrong-tenant stay indistinguishable.
+
 ## 5. Testing (joins `testing.md`'s suite table as built)
 
 - **Schedule properties** (jqwik): for arbitrary principal/rate/term per
@@ -182,6 +232,17 @@ composing apply/read/repay; `job:supervisor` gaining `loans:approve`;
   transition on settlement.
 - **Deny-by-default probes** on every endpoint, and cross-tenant invisibility,
   as everywhere.
+
+### Operations
+
+Every alarm ships with its measurement, per the scaffold's rule: gauges for
+accrual lag (loans whose `accrual_through` trails the business date — the
+number a stalled accrual job is caught by), delinquency-job staleness (newest
+`as_of` vs today), disbursements stuck in `DISBURSING` beyond the saga
+escalation bound, and portfolio-at-risk totals per bucket. The accrual and
+delinquency jobs are lease-claimed and idempotent, so a crashed run's
+successor repeats it whole; both log a run summary and neither alerts by log
+line alone.
 
 ## 6. What this changes elsewhere (the implementation PR's checklist)
 

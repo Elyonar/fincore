@@ -30,6 +30,16 @@ entry first.
   invariant-6 machinery; deterministic repayment allocation as append-only
   rows; daily CBN-bucket delinquency classification with PAR by product,
   officer and organizational unit.
+- **The full tenant spectrum, one model (PRD v1.9):** approval tiers start at
+  zero — instant lending under a ceiling (policy decides, scores advise), the
+  solo lender approving their own book, and N-approval committees are the same
+  table, audit trail and events, differing by configuration only. Early
+  settlement (flat-rate rebate, configurable prepayment fee) and the offer's
+  disclosure economics (total cost, effective rate) are v1; the segments'
+  remaining furniture is deferred **with named triggers**: guarantors &
+  collateral (savings lien = a Ledger hold; NCR hook), credit life insurance,
+  top-up/refinance, collections rails (e-mandate/GSI/payroll — connector era),
+  the disclosure pack's rendition.
 - **Deferred with triggers, not silently:** group lending, restructuring /
   write-off workflows, credit-bureau hooks, moratoriums.
 - **Deliberately absent from `api.md` and `testing.md`:** lending's endpoint
