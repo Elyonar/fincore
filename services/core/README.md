@@ -9,7 +9,7 @@
 One deployable, four domain modules, one database, four domain schemas, one
 database role per module. It is the **only** caller of the Ledger's write API.
 
-**Status: design AGREED v1.17 — implemented, pre-1.0.** Packaging is decided
+**Status: design AGREED v1.18 — implemented, pre-1.0.** Packaging is decided
 ([ADR 0006](../../docs/adr/0006-modular-core.md)), all documented endpoints are
 served, and every suite runs against real PostgreSQL. Changes to the design are
 amendments in [`docs/CHANGELOG.md`](docs/CHANGELOG.md), in their own PR ahead
@@ -21,15 +21,16 @@ of the code — never silent edits.
 
 | You want to know… | Read | Status |
 |---|---|---|
-| The design at a glance + the decision log | [`docs/design.md`](docs/design.md) | AGREED v1.17 |
-| **The three-valued outcome model** — the thing this service exists to get right | [`docs/outcome-protocol.md`](docs/outcome-protocol.md) | AGREED v1.17 |
-| How sagas execute, recover, and are claimed across instances | [`docs/saga-protocol.md`](docs/saga-protocol.md) | AGREED v1.17 |
-| Modules, boundaries, the ledger client, events, DR posture | [`docs/architecture.md`](docs/architecture.md) | AGREED v1.17 |
-| Tables per schema, ownership rules, decided edge cases | [`docs/data-model.md`](docs/data-model.md) | AGREED v1.17 |
-| Endpoint surface, error catalog, contract properties | [`docs/api.md`](docs/api.md) | AGREED v1.17 |
-| Core's eight invariants and every test suite | [`docs/testing.md`](docs/testing.md) | AGREED v1.17 |
-| **Lending — the fifth module**: origination, schedules, accrual, delinquency | [`docs/lending.md`](docs/lending.md) | AGREED v1.17 |
-| Every amendment since the design was agreed | [`docs/CHANGELOG.md`](docs/CHANGELOG.md) | v1.16 |
+| The design at a glance + the decision log | [`docs/design.md`](docs/design.md) | AGREED v1.18 |
+| **The three-valued outcome model** — the thing this service exists to get right | [`docs/outcome-protocol.md`](docs/outcome-protocol.md) | AGREED v1.18 |
+| How sagas execute, recover, and are claimed across instances | [`docs/saga-protocol.md`](docs/saga-protocol.md) | AGREED v1.18 |
+| Modules, boundaries, the ledger client, events, DR posture | [`docs/architecture.md`](docs/architecture.md) | AGREED v1.18 |
+| Tables per schema, ownership rules, decided edge cases | [`docs/data-model.md`](docs/data-model.md) | AGREED v1.18 |
+| Endpoint surface, error catalog, contract properties | [`docs/api.md`](docs/api.md) | AGREED v1.18 |
+| Core's eight invariants and every test suite | [`docs/testing.md`](docs/testing.md) | AGREED v1.18 |
+| **Lending — the fifth module**: origination, schedules, accrual, delinquency | [`docs/lending.md`](docs/lending.md) | AGREED v1.18 |
+| **The UI runway** — identity end-to-end, the edge, ledger-read proxying, the Phase 0 read audit | [`docs/ui-runway.md`](docs/ui-runway.md) | AGREED v1.18 |
+| Every amendment since the design was agreed | [`docs/CHANGELOG.md`](docs/CHANGELOG.md) | v1.18 |
 | Platform hard rules | [`AGENTS.md`](../../AGENTS.md) | Standing |
 | What every service must have before it ships | [`service-scaffold.md`](../../docs/conventions/service-scaffold.md) | Standing |
 
