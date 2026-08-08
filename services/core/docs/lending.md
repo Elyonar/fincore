@@ -1,6 +1,6 @@
 # Core — Lending Module Design
 
-**Status:** AGREED v1.16 (2026-08-08) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
+**Status:** AGREED v1.17 (2026-08-08) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
 
 The fifth domain module ([ADR 0013](../../../docs/adr/0013-lending-module-first.md)):
 loan origination, schedules, disbursement instructions, repayment allocation,
@@ -123,15 +123,29 @@ half-even per installment with **the final installment absorbing the residue**,
 so the schedule sums exactly to principal plus computed interest, provable by a
 CHECK-friendly invariant rather than by trusting arithmetic.
 
-**Accrual is computed daily, recognized by posting, value-dated.** A daily job
-(worker-style, cross-tenant, lease-claimed) advances each active loan's
-`accrued_interest_minor` using ACT/365 on the outstanding principal. Recognition
-— the ledger posting that moves accrued interest into income — happens on
-repayment allocation and at month-end, as an Orchestration saga with a
-value-dated posting (the ledger's value dating exists for exactly this).
-Between recognitions, accrued interest is Lending's number; after recognition
-it is the Ledger's — reconciliation (invariant 6's machinery) extends to prove
-the two agree at every recognition boundary.
+**Accrual is computed daily; income is recognized on collection, per
+repayment (v1.17).** A daily job (worker-style, cross-tenant, lease-claimed)
+advances each active loan's `accrued_interest_minor` using ACT/365 on the
+outstanding principal. Recognition — the ledger posting that moves collected
+interest (and penalties) into the product's income account — happens **when a
+repayment allocates**, as a `RECOGNITION` funding saga (loan funding account →
+`loan_rules.interest_income_account_id`; penalties to
+`penalty_income_account_id`, falling back to the interest account) under keys
+derived from the repayment: `lending:recognize:{repaymentId}:interest` and
+`:penalty`. Per-repayment keys, deliberately, instead of the v1.16 sketch's
+month-end delta under a month key: a month-scoped key cannot be replay-stable
+once the delta moves between reruns (the fingerprint would mismatch and the
+key-reuse guard would refuse — correctly), while a repayment's portions are
+fixed forever the moment allocation commits. The daily job's `recognize()`
+pass is the *catch-up*: any `ALLOCATED` repayment not yet marked
+`recognized_at` is re-driven through the same keys, so a crash between
+allocation and recognition converges instead of double-posting. Versions
+without an income account recognize as an explicit no-op (marked, so the gap
+in the books is a recorded fact that ages out as versions republish — the fee
+account fallback's shape). `recognized_interest_minor` on the loan advances
+only by amounts actually posted, so collected-vs-recognized is always a
+subtraction; value-dated month-end postings wait for the ledger's value-dating
+amendment and are out of v1.17's scope.
 
 **Repayment allocation is a pure function, recorded as rows.** A repayment
 arrives as an Orchestration saga (customer account → loan repayment account);
@@ -142,6 +156,27 @@ as far as the money reaches; overpayment beyond payoff is refused at intake
 (422), not parked. Given the same loan state and amount, allocation is
 byte-identical on replay — property-tested, because "deterministic" in a
 design doc is a wish until a generator disagrees.
+
+**Penalties are pricing, charged by the daily job, idempotently (v1.17).**
+Penalty rules live on `product.loan_rules` like every other price: a flat
+amount per late installment (`penalty_flat_minor`, charged once per
+installment, arbitrated by a `penalty_applied_at` marker on the schedule row)
+plus basis points **per day** on overdue principal (`penalty_rate_bp`,
+advanced through a `penalty_through` date exactly the way accrual advances
+`accrual_through`), under an optional lifetime cap (`penalty_cap_minor`).
+Charges accumulate in `penalty_charged_minor` on the loan; collections in
+`penalty_paid_minor`; due is always the subtraction, never a third counter to
+drift. Each charge emits `loan.penalty_applied`. The allocation engine's
+`PENALTY` component stops being a no-op — money reaches it in the product's
+configured order — and payoff (and the `REPAYMENT_EXCEEDS_PAYOFF` guard)
+includes penalty due. A same-day rerun charges zero by construction: no
+unmarked late installments, zero days advanced.
+
+**Disbursement funding account is configuration-first (v1.17).**
+`loan_rules.funding_account_id` names the tenant's loan funding account on the
+version; when present it overrides the caller-supplied account on disburse,
+which remains only a fallback for versions predating the column — the
+`fee_rules.fee_account_id` pattern, ageing out the same way.
 
 **Delinquency is classified daily, from the schedule, idempotently.** The job
 finds the oldest unpaid installment per active loan, computes days past due,
@@ -154,7 +189,8 @@ dimensions already in the schema: product, officer principal, unit code.
 **Events, from Lending's own outbox** (the "each emitting module owns one"
 doctrine, honestly this time): `loan.application_received`, `loan.approved`,
 `loan.offer_accepted`, `loan.disbursed`, `loan.repayment_allocated`,
-`loan.delinquent`, `loan.recovered`, `loan.closed`. Payloads are thin (ids,
+`loan.delinquent`, `loan.recovered`, `loan.penalty_applied` (v1.17),
+`loan.closed`. Payloads are thin (ids,
 amounts as decimal strings, bucket names) per ADR 0008.
 
 ## 3. Data model — schema `lending`, role `core_lending`
@@ -168,9 +204,9 @@ worker policy for the cross-tenant jobs, transaction-local tenant context.
 | `loan_applications` | The request and its lifecycle before money | state CHECK per §2; `product_code` + `product_version` pinned at approval; `officer` principal and `unit_code` snapshot (attribution, never authorization); amount, term, purpose; offer economics recorded at OFFERED (total interest, total cost, effective annual rate in basis points) — the disclosure pack renders from these facts later, so they are recorded now |
 | `loan_approvals` | The chain, append-only | FK to application; `approved_by`, `approved_in_unit`, sequence no; CHECK maker ≠ approver; unique (application, approver) |
 | `approval_tiers` | Tenant config: ceiling → approvals required | Small, admin-maintained; consulted at application submit |
-| `loans` | The live obligation | Created at disbursement; principal, rate bp, day count, schedule kind, `disbursement_saga_id` (no FK — another module's row, referenced by id like ledger ids are), state `ACTIVE/CLOSED/WRITTEN_OFF`, `accrued_interest_minor`, `accrual_through` date |
-| `loan_schedule` | One row per installment | due date, principal_due, interest_due, paid amounts per component, `settled_at`; generated once; append-only except the paid columns |
-| `repayments` | One row per repayment saga | `repayment_saga_id`, amount, received date; unique per saga id — the saga's idempotency is Lending's |
+| `loans` | The live obligation | Created at disbursement; principal, rate bp, day count, schedule kind, `disbursement_saga_id` (no FK — another module's row, referenced by id like ledger ids are), state `ACTIVE/CLOSED/WRITTEN_OFF`, `accrued_interest_minor`, `accrual_through` date; v1.17: `interest_paid_minor`, `recognized_interest_minor` (advances only by posted amounts), `penalty_charged_minor`, `penalty_paid_minor` (CHECK paid ≤ charged), `penalty_through` date |
+| `loan_schedule` | One row per installment | due date, principal_due, interest_due, paid amounts per component, `settled_at`; generated once; append-only except the paid columns; v1.17: `penalty_applied_at` marks the once-per-installment flat penalty |
+| `repayments` | One row per repayment saga | `repayment_saga_id`, amount, received date; unique per saga id — the saga's idempotency is Lending's; v1.17: `recognized_at` marks income recognition resolved (posted, or an explicit unconfigured no-op) |
 | `repayment_allocations` | The split, append-only | FK to repayment; component CHECK (`PENALTY/FEE/INTEREST/PRINCIPAL`), amount, installment ref |
 | `delinquency_events` | Bucket transitions, append-only | loan, from-bucket, to-bucket, days past due, as-of date; unique (loan, as_of) |
 | `outbox_events` | Lending's events | Identical shape to orchestration's; relay grows one more table to poll |
@@ -242,7 +278,10 @@ number a stalled accrual job is caught by), delinquency-job staleness (newest
 escalation bound, and portfolio-at-risk totals per bucket. The accrual and
 delinquency jobs are lease-claimed and idempotent, so a crashed run's
 successor repeats it whole; both log a run summary and neither alerts by log
-line alone.
+line alone. v1.17 adds `core.lending.recognition.pending` — allocated
+repayments whose income recognition has not yet resolved; a stalled
+recognition catch-up is caught by this number climbing, the same way the
+outbox's lag catches a stalled relay.
 
 ## 6. What this changes elsewhere (the implementation PR's checklist)
 

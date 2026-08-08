@@ -1,6 +1,6 @@
 # Core — Data Model
 
-**Status:** AGREED v1.16 (2026-08-08) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
+**Status:** AGREED v1.17 (2026-08-08) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
 
 One database, three schemas, one database role per schema. Amounts are integer
 minor units (`BIGINT`), `tenant_id` on **every** row.
@@ -394,6 +394,14 @@ Schema `lending` is documented in [`lending.md`](lending.md) §3 and implemented
 *neighbouring* schemas: `product.loan_rules` carries loan pricing on versions (`LOAN` joined the
 product type vocabulary); `orchestration.sagas.type` gained `DISBURSEMENT` and `REPAYMENT` —
 funding sagas with no reservation and no product decision, per V7's stated reasoning.
+
+As of v1.17: `orchestration.sagas.type` gains `RECOGNITION` (V8) — income recognition rides the
+same funding-saga machinery; `product.loan_rules` gains the penalty rules
+(`penalty_flat_minor`, `penalty_rate_bp` per day, `penalty_cap_minor`), `penalty_income_account_id`
+and `funding_account_id` (V6); `lending.loans` gains `interest_paid_minor`,
+`recognized_interest_minor`, `penalty_charged_minor`, `penalty_paid_minor` (CHECK paid ≤ charged)
+and `penalty_through`; `lending.loan_schedule` gains `penalty_applied_at`; `lending.repayments`
+gains `recognized_at`. Counters, never a stored "due": due is always a subtraction.
 
 ## Rules that apply to every schema
 

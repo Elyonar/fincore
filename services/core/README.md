@@ -9,7 +9,7 @@
 One deployable, four domain modules, one database, four domain schemas, one
 database role per module. It is the **only** caller of the Ledger's write API.
 
-**Status: design AGREED v1.16 — implemented, pre-1.0.** Packaging is decided
+**Status: design AGREED v1.17 — implemented, pre-1.0.** Packaging is decided
 ([ADR 0006](../../docs/adr/0006-modular-core.md)), all documented endpoints are
 served, and every suite runs against real PostgreSQL. Changes to the design are
 amendments in [`docs/CHANGELOG.md`](docs/CHANGELOG.md), in their own PR ahead
@@ -21,14 +21,14 @@ of the code — never silent edits.
 
 | You want to know… | Read | Status |
 |---|---|---|
-| The design at a glance + the decision log | [`docs/design.md`](docs/design.md) | AGREED v1.16 |
-| **The three-valued outcome model** — the thing this service exists to get right | [`docs/outcome-protocol.md`](docs/outcome-protocol.md) | AGREED v1.16 |
-| How sagas execute, recover, and are claimed across instances | [`docs/saga-protocol.md`](docs/saga-protocol.md) | AGREED v1.16 |
-| Modules, boundaries, the ledger client, events, DR posture | [`docs/architecture.md`](docs/architecture.md) | AGREED v1.16 |
-| Tables per schema, ownership rules, decided edge cases | [`docs/data-model.md`](docs/data-model.md) | AGREED v1.16 |
-| Endpoint surface, error catalog, contract properties | [`docs/api.md`](docs/api.md) | AGREED v1.16 |
-| Core's eight invariants and every test suite | [`docs/testing.md`](docs/testing.md) | AGREED v1.16 |
-| **Lending — the fifth module**: origination, schedules, accrual, delinquency | [`docs/lending.md`](docs/lending.md) | AGREED v1.16 |
+| The design at a glance + the decision log | [`docs/design.md`](docs/design.md) | AGREED v1.17 |
+| **The three-valued outcome model** — the thing this service exists to get right | [`docs/outcome-protocol.md`](docs/outcome-protocol.md) | AGREED v1.17 |
+| How sagas execute, recover, and are claimed across instances | [`docs/saga-protocol.md`](docs/saga-protocol.md) | AGREED v1.17 |
+| Modules, boundaries, the ledger client, events, DR posture | [`docs/architecture.md`](docs/architecture.md) | AGREED v1.17 |
+| Tables per schema, ownership rules, decided edge cases | [`docs/data-model.md`](docs/data-model.md) | AGREED v1.17 |
+| Endpoint surface, error catalog, contract properties | [`docs/api.md`](docs/api.md) | AGREED v1.17 |
+| Core's eight invariants and every test suite | [`docs/testing.md`](docs/testing.md) | AGREED v1.17 |
+| **Lending — the fifth module**: origination, schedules, accrual, delinquency | [`docs/lending.md`](docs/lending.md) | AGREED v1.17 |
 | Every amendment since the design was agreed | [`docs/CHANGELOG.md`](docs/CHANGELOG.md) | v1.16 |
 | Platform hard rules | [`AGENTS.md`](../../AGENTS.md) | Standing |
 | What every service must have before it ships | [`service-scaffold.md`](../../docs/conventions/service-scaffold.md) | Standing |
@@ -198,6 +198,6 @@ discovered. Per-suite status lives in [`docs/testing.md`](docs/testing.md).
 | Reconciliation | Runs hourly against COMPLETED sagas (v1.14). The FAILED-saga half waits on a ledger read-by-key amendment; see `testing.md` |
 | Fee account fallback | Published versions predating `fee_rules.fee_account_id` cannot be edited to carry it (published versions are immutable), so for those the caller-supplied account still applies. Ages out as versions are republished |
 | Unit scope | Organizational units exist and are attributed (ADR 0012), but no endpoint yet *requires* one — unit-scoped authorization arrives with the teller application |
-| Interest recognition | Accrual facts are tracked and reduced at allocation; the income-side posting (accrued → income account) lands with the month-end job |
-| Loan funding account | Caller-supplied operational reference on disburse, like a till's — validated ownership arrives with account metadata on the ledger read |
+| Income recognition coverage | Recognition (v1.17) posts collected interest and penalties per repayment; versions without an income account resolve as a recorded no-op. Ages out as versions are republished with the account configured. Value-dated month-end postings wait on a ledger value-dating amendment |
+| Loan funding account | `loan_rules.funding_account_id` (v1.17) is configuration-first; the caller-supplied account remains only a fallback for versions predating the column — the fee-account pattern, ageing out the same way |
 | Performance | Targets in `architecture.md` are intent. Nothing has been benchmarked |

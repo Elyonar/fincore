@@ -1,6 +1,6 @@
 # Core — API Surface (v1)
 
-**Status:** AGREED v1.16 (2026-08-08) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
+**Status:** AGREED v1.17 (2026-08-08) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
 
 REST/JSON. Every request carries a validated identity token — **the tenant comes
 from the token, never from a header**
@@ -61,7 +61,7 @@ the first place.
 | `POST /v1/loan-applications/{id}/reject` | terminal, reason required | lending | `loans:approve` | supervisor |
 | `POST /v1/loan-applications/{id}/accept-offer` | customer acceptance, attributed | lending | `loans:offer` | loan officer, API |
 | `POST /v1/loan-applications/{id}/disburse` | opens the funding saga; idempotent per application | lending | `loans:disburse` | supervisor |
-| `GET  /v1/loans/{id}` | balances: outstanding, accrued, payoff | lending | `loans:read` | loan officer, API |
+| `GET  /v1/loans/{id}` | balances: outstanding, accrued, penalty due, recognized, payoff | lending | `loans:read` | loan officer, API |
 | `GET  /v1/loans/{id}/schedule` | the installment rows | lending | `loans:read` | loan officer, API |
 | `POST /v1/loans/{id}/repayments` | intake: opens the repayment saga, allocates on completion | lending | `loans:repay` | loan officer, API |
 | `GET  /v1/portfolio/par` | PAR by bucket × product × officer × unit | lending | `loans:portfolio` | admin, ops |
