@@ -8,6 +8,47 @@ entry first.
 
 ---
 
+## [1.15.0] — 2026-08-08 · MINOR
+
+**Lending is designed (ADR 0013): Core's fifth domain module, above Orchestration. Docs only — no code in this amendment.**
+
+- **Docs:** `lending.md` (new), `design.md`
+- **Why:** the roadmap's next domain (PRD §4.5, Phase 0's loan flow) needed its
+  packaging decided and its design agreed before a line of code, per this
+  platform's own rule. ADR 0013 records the packaging: module-first, with named
+  extraction triggers (group lending, credit-bureau connector, second team) and
+  a dependency-order amendment — lending sits *above* orchestration, consuming
+  its published transfer surface, so every disbursement, repayment and accrual
+  recognition is a saga and hard rule 3 survives untouched.
+- **What the design pins:** loan products as Product configuration of type
+  LOAN (pricing maker-checked there; exposure approved in Lending's own
+  amount-tiered chain, unit-attributed per ADR 0012); origination as a state
+  machine where money moves at exactly one edge, three-valued like everything
+  else; schedules as generated rows (ACT/365, half-even, final installment
+  absorbs the residue — sums provable, not trusted); daily accrual with
+  value-dated recognition postings, reconciled at every boundary by the
+  invariant-6 machinery; deterministic repayment allocation as append-only
+  rows; daily CBN-bucket delinquency classification with PAR by product,
+  officer and organizational unit.
+- **The full tenant spectrum, one model (PRD v1.9):** approval tiers start at
+  zero — instant lending under a ceiling (policy decides, scores advise), the
+  solo lender approving their own book, and N-approval committees are the same
+  table, audit trail and events, differing by configuration only. Early
+  settlement (flat-rate rebate, configurable prepayment fee) and the offer's
+  disclosure economics (total cost, effective rate) are v1; the segments'
+  remaining furniture is deferred **with named triggers**: guarantors &
+  collateral (savings lien = a Ledger hold; NCR hook), credit life insurance,
+  top-up/refinance, collections rails (e-mandate/GSI/payroll — connector era),
+  the disclosure pack's rendition.
+- **Deferred with triggers, not silently:** group lending, restructuring /
+  write-off workflows, credit-bureau hooks, moratoriums.
+- **Deliberately absent from `api.md` and `testing.md`:** lending's endpoint
+  and suite tables live in `lending.md` until built — the catalog tests fail
+  documented-but-unbuilt surface, and that property is worth more than a
+  complete-looking table.
+
+---
+
 ## [1.14.0] — 2026-08-08 · MINOR
 
 **The safety net under the money path: invariant 6 runs, crashes are injected, alarms are measured.**
