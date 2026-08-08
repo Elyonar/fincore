@@ -8,6 +8,64 @@ entry first.
 
 ---
 
+## [1.13.0] — 2026-08-08 · MINOR
+
+**Organizational units arrive (ADR 0012), and three caller assertions stop being taken on trust.**
+
+- **Docs:** `api.md`, `design.md`, `data-model.md`, `architecture.md`, `testing.md`
+- **Why:** tenant was the platform's only organizational axis. `tills.branch_code`
+  was free text with no table behind it, the PRD's branch-scoped tokens had no
+  claim to carry, and three authorization inputs on the money path were caller
+  assertions: the channel (which selects limit rules), the fee account (where
+  fee revenue lands), and the daily limit (documented, reserved against, and
+  never actually summed — the reservation was written and never read back, so
+  the race reservations exist to prevent was not prevented).
+- **What changed:**
+  - **New `organization` module** — the fifth (ADR 0006 machinery in full:
+    `organization` schema, `core_organization` role, own Flyway history).
+    `organizational_units` is a tree of typed, coded units whose codes never
+    recycle; `unit_assignments` is the attributed record of who works where.
+    Seven endpoints under `/v1/org-units` (`org:read` / `org:manage`).
+  - **Tills gained their missing API** (`POST/GET /v1/tills`,
+    `POST /v1/tills/{id}/close`, `tills:read`/`tills:manage`) — a till could
+    previously be created only by a test or raw SQL while the cash path
+    required one. Creation validates the branch through the `OrganizationUnits`
+    port: an unknown, closed or non-BRANCH code is `UNIT_NOT_FOUND`, and the
+    till records the unit's id alongside the code (plain column, no FK —
+    another module's schema).
+  - **Channel is permission-gated.** A closed set (`TELLER`, `API`); asserting
+    one costs `channel:api` / `channel:teller`. An unmodelled channel is
+    `COMMAND_INVALID` / `CHANNEL_INVALID`; an unlicensed one is 403. Cash
+    endpoints take no channel field at all — cash is counter business, and the
+    channel is the endpoint.
+  - **DAILY limits are enforced** in Phase A, insert-then-verify under a
+    per-window advisory lock: the reservation is written, the window summed
+    (`RESERVED` + `CONSUMED`), and a breach rolls back saga, reservation and
+    event together as `LIMIT_EXCEEDED` / `DAILY_LIMIT`. Product states the rule
+    (`ProductDecision.dailyLimitMinor`); Orchestration holds the running total.
+    `PER_TRANSACTION_LIMIT` now travels as the reason on per-transaction
+    refusals — both reasons were documented and neither was ever attached.
+  - **The fee-income account is product configuration.**
+    `fee_rules.fee_account_id` (product V4); the decision carries it, the saga
+    records the resolved account, and the posting credits it. The body field
+    survives only as the documented fallback for published versions that
+    predate the column — published versions are immutable, so they cannot be
+    edited into carrying it.
+  - **Approvals snapshot organizational scope**: `made_in_unit` /
+    `checked_in_unit`, the token's `units` claim at the moment of signature.
+    Attribution for the audit trail, never authorization — nothing branches on
+    it.
+  - **A dev-tenant seeder** (`fincore.core.dev-tenant-id`, compose-only, loud)
+    is the first caller `TenantRegistry.register` has ever had — the v1.12
+    known gap, half-closed: local stacks provision themselves; real
+    provisioning still belongs to the unbuilt control plane.
+- **Known gaps, honestly:** the fee-account fallback above; unit scope is
+  attribution-only (no endpoint yet *requires* a unit — that arrives with the
+  teller app); `unit_assignments` and the Keycloak `units` attribute are
+  maintained separately until identity sync exists.
+
+---
+
 ## [1.12.0] — 2026-08-07 · MINOR
 
 **A tenant must exist before Core will serve it. `platform/V1__tenant_registry.sql`.**

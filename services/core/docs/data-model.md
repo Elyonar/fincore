@@ -1,6 +1,6 @@
 # Core — Data Model
 
-**Status:** AGREED v1.12 (2026-08-06) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
+**Status:** AGREED v1.13 (2026-08-08) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
 
 One database, three schemas, one database role per schema. Amounts are integer
 minor units (`BIGINT`), `tenant_id` on **every** row.
@@ -172,6 +172,18 @@ erDiagram
   [`design.md`](design.md) as a deferral with a stated move trigger — the teller
   application — so it is a placement decision rather than an accident.
 
+### Columns that arrived with ADR 0012 and the trust fixes
+
+- `tills.unit_id UUID` — the validated branch, beside the human-legible
+  `branch_code`. Nullable: rows predating the migration carry none.
+- `approvals.made_in_unit TEXT`, `approvals.checked_in_unit TEXT` — sorted,
+  comma-joined snapshots of the signer's `units` claim at the moment of
+  signature. Attribution, never authorization.
+- `product.fee_rules.fee_account_id UUID` — the fee-income account is pricing,
+  versioned and maker-checked like the rest of it. Nullable, because published
+  versions are immutable and cannot be edited into carrying it; Orchestration's
+  documented fallback (the caller's account) applies only to those.
+
 ## Schema `customer`
 
 ```mermaid
@@ -327,6 +339,40 @@ erDiagram
   rule kinds changes the evaluator, never the call sites.
 
 ---
+
+## Schema `organization`
+
+The tenant's operational structure (ADR 0012). Two tables, and a deliberate
+absence: no legal-entity fields, no accounting-book fields, no jurisdiction
+fields — a unit answers "which part of the institution performed the work" and
+nothing else.
+
+**`organizational_units`** — a tree. `unit_type` is a CHECKed vocabulary
+(`BRANCH`, `REGION`, `COUNTRY_OPERATION`, `BUSINESS_LINE`, `CENTRE`,
+`AGENT_NETWORK`, `DIGITAL_CHANNEL`, `OPERATIONS_TEAM`): limit rules and
+reporting will group by it, so a new kind is a migration plus an amendment,
+never a free string. `code` is the stable human-legible handle — what token
+`units` claims carry and what tills reference — unique per tenant **including
+closed units**: a reused code would make an old till's branch ambiguous in an
+audit. `parent_unit_id` is a composite self-reference, so a unit can only hang
+under its own tenant's tree. Closing a unit stamps it and leaves its history
+attributed to it.
+
+**`unit_assignments`** — who works where, attributed both ways
+(`assigned_by`, `revoked_by`). The principal is spelled exactly as tokens
+spell it, so audit and claim join without translation. One live assignment per
+principal per unit, arbitrated by a partial unique index; revocation keeps the
+row. This table is the system of record from which identity provisioning
+derives the token's `units` claim — enforcement reads the claim, audit reads
+this table, and until identity sync exists the gap between them is maintained
+by an administrator and stated in the ADR.
+
+Cross-module references follow the platform rule for another authority's data:
+`orchestration.tills.unit_id` and the approvals' unit snapshots carry **no
+foreign key** into this schema — modules reach each other through published
+interfaces, never tables. Tills validate through the `OrganizationUnits` port
+at creation; approval snapshots are historical fact, and the answer to "which
+branch approved this" must not change when someone is reassigned next month.
 
 ## Rules that apply to every schema
 

@@ -31,6 +31,7 @@ class ModuleBoundaryTest {
 
     private static final String CUSTOMER = "org.elyonar.fincore.core.customer..";
     private static final String PRODUCT = "org.elyonar.fincore.core.product..";
+    private static final String ORGANIZATION = "org.elyonar.fincore.core.organization..";
     private static final String ORCHESTRATION = "org.elyonar.fincore.core.orchestration..";
 
     /**
@@ -110,6 +111,47 @@ class ModuleBoundaryTest {
                     .dependOnClassesThat()
                     .resideInAPackage(PRODUCT)
                     .because("a customer's identity and a product's pricing are unrelated concerns")
+                    .allowEmptyShould(true);
+
+    @ArchTest
+    static final ArchRule organization_internals_are_private =
+            noClasses()
+                    .that()
+                    .resideOutsideOfPackage(ORGANIZATION)
+                    .should()
+                    .dependOnClassesThat()
+                    .resideInAPackage("org.elyonar.fincore.core.organization.internal..")
+                    .because("organization's internals belong to organization; use its api package")
+                    .allowEmptyShould(true);
+
+    /**
+     * Organization is reference structure, not a consumer: it answers "does this unit exist" and
+     * asks its neighbours nothing. Orchestration may depend on it (a till names a branch); the
+     * reverse would make the operational tree load-bearing for money movement, which ADR 0012
+     * deliberately avoids.
+     */
+    @ArchTest
+    static final ArchRule organization_depends_on_no_other_module =
+            noClasses()
+                    .that()
+                    .resideInAPackage(ORGANIZATION)
+                    .should()
+                    .dependOnClassesThat()
+                    .resideInAnyPackage(CUSTOMER, PRODUCT, ORCHESTRATION)
+                    .because("organization is a leaf: neighbours ask it, it asks nobody")
+                    .allowEmptyShould(true);
+
+    @ArchTest
+    static final ArchRule customer_and_product_do_not_know_organization =
+            noClasses()
+                    .that()
+                    .resideInAnyPackage(CUSTOMER, PRODUCT)
+                    .should()
+                    .dependOnClassesThat()
+                    .resideInAPackage(ORGANIZATION)
+                    .because(
+                            "only orchestration consults the organizational tree today; a new"
+                                + " consumer is a design amendment, not an import")
                     .allowEmptyShould(true);
 
     /**

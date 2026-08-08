@@ -144,7 +144,7 @@ service directory first.
 Verified by running the suites, not by reading the docs: **521 tests green** —
 26 `libs/auth`, 9 `libs/events`, 231 ledger, 198 Core, 57 Notification.
 
-- `services/ledger` — **design AGREED v1.8; implemented and merged to main.**
+- `services/ledger` — **design AGREED v1.9; implemented and merged to main.**
   Every documented endpoint exists. Do not re-implement the schema, posting
   engine, holds, reversal, outbox, value dating, statements or invariants: they
   are done.
@@ -164,7 +164,7 @@ Verified by running the suites, not by reading the docs: **521 tests green** —
     and two cross-tenant probes
   - no performance, soak or disaster-recovery evidence exists
 
-- `services/core` — **design AGREED v1.12; implemented, merged, and running.**
+- `services/core` — **design AGREED v1.13; implemented, merged, and running.**
   One deployable holding four modules ([ADR 0006](docs/adr/0006-modular-core.md)):
   `customer`, `product`, `orchestration` and `app`, with a schema and a database
   role each. Transfers, cash in and out, business reversal with maker-checker
@@ -180,7 +180,7 @@ Verified by running the suites, not by reading the docs: **521 tests green** —
   never compensated and never reported as success** — it is a 503, the same key
   is retried, and the worker resolves it.
 
-- `services/notification` — **design AGREED v1.3; implemented, merged, and
+- `services/notification` — **design AGREED v1.4; implemented, merged, and
   running.** The platform's first event *consumer*, taken ahead of its PRD phase
   for the reasons in [ADR 0011](docs/adr/0011-first-consumer-before-phase-three.md):
   nothing had ever consumed an event, and designing a consumer immediately found

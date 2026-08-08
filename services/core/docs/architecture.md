@@ -1,6 +1,6 @@
 # Core — Architecture & Boundaries
 
-**Status:** AGREED v1.12 (2026-08-06) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
+**Status:** AGREED v1.13 (2026-08-08) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
 
 ## The shape
 
@@ -95,9 +95,12 @@ orphan posting nobody recorded.
 
 ## Events
 
-**Published**, per [ADR 0008](../../../docs/adr/0008-event-contract.md), each
-module writing to its own outbox table in its own schema, in the same
-transaction as the state change. The envelope —
+**Published**, per [ADR 0008](../../../docs/adr/0008-event-contract.md), from
+the module's outbox table, in the same transaction as the state change. Today
+that means **orchestration's outbox only** — it is the one module that emits;
+the customer and product events below are catalogued intent, and each arrives
+with its own outbox table when its module starts emitting. Stating that plainly
+beats a diagram that draws three outboxes where one exists. The envelope —
 `{eventId, eventType, aggregateId, tenantId, occurredAt, epoch, payload}` — is
 rendered by `libs/events`, not here: two services each assembling it produced
 two different shapes, which is the divergence CHANGELOG v1.5 closed.
@@ -107,9 +110,10 @@ two different shapes, which is the divergence CHANGELOG v1.5 closed.
 | `transfer.initiated` | orchestration | Saga accepted and reserved |
 | `transfer.completed` | orchestration | Posting confirmed |
 | `transfer.failed` | orchestration | Definite failure, compensated |
-| `transfer.reversed` | orchestration | Reversal confirmed |
-| `customer.created`, `customer.kyc_tier_changed`, `customer.status_changed` | customer | Lifecycle |
-| `product.published`, `pricing.changed` | product | Configuration published |
+| `transfer.reversal_initiated` | orchestration | Reversal saga accepted — nothing is published today when it confirms; the reversal's own `transfer.completed` carries that, and a dedicated confirmation event is an open follow-up |
+| `cash.deposit_initiated`, `cash.withdrawal_initiated` | orchestration | Cash saga accepted |
+| `customer.created`, `customer.kyc_tier_changed`, `customer.status_changed` | customer | **Planned** — no outbox in `customer` yet |
+| `product.published`, `pricing.changed` | product | **Planned** — no outbox in `product` yet |
 
 **Core never restates the ledger's facts.** The ledger publishes
 `posting.completed`; Core publishes `transfer.completed`. They describe the same
@@ -123,8 +127,8 @@ arrive — and that is when consumer-side deduplication and epoch fencing get
 built. Saying "none, in v1" rather than "none, ever" is deliberate: the ledger's
 boundary is permanent, Core's is a scope statement.
 
-**One relay reads all three outbox tables**, running in `app` under a role
-granted on the outbox tables only. The relay contract is the platform's: poll
+**One relay reads each emitting module's outbox** (today: orchestration's),
+running in `app` under a role granted on the outbox tables only. The relay contract is the platform's: poll
 `FOR UPDATE SKIP LOCKED` on unpublished rows ordered by id, never a watermark,
 mark published in the transaction that records the broker acknowledgement, alert
 on oldest-unpublished age.

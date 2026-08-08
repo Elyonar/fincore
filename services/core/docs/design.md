@@ -1,6 +1,6 @@
 # Core — Design Index & Decision Log
 
-**Status:** AGREED v1.12 (2026-08-06) — implemented from here; amendments via
+**Status:** AGREED v1.13 (2026-08-08) — implemented from here; amendments via
 [`CHANGELOG.md`](CHANGELOG.md) and the [design-change convention](../../../docs/conventions/design-changes.md).
 **Source:** platform PRD §4.2 (Customer), §4.3 (Product), §4.4 (Orchestration),
 §3 (constitution), §5 (communication map), §6 (security), §7 (NFRs), §8
@@ -27,7 +27,7 @@ silent edits. Code that contradicts it is a bug even if it works.
 
 ## One paragraph
 
-Core is one deployable holding three modules — `customer`, `product`,
+Core is one deployable holding four domain modules — `customer`, `product`, `organization`,
 `orchestration` — each owning a schema in one PostgreSQL database and a
 database role granted only on that schema. Orchestration turns a business
 intent into a balanced, attributed, idempotent posting against the Ledger, and
@@ -42,7 +42,7 @@ rails, no holds, no standing orders.
 Format: decision · resolution · rationale. Superseded entries are annotated,
 never deleted.
 
-**Packaging → three modules, one deployable, one database, three schemas.**
+**Packaging → four domain modules, one deployable, one database, one schema each.**
 Recorded in [ADR 0006](../../../docs/adr/0006-modular-core.md). The decisive
 argument is not operational cost but correctness: the limit reservation and the
 saga row must commit in one local transaction, which separate databases would
@@ -253,13 +253,15 @@ definitions centralized, workflow enforced by the owning service. An approval is
 be reused for a second reversal, and it records both identities with maker ≠
 checker enforced. The reversal saga refuses to call the ledger without one.
 
-**Tills → referenced by ledger account id, with a minimal till registry in
-`orchestration`.** A till is a ledger account (PRD §4.7.4) and is not a
-customer, so it does not belong in `customer`. It is genuinely a Branch /
-organizational-unit concern and there is no Branch domain yet — so v1 keeps a
-small `tills` table as operational reference data on the money path, and this is
-recorded as a **deliberate simplification** rather than a considered home.
-A Branch domain arrives with the teller application; `tills` moves then.
+**Tills → referenced by ledger account id, with a till registry in
+`orchestration` and a validated branch.** A till is a ledger account
+(PRD §4.7.4) and is not a customer, so it does not belong in `customer`. It is
+genuinely a Branch concern — and since ADR 0012 there is one: a till is created
+against an active `BRANCH` unit resolved through the `OrganizationUnits` port,
+refusing `UNIT_NOT_FOUND` otherwise, and records the unit's id beside its code.
+The table stays in `orchestration` because the money path reads it; whether it
+*moves* into a teller-application service is still decided when that service
+starts, and moving a validated table is cheaper than moving a free-text one.
 
 **Limit windows → calendar day in the tenant's business timezone.** Regulatory
 tier limits are expressed as daily limits meaning calendar days; customers
@@ -307,14 +309,21 @@ writer can populate reads as a capability the service does not have. Automatic
 detection arrives with event consumption, or sooner if the ledger exposes its
 epoch on responses; that would be a ledger amendment and is not assumed here.
 
-**Branch / organizational units → deferred, with `tills` placed and a stated move
-trigger.** Tills, branches, teller assignment and vault movements are a coherent
-domain. v1 keeps a minimal `tills` table in `orchestration` because the money
-path needs it, recorded in [`data-model.md`](data-model.md) as a deliberate
-simplification rather than a considered home. The trigger to revisit is the
-teller application: whether Branch becomes a fourth Core module or part of that
-service is decided **before it starts**, not after `tills` has grown three
-neighbours.
+**Branch / organizational units → the `organization` module (ADR 0012).** The
+deferral this section used to record has been resolved, ahead of the teller
+application and deliberately narrower than the domain it will eventually serve:
+`organization` owns the tenant's operational tree (typed, coded units whose
+codes never recycle) and the attributed record of who is assigned where — and
+nothing else. A unit is operational scope only; the ADR names what it must
+never absorb (legal entity ≙ tenant, booking unit ≙ deferred ledger concern,
+jurisdiction ≙ country pack). `tills` stays in `orchestration` because the
+money path needs it, but its branch is now validated through the
+`OrganizationUnits` port at creation and the unit's id recorded beside the
+code; approvals snapshot the maker's and checker's unit scope as audit
+attribution. No money-path decision branches on a unit — that restraint is the
+design: the operational tree can be reorganized without a migration touching
+money. Vault movements and teller assignment still arrive with the teller
+application, on a Branch that now exists.
 
 **The publisher adapters are duplicated with the ledger's, deliberately, for
 now.** Both services now carry Kafka and logging publishers, so the `libs/`

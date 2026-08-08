@@ -1,6 +1,6 @@
 # Core — Invariants & Test Strategy
 
-**Status:** AGREED v1.12 (2026-08-06) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
+**Status:** AGREED v1.13 (2026-08-08) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
 
 **Suites are marked `IMPLEMENTED` / `PARTIAL` / `DEFERRED` individually, and only
 `IMPLEMENTED` ones gate merges.** An unmarked suite is not yet written. This
@@ -206,6 +206,20 @@ session-scoped `SET` passes every other test and fails this one.
 discrepancies: a saga marked complete whose ledger transaction does not exist; a
 ledger transaction under a derived key whose saga says failed; entries that do
 not match the decided fee. Every planted mismatch must be flagged.
+
+**Organization & trust-boundary suites (v1.13).** `OrgUnitApiTest` — the tree
+over HTTP: creation, parents, closure, assignment/revocation, deny-by-default,
+codes never recycling, and another tenant's tree being invisible rather than
+forbidden. `TillAndChannelApiTest` — the two inputs that stopped being caller
+assertions: a till refuses an unknown, closed or non-BRANCH code
+(`UNIT_NOT_FOUND`), and a transfer's channel costs the matching `channel:*`
+permission, with an unmodelled channel malformed rather than licensable; all
+Phase A refusals, asserted with no stub ledger running. `DailyLimitAndFeeConfigTest`
+— the day accumulates: a second transfer that fits PER_TXN but breaches the
+summed window refuses with `DAILY_LIMIT` and rolls back whole (no saga, no
+reservation, no event), a smaller amount still fits, and the fee credits the
+account the *product* names — asserted against the posting the stub ledger
+actually received and the saga row a worker retry would rebuild from.
 
 ## What is deliberately not tested in v1
 

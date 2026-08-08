@@ -70,7 +70,9 @@ public class CashController {
                         request.amountMinor(),
                         request.currency(),
                         request.productCode(),
-                        request.channel() == null ? "TELLER" : request.channel(),
+                        // Cash is counter business by definition; the channel is the endpoint,
+                        // never a body field a caller could use to pick a limit tier (ADR 0012).
+                        "TELLER",
                         request.description(),
                         Authorization.initiatedBy(),
                         identity.serviceIdentity() == null ? "core" : identity.serviceIdentity(),
@@ -94,7 +96,6 @@ public class CashController {
             long amountMinor,
             String currency,
             String productCode,
-            String channel,
             String description) {
 
         String fingerprint(CashCommand.Operation operation) {

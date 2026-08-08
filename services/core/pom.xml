@@ -37,6 +37,7 @@
     <modules>
         <module>customer</module>
         <module>product</module>
+        <module>organization</module>
         <module>orchestration</module>
         <module>app</module>
     </modules>
@@ -51,6 +52,11 @@
             <dependency>
                 <groupId>org.elyonar</groupId>
                 <artifactId>product</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.elyonar</groupId>
+                <artifactId>organization</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>

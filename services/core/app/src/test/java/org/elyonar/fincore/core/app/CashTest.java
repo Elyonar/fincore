@@ -149,7 +149,7 @@ class CashTest {
                             }
                         });
 
-        tillId = tills.open(tenantId, "BR-01", tillAccount, "NGN", "user:teller-1");
+        tillId = tills.open(tenantId, "BR-01", null, tillAccount, "NGN", "user:teller-1");
     }
 
     private TransferResult cash(CashCommand.Operation operation, long amountMinor, String key) {
@@ -224,7 +224,7 @@ class CashTest {
 
     @Test
     void a_till_in_another_currency_is_refused() {
-        UUID usdTill = tills.open(tenantId, "BR-01", UUID.randomUUID(), "USD", "user:teller-1");
+        UUID usdTill = tills.open(tenantId, "BR-01", null, UUID.randomUUID(), "USD", "user:teller-1");
 
         assertThat(
                         catchThrowableOfType(

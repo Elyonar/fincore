@@ -16,6 +16,7 @@ CREATE DATABASE core OWNER fincore;
 CREATE ROLE core_customer      LOGIN PASSWORD 'core_customer'      NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
 CREATE ROLE core_product       LOGIN PASSWORD 'core_product'       NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
 CREATE ROLE core_orchestration LOGIN PASSWORD 'core_orchestration' NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+CREATE ROLE core_organization  LOGIN PASSWORD 'core_organization'  NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
 
 -- The outbox relay reads every module's outbox and marks rows published. It is cross-cutting
 -- infrastructure rather than a module, so it gets its own identity with a deliberately narrow

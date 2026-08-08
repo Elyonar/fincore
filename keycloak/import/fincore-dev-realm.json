@@ -94,6 +94,30 @@
         "description": "set channel order and quiet hours"
       },
       {
+        "name": "channel:teller",
+        "description": "May transact as a counter (TELLER) channel — selects teller limit rules (ADR 0012)"
+      },
+      {
+        "name": "channel:api",
+        "description": "May transact as an API channel — selects API limit rules (ADR 0012)"
+      },
+      {
+        "name": "org:read",
+        "description": "Read the tenant's organizational units and assignments"
+      },
+      {
+        "name": "org:manage",
+        "description": "Create, close and assign organizational units (ADR 0012)"
+      },
+      {
+        "name": "tills:read",
+        "description": "List the tenant's tills"
+      },
+      {
+        "name": "tills:manage",
+        "description": "Provision and close tills"
+      },
+      {
         "name": "job:teller",
         "description": "Branch teller (PRD §2). Takes cash and moves money; reads customers and products to do it, and changes neither.",
         "composite": true,
@@ -103,7 +127,8 @@
             "transfers:create",
             "transfers:read",
             "customers:read",
-            "products:read"
+            "products:read",
+            "channel:teller"
           ]
         }
       },
@@ -116,7 +141,9 @@
             "job:teller",
             "approvals:make",
             "approvals:check",
-            "transfers:reverse"
+            "transfers:reverse",
+            "org:read",
+            "tills:read"
           ]
         }
       },
@@ -162,7 +189,12 @@
             "templates:create",
             "templates:publish",
             "policy:write",
-            "notifications:read"
+            "notifications:read",
+            "org:read",
+            "org:manage",
+            "tills:read",
+            "tills:manage",
+            "channel:api"
           ]
         }
       },
@@ -174,7 +206,8 @@
           "realm": [
             "transfers:create",
             "transfers:read",
-            "customers:read"
+            "customers:read",
+            "channel:api"
           ]
         }
       },
@@ -207,7 +240,12 @@
       ],
       "realmRoles": [
         "job:teller"
-      ]
+      ],
+      "attributes": {
+        "units": [
+          "branch-01"
+        ]
+      }
     },
     {
       "username": "bola",
@@ -225,7 +263,12 @@
       ],
       "realmRoles": [
         "job:supervisor"
-      ]
+      ],
+      "attributes": {
+        "units": [
+          "branch-01"
+        ]
+      }
     },
     {
       "username": "chidi",
@@ -347,6 +390,22 @@
             "access.token.claim": "true",
             "id.token.claim": "true",
             "userinfo.token.claim": "false"
+          }
+        },
+        {
+          "name": "units",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "units",
+            "claim.name": "units",
+            "jsonType.label": "String",
+            "multivalued": "true",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "false",
+            "aggregate.attrs": "false"
           }
         }
       ]

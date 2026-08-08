@@ -61,6 +61,14 @@ fincore:
         jdbc-url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:55432/core}
         username: core_worker
         password: core_worker
+      organization:
+        # Reference data and admin traffic; small on purpose.
+        maximum-pool-size: ${FINCORE_ORGANIZATION_POOL:5}
+        minimum-idle: 1
+        connection-timeout: 3000
+        jdbc-url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:55432/core}
+        username: ${FINCORE_ORGANIZATION_DB_USER:core_organization}
+        password: ${FINCORE_ORGANIZATION_DB_PASSWORD:core_organization}
       orchestration:
         # The money path, so the largest share — but still small. A short connection-timeout is
         # deliberate backpressure: a saturated pool must shed load as a 503 the caller retries,

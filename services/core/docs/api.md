@@ -1,6 +1,6 @@
 # Core — API Surface (v1)
 
-**Status:** AGREED v1.12 (2026-08-06) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
+**Status:** AGREED v1.13 (2026-08-08) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
 
 REST/JSON. Every request carries a validated identity token — **the tenant comes
 from the token, never from a header**
@@ -45,6 +45,31 @@ the first place.
 | `POST /v1/approvals/{id}/check` | approve or reject (checker ≠ maker, enforced) | orchestration | `approvals:check` | supervisor |
 | `GET  /v1/ops/cases` | unresolved-outcome cases | orchestration | `ops:read` | ops |
 | `POST /v1/ops/cases/{id}/resolve` | **re-attempt resolution now.** Does not accept an outcome | orchestration | `ops:resolve` | ops |
+| `POST /v1/org-units` | create an organizational unit (ADR 0012) | organization | `org:manage` | admin |
+| `GET  /v1/org-units` | the tenant's units | organization | `org:read` | admin, supervisor |
+| `GET  /v1/org-units/{id}` | one unit | organization | `org:read` | admin, supervisor |
+| `POST /v1/org-units/{id}/close` | close a unit; its history stays attributed to it | organization | `org:manage` | admin |
+| `POST /v1/org-units/{id}/assignments` | assign a principal to a unit, attributed | organization | `org:manage` | admin |
+| `POST /v1/org-units/{id}/assignments/revoke` | revoke a live assignment, attributed; history kept | organization | `org:manage` | admin |
+| `GET  /v1/org-units/{id}/assignments` | the unit's live assignments — what identity provisioning reads | organization | `org:read` | admin |
+| `POST /v1/tills` | provision a till inside a validated branch | orchestration | `tills:manage` | admin |
+| `GET  /v1/tills` | the tenant's tills | orchestration | `tills:read` | admin, supervisor |
+| `POST /v1/tills/{id}/close` | close a till; cash cannot move through it afterwards | orchestration | `tills:manage` | admin |
+
+**The channel is permission-gated, never free-asserted.** The channel a
+transfer names selects which limit rules apply, which makes it an authorization
+input — so asserting one costs a permission: `channel:api` to transact as an
+API channel, `channel:teller` as a counter. An unknown channel is refused
+(`COMMAND_INVALID` / `CHANNEL_INVALID`); a known one the caller's token does not
+license is a 403. Cash endpoints take no channel at all: cash is counter
+business, and the channel is the endpoint.
+
+**The fee-income account is product configuration.** When a fee rule names its
+`fee_account_id`, the fee credits that account and a caller-supplied one is
+ignored. The body field remains only as the documented fallback for published
+versions that predate the configuration column — republishing a version is
+expected to carry the account, and the fallback is a known limitation until the
+last pre-column version ages out.
 
 `GET /` answers with the service identity and its documentation links, and
 `/actuator/health` with liveness. Neither is part of the v1 contract, and both
@@ -170,6 +195,11 @@ tenant renders its own string from `code`, `reason` and `details`.
 | `WASH_TRANSACTION` | source and destination are the same account | no |
 | `TILL_NOT_OPEN` | the teller's till is not open | no |
 | `FEE_EXCEEDS_DEPOSIT` | the fee would consume more than the deposit | no |
+| `UNIT_NOT_FOUND` | no active organizational unit answers to that code — or it is not a branch → 422 (404 on the organization surface) | no |
+| `UNIT_CODE_TAKEN` | the tenant already has a unit with this code; codes never recycle → 409 | no — caller bug |
+| `PARENT_UNIT_NOT_FOUND` | the named parent unit does not exist, is another tenant's, or is closed → 422 | no |
+| `ASSIGNMENT_EXISTS` | the principal already holds a live assignment to this unit → 409 | no |
+| `ASSIGNMENT_NOT_FOUND` | no live assignment ties this principal to this unit → 404 | no |
 | `INSUFFICIENT_FUNDS` | relayed from the Ledger; the account would go available < 0 | no — new key after funding |
 | `IDEMPOTENCY_KEY_REUSED` | same key, different payload fingerprint | no — caller bug |
 | `TRANSACTION_NOT_FOUND` | unknown saga, or another tenant's | no |
@@ -204,10 +234,11 @@ the request, so collecting signatures is never a route around it.
 | `COMMAND_INVALID` | `TOO_FEW_ENTRIES` | fewer than two entries | `limit`, `supplied` |
 | `COMMAND_INVALID` | `STEP_CONTAINS_SEPARATOR` | a saga step name contains `:` | `field` |
 | `COMMAND_INVALID` | `DERIVED_KEY_TOO_LONG` | the derived key exceeds the Ledger's cap | `maxLength` |
+| `COMMAND_INVALID` | `CHANNEL_INVALID` | not a channel this platform models | `supplied` |
 | `AMOUNT_INVALID` | `AMOUNT_NOT_POSITIVE` | zero or negative amount | `field`, `supplied` |
 | `AMOUNT_INVALID` | `AMOUNT_SIGN_ON_ENTRY` | an entry carried a sign; direction carries it | `supplied` |
 | `LIMIT_EXCEEDED` | `PER_TRANSACTION_LIMIT` | the amount alone breaches the per-transaction limit | `limit`, `supplied` |
-| `LIMIT_EXCEEDED` | `DAILY_LIMIT` | the amount breaches the rolling daily limit | `limit`, `supplied` |
+| `LIMIT_EXCEEDED` | `DAILY_LIMIT` | the day's reservations plus this amount breach the calendar-day limit | `limit`, `supplied` |
 | `NOT_REVERSIBLE` | `NOT_COMPLETED` | the target saga is not `COMPLETED` | — |
 | `NOT_REVERSIBLE` | `IS_A_REVERSAL` | the target is itself a reversal | — |
 | `OUTCOME_UNKNOWN` | `READ_TIMEOUT` | the Ledger did not answer in time | `transactionId` |

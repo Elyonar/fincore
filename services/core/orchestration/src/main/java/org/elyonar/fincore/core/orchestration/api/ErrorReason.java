@@ -23,6 +23,7 @@ public final class ErrorReason {
 
     // AMOUNT_INVALID
     public static final String AMOUNT_NOT_POSITIVE = "AMOUNT_NOT_POSITIVE";
+    public static final String CHANNEL_INVALID = "CHANNEL_INVALID";
     public static final String AMOUNT_SIGN_ON_ENTRY = "AMOUNT_SIGN_ON_ENTRY";
 
     // LIMIT_EXCEEDED

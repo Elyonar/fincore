@@ -36,6 +36,7 @@ COPY services/ledger/pom.xml services/ledger/pom.xml
 COPY services/core/pom.xml services/core/pom.xml
 COPY services/core/customer/pom.xml services/core/customer/pom.xml
 COPY services/core/product/pom.xml services/core/product/pom.xml
+COPY services/core/organization/pom.xml services/core/organization/pom.xml
 COPY services/core/orchestration/pom.xml services/core/orchestration/pom.xml
 COPY services/core/app/pom.xml services/core/app/pom.xml
 COPY services/notification/pom.xml services/notification/pom.xml

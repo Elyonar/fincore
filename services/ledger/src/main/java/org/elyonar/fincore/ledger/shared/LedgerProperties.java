@@ -15,11 +15,21 @@ public final class LedgerProperties {
 
     private LedgerProperties() {}
 
-    /** Which event backbone the relay publishes to: {@code kafka}, {@code rabbit} or {@code log}. */
-    public static final String EVENTS_BROKER = "ledger.events.broker";
+    /**
+     * Which event backbone the relay publishes to: {@code kafka}, {@code rabbit} or {@code log}.
+     *
+     * <p>Owned by {@code libs/events} since the publishers moved there (CHANGELOG v1.6) — the
+     * ledger reads it only for the startup banner. The old {@code ledger.events.*} keys are gone:
+     * constants for keys nothing reads are how the banner ended up announcing the log adapter on
+     * correctly-configured Kafka deployments.
+     */
+    public static final String EVENTS_BROKER = "fincore.events.broker";
 
-    public static final String EVENTS_TOPIC_PREFIX = "ledger.events.topic-prefix";
-    public static final String EVENTS_EXCHANGE = "ledger.events.exchange";
+    /**
+     * When set (a tenant UUID), the dev seeder registers it at startup. Local development only —
+     * compose sets it; a deployment must not. See {@code tenant/DevTenantSeeder}.
+     */
+    public static final String DEV_TENANT_ID = "ledger.dev-tenant-id";
 
     public static final String OUTBOX_RELAY_ENABLED = "ledger.outbox.relay.enabled";
     public static final String OUTBOX_RELAY_INTERVAL_MS = "ledger.outbox.relay.interval-ms";

@@ -32,18 +32,24 @@ public class ApprovalRecords {
         jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenantId.toString());
     }
 
-    /** Raises a pending approval. The maker cannot also check it — the schema refuses. */
+    /**
+     * Raises a pending approval. The maker cannot also check it — the schema refuses.
+     *
+     * <p>{@code madeInUnit} is a snapshot of the maker's organizational scope at the moment of
+     * signature (ADR 0012) — attribution for the audit trail, not an authorization input, and
+     * null for callers without one.
+     */
     @Transactional
-    public UUID raise(UUID tenantId, UUID targetSagaId, long amountMinor, String madeBy) {
+    public UUID raise(UUID tenantId, UUID targetSagaId, long amountMinor, String madeBy, String madeInUnit) {
         scopeTo(tenantId);
         return jdbc.queryForObject(
                 """
                 INSERT INTO orchestration.approvals
-                    (tenant_id, action, target_saga_id, amount_minor, status, made_by)
-                VALUES (?, 'REVERSAL', ?, ?, 'PENDING', ?)
+                    (tenant_id, action, target_saga_id, amount_minor, status, made_by, made_in_unit)
+                VALUES (?, 'REVERSAL', ?, ?, 'PENDING', ?, ?)
                 RETURNING id
                 """,
-                UUID.class, tenantId, targetSagaId, amountMinor, madeBy);
+                UUID.class, tenantId, targetSagaId, amountMinor, madeBy, madeInUnit);
     }
 
     /**
@@ -53,16 +59,17 @@ public class ApprovalRecords {
      *     to prevent, and caught by a CHECK constraint rather than by this method being careful
      */
     @Transactional
-    public void check(UUID tenantId, UUID approvalId, boolean approved, String checkedBy) {
+    public void check(
+            UUID tenantId, UUID approvalId, boolean approved, String checkedBy, String checkedInUnit) {
         scopeTo(tenantId);
         int updated =
                 jdbc.update(
                         """
                         UPDATE orchestration.approvals
-                           SET status = ?, checked_by = ?, checked_at = now()
+                           SET status = ?, checked_by = ?, checked_in_unit = ?, checked_at = now()
                          WHERE id = ? AND status = 'PENDING'
                         """,
-                        approved ? "APPROVED" : "REJECTED", checkedBy, approvalId);
+                        approved ? "APPROVED" : "REJECTED", checkedBy, checkedInUnit, approvalId);
         if (updated == 0) {
             throw new ApprovalRejected("approval is not pending");
         }

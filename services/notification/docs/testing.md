@@ -1,6 +1,6 @@
 # Notification — Invariants & Test Strategy
 
-**Status:** AGREED v1.3 (2026-08-06) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
+**Status:** AGREED v1.4 (2026-08-08) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
 
 Every suite below carries a status marker, and **only IMPLEMENTED suites gate
 merges**. Moving a marker requires the tests to exist. A design describing
@@ -97,3 +97,8 @@ presence in a table.
 - **A real gateway.** Delivery receipts, bounce handling and monetary cost
   cannot be tested against an adapter that delivers nothing. They arrive with
   the messaging connector, and the suites for them arrive with it.
+
+**Error-handling posture (v1.4):** the `KafkaErrorHandling` bean is exercised by
+every `@SpringBootTest` context start; behavioural coverage — a poison envelope
+skipped while the partition advances, a transient failure held — needs an
+embedded broker and joins the replay-safety suite when that harness lands.

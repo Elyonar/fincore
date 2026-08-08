@@ -53,7 +53,8 @@ public class JwtIdentityResolver implements IdentityResolver {
                 "user:" + principal,
                 ServiceIdentity.of(request),
                 permissions(jwt),
-                jwt.getId());
+                jwt.getId(),
+                units(jwt));
     }
 
     private String bearerToken(HttpServletRequest request) {
@@ -96,6 +97,13 @@ public class JwtIdentityResolver implements IdentityResolver {
         List<String> claimed = jwt.getClaimAsStringList(properties.getPermissionsClaim());
         // No permissions claim is not an error — it is a caller who may do nothing. Deny by
         // default means an absent claim and an empty one behave identically.
+        return claimed == null ? Set.of() : new LinkedHashSet<>(claimed);
+    }
+
+    private Set<String> units(Jwt jwt) {
+        // Same rule as permissions: an absent claim is an empty scope, never an error. Most
+        // machine identities and pre-organizational tenants carry none (ADR 0012).
+        List<String> claimed = jwt.getClaimAsStringList(properties.getUnitsClaim());
         return claimed == null ? Set.of() : new LinkedHashSet<>(claimed);
     }
 

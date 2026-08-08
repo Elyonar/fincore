@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.elyonar</groupId>
+        <artifactId>core</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
+        <relativePath>../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>organization</artifactId>
+    <name>fincore :: core :: organization</name>
+    <description>Organization module: the tenant's operational structure — branches, regions,
+        business lines — and who is assigned where (ADR 0012). Operational scope only: a unit is
+        never a legal entity, a booking unit or a jurisdiction, and the module owns no money and
+        no PII. Owns the `organization` schema; connects as `core_organization`.</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.elyonar</groupId>
+            <artifactId>auth</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-jdbc</artifactId>
+        </dependency>
+
+        <!--
+            OpenAPI annotations only, never the springdoc starter — same reasoning as the other
+            modules: this module contributes controllers to Core's document but serves no document
+            of its own. The starter lives in services/core/app.
+        -->
+        <dependency>
+            <groupId>io.swagger.core.v3</groupId>
+            <artifactId>swagger-annotations-jakarta</artifactId>
+            <version>2.2.52</version>
+        </dependency>
+    </dependencies>
+</project>

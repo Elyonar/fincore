@@ -8,7 +8,7 @@
 
 **Status: design AGREED v1.2 — implemented, pre-1.0.** The schema, the intake
 pipeline, the send worker, the Kafka listener and every endpoint `api.md`
-documents exist, with **46 tests green against real PostgreSQL**. It is not
+documents exist, with **57 tests green against real PostgreSQL**. It is not
 production-ready: nothing is delivered to a customer until the messaging
 connector exists, and [`docs/testing.md`](docs/testing.md) carries the honest
 list of what is still PARTIAL. Read [`docs/design.md`](docs/design.md),

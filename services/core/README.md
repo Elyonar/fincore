@@ -6,19 +6,14 @@
 > idempotent posting, and guarantees that a request interrupted at any point
 > ends either completely done or completely undone. Never half.
 
-One deployable, three modules, one database, three schemas, three database
-roles. It is the **only** caller of the Ledger's write API.
+One deployable, four domain modules, one database, four domain schemas, one
+database role per module. It is the **only** caller of the Ledger's write API.
 
-**Status: design AGREED v1.4 — no code written yet.** Packaging is decided
-([ADR 0006](../../docs/adr/0006-modular-core.md)) and the design is agreed, so
-implementation may begin. Changes to the design are now amendments in
-[`docs/CHANGELOG.md`](docs/CHANGELOG.md), in their own PR ahead of the code —
-never silent edits.
-
-**Two things land before the first endpoint:** `libs/auth` with a deployed
-Keycloak realm model ([ADR 0010](../../docs/adr/0010-keycloak-realm-per-tenant.md)),
-because retrofitting identity context is the expensive path; and CI provisioning
-this deployable's database and its three module roles.
+**Status: design AGREED v1.13 — implemented, pre-1.0.** Packaging is decided
+([ADR 0006](../../docs/adr/0006-modular-core.md)), all documented endpoints are
+served, and every suite runs against real PostgreSQL. Changes to the design are
+amendments in [`docs/CHANGELOG.md`](docs/CHANGELOG.md), in their own PR ahead
+of the code — never silent edits.
 
 ---
 
@@ -26,27 +21,28 @@ this deployable's database and its three module roles.
 
 | You want to know… | Read | Status |
 |---|---|---|
-| The design at a glance + the decision log | [`docs/design.md`](docs/design.md) | AGREED v1.4 |
-| **The three-valued outcome model** — the thing this service exists to get right | [`docs/outcome-protocol.md`](docs/outcome-protocol.md) | AGREED v1.4 |
-| How sagas execute, recover, and are claimed across instances | [`docs/saga-protocol.md`](docs/saga-protocol.md) | AGREED v1.4 |
-| Modules, boundaries, the ledger client, events, DR posture | [`docs/architecture.md`](docs/architecture.md) | AGREED v1.4 |
-| Tables per schema, ownership rules, decided edge cases | [`docs/data-model.md`](docs/data-model.md) | AGREED v1.4 |
-| Endpoint surface, error catalog, contract properties | [`docs/api.md`](docs/api.md) | AGREED v1.4 |
-| Core's eight invariants and every test suite | [`docs/testing.md`](docs/testing.md) | AGREED v1.4 |
-| Every amendment since the design was agreed | [`docs/CHANGELOG.md`](docs/CHANGELOG.md) | v1.4 |
+| The design at a glance + the decision log | [`docs/design.md`](docs/design.md) | AGREED v1.13 |
+| **The three-valued outcome model** — the thing this service exists to get right | [`docs/outcome-protocol.md`](docs/outcome-protocol.md) | AGREED v1.13 |
+| How sagas execute, recover, and are claimed across instances | [`docs/saga-protocol.md`](docs/saga-protocol.md) | AGREED v1.13 |
+| Modules, boundaries, the ledger client, events, DR posture | [`docs/architecture.md`](docs/architecture.md) | AGREED v1.13 |
+| Tables per schema, ownership rules, decided edge cases | [`docs/data-model.md`](docs/data-model.md) | AGREED v1.13 |
+| Endpoint surface, error catalog, contract properties | [`docs/api.md`](docs/api.md) | AGREED v1.13 |
+| Core's eight invariants and every test suite | [`docs/testing.md`](docs/testing.md) | AGREED v1.13 |
+| Every amendment since the design was agreed | [`docs/CHANGELOG.md`](docs/CHANGELOG.md) | v1.13 |
 | Platform hard rules | [`AGENTS.md`](../../AGENTS.md) | Standing |
 | What every service must have before it ships | [`service-scaffold.md`](../../docs/conventions/service-scaffold.md) | Standing |
 
 New deep-dive topics get their own file under `docs/` and a row here — the
 README stays the map, never the territory.
 
-## The three modules
+## The modules
 
 | Module | Schema | Owns |
 |---|---|---|
 | `customer` | `customer` | Profiles, KYC tier, lifecycle, mandates, customer↔account mapping. **The only schema holding PII.** |
 | `product` | `product` | Product catalog, fee rules, limit rules, versioned configuration. Returns *decisions*, never postings. |
-| `orchestration` | `orchestration` | Sagas, limit reservations, fee application, the ledger client. **The only module that may call the Ledger's write API.** |
+| `organization` | `organization` | The tenant's operational tree — branches, regions, business lines — and who is assigned where ([ADR 0012](../../docs/adr/0012-organizational-model.md)). Operational scope only: never a legal entity, booking unit or jurisdiction. |
+| `orchestration` | `orchestration` | Sagas, limit reservations, fee application, tills, the ledger client. **The only module that may call the Ledger's write API.** |
 
 `app` assembles them: wiring, the outbox relay, the saga worker. No domain
 logic.
@@ -198,4 +194,6 @@ discovered. Per-suite status lives in [`docs/testing.md`](docs/testing.md).
 | Interest accrual | Not built, and deliberately unassigned for deposits. Product's rule model carries FLAT/PERCENT fees and PER_TXN/DAILY limits only |
 | Identity | `libs/auth` validates tokens, but the deployed realm model is not provisioned; dev mode uses headers and announces itself |
 | Reconciliation | Invariant 6 — Core and the Ledger agree — is specified and **not yet running on a schedule** |
+| Fee account fallback | Published versions predating `fee_rules.fee_account_id` cannot be edited to carry it (published versions are immutable), so for those the caller-supplied account still applies. Ages out as versions are republished |
+| Unit scope | Organizational units exist and are attributed (ADR 0012), but no endpoint yet *requires* one — unit-scoped authorization arrives with the teller application |
 | Performance | Targets in `architecture.md` are intent. Nothing has been benchmarked |

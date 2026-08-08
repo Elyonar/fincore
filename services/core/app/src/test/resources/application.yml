@@ -54,6 +54,13 @@ fincore:
         jdbc-url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:55432/core_test}
         username: core_worker
         password: core_worker
+      organization:
+        maximum-pool-size: 1
+        minimum-idle: 0
+        idle-timeout: 10000
+        jdbc-url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:55432/core_test}
+        username: core_organization
+        password: core_organization
       orchestration:
         maximum-pool-size: 1
         minimum-idle: 0

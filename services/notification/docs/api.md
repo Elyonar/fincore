@@ -1,6 +1,6 @@
 # Notification — API Surface (v1)
 
-**Status:** AGREED v1.3 (2026-08-06) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
+**Status:** AGREED v1.4 (2026-08-08) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
 
 > **Every route below exists, and the build fails if that stops being true.**
 > `ApiTest.the_document_and_the_code_agree` compares this table against the

@@ -1,6 +1,6 @@
 # Ledger — Posting Algorithm & Concurrency
 
-**Status:** AGREED v1.8 (2026-08-06) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
+**Status:** AGREED v1.9 (2026-08-08) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
 
 **The global lock protocol (two tiers, one rule, everywhere):** every
 operation that locks anything acquires locks in this order — **tier 1:

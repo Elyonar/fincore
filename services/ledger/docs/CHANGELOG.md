@@ -8,6 +8,39 @@ entry first.
 
 ---
 
+## [1.9.0] — 2026-08-08 · MINOR
+
+**Three documented facts become true, and the banner stops lying about the broker.**
+
+- **Docs:** `data-model.md`, `testing.md`, `design.md`
+- **Why:** an audit against the docs found four places where the ledger's prose
+  was ahead of its schema — or behind its own configuration migration.
+- **What changed:**
+  - **The startup banner reads `fincore.events.broker`** — the key that has
+    selected the publisher since the v1.6 migration to `libs/events`. It read
+    the retired `ledger.events.broker`, so a correctly-configured Kafka
+    deployment printed *"Events LOG ADAPTER — nothing is delivered to any
+    broker"*: the loud-failure banner was itself the silent failure. The dead
+    `ledger.events.*` constants are gone from `LedgerProperties`.
+  - **NGN is seeded by migration (V8).** `data-model.md` said currencies are
+    "seeded per country pack (NGN first)" and nothing seeded anything — a fresh
+    deployment failed the currencies FK on its first `POST /v1/accounts`.
+    Idempotent (`ON CONFLICT DO NOTHING`), so existing environments and every
+    test's own insert coexist with it.
+  - **The fan-in sharding restriction is a trigger (V9),**
+    `accounts_sharding_requires_allow_negative`. The docs call the restriction
+    load-bearing — sharding is invariant-neutral *only* for `allow_negative`
+    accounts — and nothing enforced it, so a guarded account could be sharded.
+    Now neither an INSERT nor an UPDATE can produce the forbidden shape, and
+    `SchemaEnforcementTest` proves the trigger fires in both directions.
+  - **A dev-tenant seeder** (`ledger.dev-tenant-id`, compose-only, loud) —
+    `db/init/20-dev-tenant.sql` could never seed the tenant it described (init
+    runs before Flyway creates the table) and instructed the operator to paste
+    SQL by hand. `TenantRegistry.register` gains its first caller; deployments
+    must not set the property, and the seeder says so at startup.
+
+---
+
 ## [1.8.0] — 2026-08-06 · MINOR
 
 **The suite gets its own database.**

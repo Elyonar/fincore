@@ -51,6 +51,57 @@ public class SagaRecords {
         jdbc.queryForObject("SELECT set_config(\'app.tenant_id\', ?, true)", String.class, tenantId.toString());
     }
 
+    /**
+     * The fee-income account this saga will credit: the product's configured account when the
+     * pricing names one, else the caller's — the documented fallback for published versions that
+     * predate the configuration column. Resolved once, here, so the saga row and every worker
+     * retry rebuild the identical posting.
+     */
+    private static UUID resolvedFeeAccount(UUID configured, UUID callerSupplied) {
+        return configured != null ? configured : callerSupplied;
+    }
+
+    /**
+     * Enforces the day's limit, inside the transaction that reserves against it.
+     *
+     * <p>Insert-then-verify: the reservation is already written when the window is summed, so two
+     * concurrent transfers cannot both observe the limit unbreached — the race the reservation
+     * table exists to prevent. The advisory lock serializes writers of the same window (and only
+     * them); without it, two READ COMMITTED transactions each see their own insert and neither
+     * sees the other's.
+     *
+     * <p>A breach throws, which rolls back the saga, the reservation and the event together.
+     */
+    private void enforceDailyLimit(
+            UUID tenantId, UUID subjectId, String windowKey, Long dailyLimitMinor) {
+        if (dailyLimitMinor == null) {
+            return;
+        }
+        // pg_advisory_xact_lock returns void; the cast gives JDBC something to hand back.
+        jdbc.queryForObject(
+                "SELECT pg_advisory_xact_lock(hashtextextended(?, 0))::text",
+                String.class,
+                tenantId + "|" + subjectId + "|" + windowKey);
+        Long reserved =
+                jdbc.queryForObject(
+                        """
+                        SELECT COALESCE(SUM(amount_minor), 0)
+                          FROM orchestration.limit_reservations
+                         WHERE subject_id = ? AND window_key = ?
+                           AND status IN ('RESERVED', 'CONSUMED')
+                        """,
+                        Long.class,
+                        subjectId,
+                        windowKey);
+        if (reserved != null && reserved > dailyLimitMinor) {
+            throw new TransferService.TransferRefused(
+                    org.elyonar.fincore.core.orchestration.api.ErrorCode.LIMIT_EXCEEDED,
+                    org.elyonar.fincore.core.orchestration.api.ErrorReason.DAILY_LIMIT,
+                    "the day's limit would be breached",
+                    java.util.Map.of());
+        }
+    }
+
     /** A saga already recorded under this key, or null. */
     @Transactional(readOnly = true)
     public Existing findByKey(UUID tenantId, String idempotencyKey) {
@@ -121,7 +172,7 @@ public class SagaRecords {
                         command.executedBy(),
                         command.fromAccountId(),
                         command.toAccountId(),
-                        command.feeAccountId());
+                        resolvedFeeAccount(decision.feeAccountId(), command.feeAccountId()));
 
         jdbc.update(
                 """
@@ -136,6 +187,8 @@ public class SagaRecords {
                 windowKey,
                 command.amountMinor() + decision.feeMinor(),
                 command.currency());
+
+        enforceDailyLimit(command.tenantId(), command.customerId(), windowKey, decision.dailyLimitMinor());
 
         // Same transaction as the saga and the reservation: the event exists if and only if the
         // saga does.
@@ -195,7 +248,7 @@ public class SagaRecords {
                         command.executedBy(),
                         from,
                         to,
-                        command.feeAccountId(),
+                        resolvedFeeAccount(decision.feeAccountId(), command.feeAccountId()),
                         till.id());
 
         jdbc.update(
@@ -211,6 +264,8 @@ public class SagaRecords {
                 windowKey,
                 command.amountMinor() + decision.feeMinor(),
                 command.currency());
+
+        enforceDailyLimit(command.tenantId(), command.customerId(), windowKey, decision.dailyLimitMinor());
 
         outbox.append(
                 command.tenantId(),

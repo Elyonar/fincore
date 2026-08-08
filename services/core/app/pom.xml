@@ -29,6 +29,10 @@
         </dependency>
         <dependency>
             <groupId>org.elyonar</groupId>
+            <artifactId>organization</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.elyonar</groupId>
             <artifactId>orchestration</artifactId>
         </dependency>
 
