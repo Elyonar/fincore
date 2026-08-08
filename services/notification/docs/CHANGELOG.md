@@ -8,6 +8,51 @@ Newest entry first.
 
 ---
 
+## [1.5.0] — 2026-08-08 · MINOR
+
+**The queue's documented alarms get measurements.**
+
+- **Docs:** `testing.md`
+- **Why:** the README's known-limitations table said it plainly: "nothing
+  exports a queue depth or a suppression rate, so no alarm in the design has a
+  measurement behind it."
+- **What changed:** `SendMetrics` exposes `/actuator/prometheus` gauges —
+  queue depth (PENDING + SENDING), oldest-pending age (the delivery-delay
+  alert's number), and exhausted-attempts count. Reads run in worker scope in
+  their own transaction, from the table on every scrape, so a stalled worker
+  still reports its backlog honestly. Segment *cost* (money per message) still
+  waits on a gateway that can report it; the README row narrows accordingly.
+
+---
+
+## [1.4.0] — 2026-08-08 · MINOR
+
+**What happens when the listener throws is now stated, not defaulted.**
+
+- **Docs:** `design.md`, `testing.md`
+- **Why:** `EventListener`'s contract says an escaping exception keeps the
+  offset put and the event is redelivered. Spring Kafka's default error handler
+  honours that for ten attempts, then logs and *advances* — so any Core outage
+  longer than a few seconds silently lost events, which is the one failure this
+  service's own javadoc says it must never have. The contract was true of the
+  code and false of the deployment.
+- **What changed:**
+  - **`KafkaErrorHandling`**: transient failures retry forever (fixed backoff,
+    offset held — delivery is late, never silently never); a
+    `MalformedEnvelope` is skipped loudly at ERROR with topic/partition/offset,
+    because it can never succeed and retrying it forever parks the partition
+    behind a poison message. A dead-letter topic can replace the log when a
+    gateway exists to alert on one.
+  - **A dev-tenant seeder** (`fincore.notification.dev-tenant-id`,
+    compose-only, loud), matching the ledger's and Core's: without it a fresh
+    stack dropped every event at the tenant gate — silently, which is exactly
+    the posture this service exists to refuse.
+  - The dead `ALREADY_HANDLED` → `IGNORED` mapping in `EventIntake.record` is
+    gone; the disposition returns before recording, so the mapping was
+    unreachable and read as a behaviour that did not exist.
+
+---
+
 ## [1.3.0] — 2026-08-07 · MINOR
 
 **A tenant must exist — on both doors. `V4__tenant_registry.sql`.**

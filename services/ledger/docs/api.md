@@ -1,6 +1,6 @@
 # Ledger — API Surface (v1)
 
-**Status:** AGREED v1.8 (2026-08-06) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
+**Status:** AGREED v1.9 (2026-08-08) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
 
 REST/JSON. OpenAPI spec will be generated from code once implementation
 lands; this document is the agreed contract shape.

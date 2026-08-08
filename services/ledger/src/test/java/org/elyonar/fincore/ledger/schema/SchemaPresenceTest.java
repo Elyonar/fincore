@@ -74,7 +74,8 @@ class SchemaPresenceTest extends LedgerPostgresTest {
                 "holds_currency_matches_account",
                 "holds_terminal_states_are_terminal",
                 "accounting_periods_never_reopen",
-                "tenant_config_is_append_only"
+                "tenant_config_is_append_only",
+                "accounts_sharding_requires_allow_negative"
             })
     void trigger_exists(String trigger) {
         assertThat(exists("SELECT 1 FROM pg_trigger WHERE tgname=? AND NOT tgisinternal", trigger))

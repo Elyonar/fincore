@@ -47,8 +47,77 @@ public class SagaRecords {
                 .formatted(sagaId, amountMinor, feeMinor, currency);
     }
 
+    /**
+     * The immutable snapshot of the decision this saga was opened under — the answer to "why was
+     * this fee ₦20 last March" that survives the configuration moving on. Amounts as decimal
+     * strings inside JSON, matching every other JSON this platform emits.
+     */
+    private static String decisionSnapshot(ProductDecision decision, String channel, String kycTier) {
+        return """
+               {"productVersion":%d,"feeMinor":"%d","feeAccountId":%s,"limitMinor":"%d",               "dailyLimitMinor":%s,"channel":"%s","kycTier":"%s"}"""
+                .formatted(
+                        decision.productVersion(),
+                        decision.feeMinor(),
+                        decision.feeAccountId() == null ? "null" : "\"" + decision.feeAccountId() + "\"",
+                        decision.limitMinor(),
+                        decision.dailyLimitMinor() == null ? "null" : "\"" + decision.dailyLimitMinor() + "\"",
+                        channel,
+                        kycTier);
+    }
+
     private void scopeTo(UUID tenantId) {
         jdbc.queryForObject("SELECT set_config(\'app.tenant_id\', ?, true)", String.class, tenantId.toString());
+    }
+
+    /**
+     * The fee-income account this saga will credit: the product's configured account when the
+     * pricing names one, else the caller's — the documented fallback for published versions that
+     * predate the configuration column. Resolved once, here, so the saga row and every worker
+     * retry rebuild the identical posting.
+     */
+    private static UUID resolvedFeeAccount(UUID configured, UUID callerSupplied) {
+        return configured != null ? configured : callerSupplied;
+    }
+
+    /**
+     * Enforces the day's limit, inside the transaction that reserves against it.
+     *
+     * <p>Insert-then-verify: the reservation is already written when the window is summed, so two
+     * concurrent transfers cannot both observe the limit unbreached — the race the reservation
+     * table exists to prevent. The advisory lock serializes writers of the same window (and only
+     * them); without it, two READ COMMITTED transactions each see their own insert and neither
+     * sees the other's.
+     *
+     * <p>A breach throws, which rolls back the saga, the reservation and the event together.
+     */
+    private void enforceDailyLimit(
+            UUID tenantId, UUID subjectId, String windowKey, Long dailyLimitMinor) {
+        if (dailyLimitMinor == null) {
+            return;
+        }
+        // pg_advisory_xact_lock returns void; the cast gives JDBC something to hand back.
+        jdbc.queryForObject(
+                "SELECT pg_advisory_xact_lock(hashtextextended(?, 0))::text",
+                String.class,
+                tenantId + "|" + subjectId + "|" + windowKey);
+        Long reserved =
+                jdbc.queryForObject(
+                        """
+                        SELECT COALESCE(SUM(amount_minor), 0)
+                          FROM orchestration.limit_reservations
+                         WHERE subject_id = ? AND window_key = ?
+                           AND status IN ('RESERVED', 'CONSUMED')
+                        """,
+                        Long.class,
+                        subjectId,
+                        windowKey);
+        if (reserved != null && reserved > dailyLimitMinor) {
+            throw new TransferService.TransferRefused(
+                    org.elyonar.fincore.core.orchestration.api.ErrorCode.LIMIT_EXCEEDED,
+                    org.elyonar.fincore.core.orchestration.api.ErrorReason.DAILY_LIMIT,
+                    "the day's limit would be breached",
+                    java.util.Map.of());
+        }
     }
 
     /** A saga already recorded under this key, or null. */
@@ -93,7 +162,7 @@ public class SagaRecords {
      * "call the Ledger" and "record that we called" is recoverable rather than an orphan posting.
      */
     @Transactional
-    public UUID open(TransferCommand command, ProductDecision decision, String windowKey) {
+    public UUID open(TransferCommand command, ProductDecision decision, String kycTier, String windowKey) {
         scopeTo(command.tenantId());
 
         UUID sagaId =
@@ -101,10 +170,10 @@ public class SagaRecords {
                         """
                         INSERT INTO orchestration.sagas
                             (tenant_id, type, state, channel_idempotency_key, request_fingerprint,
-                             subject_customer_id, product_code, product_version, amount_minor,
+                             subject_customer_id, product_code, product_version, decision, amount_minor,
                              fee_minor, currency, initiated_by, executed_by,
                              from_account_id, to_account_id, fee_account_id)
-                        VALUES (?, 'TRANSFER', 'POSTING', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        VALUES (?, 'TRANSFER', 'POSTING', ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?, ?, ?, ?, ?, ?)
                         RETURNING id
                         """,
                         UUID.class,
@@ -114,6 +183,7 @@ public class SagaRecords {
                         command.customerId(),
                         command.productCode(),
                         decision.productVersion(),
+                        decisionSnapshot(decision, command.channel(), kycTier),
                         command.amountMinor(),
                         decision.feeMinor(),
                         command.currency(),
@@ -121,7 +191,7 @@ public class SagaRecords {
                         command.executedBy(),
                         command.fromAccountId(),
                         command.toAccountId(),
-                        command.feeAccountId());
+                        resolvedFeeAccount(decision.feeAccountId(), command.feeAccountId()));
 
         jdbc.update(
                 """
@@ -136,6 +206,8 @@ public class SagaRecords {
                 windowKey,
                 command.amountMinor() + decision.feeMinor(),
                 command.currency());
+
+        enforceDailyLimit(command.tenantId(), command.customerId(), windowKey, decision.dailyLimitMinor());
 
         // Same transaction as the saga and the reservation: the event exists if and only if the
         // saga does.
@@ -160,6 +232,7 @@ public class SagaRecords {
             org.elyonar.fincore.core.orchestration.api.CashCommand command,
             ProductDecision decision,
             TillRecords.Till till,
+            String kycTier,
             String windowKey) {
         scopeTo(command.tenantId());
 
@@ -174,10 +247,10 @@ public class SagaRecords {
                         """
                         INSERT INTO orchestration.sagas
                             (tenant_id, type, state, channel_idempotency_key, request_fingerprint,
-                             subject_customer_id, product_code, product_version, amount_minor,
+                             subject_customer_id, product_code, product_version, decision, amount_minor,
                              fee_minor, currency, initiated_by, executed_by,
                              from_account_id, to_account_id, fee_account_id, till_id)
-                        VALUES (?, ?, 'POSTING', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        VALUES (?, ?, 'POSTING', ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         RETURNING id
                         """,
                         UUID.class,
@@ -188,6 +261,7 @@ public class SagaRecords {
                         command.customerId(),
                         command.productCode(),
                         decision.productVersion(),
+                        decisionSnapshot(decision, command.channel(), kycTier),
                         command.amountMinor(),
                         decision.feeMinor(),
                         command.currency(),
@@ -195,7 +269,7 @@ public class SagaRecords {
                         command.executedBy(),
                         from,
                         to,
-                        command.feeAccountId(),
+                        resolvedFeeAccount(decision.feeAccountId(), command.feeAccountId()),
                         till.id());
 
         jdbc.update(
@@ -211,6 +285,8 @@ public class SagaRecords {
                 windowKey,
                 command.amountMinor() + decision.feeMinor(),
                 command.currency());
+
+        enforceDailyLimit(command.tenantId(), command.customerId(), windowKey, decision.dailyLimitMinor());
 
         outbox.append(
                 command.tenantId(),

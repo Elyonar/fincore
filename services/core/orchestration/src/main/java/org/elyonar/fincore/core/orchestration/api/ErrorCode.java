@@ -45,6 +45,8 @@ public enum ErrorCode {
     TILL_NOT_OPEN,
     /** The fee would consume more than the deposit. */
     FEE_EXCEEDS_DEPOSIT,
+    /** No active organizational unit answers to that code — or it is not a branch (ADR 0012). */
+    UNIT_NOT_FOUND,
 
     // ---- relayed from the Ledger ----------------------------------------------------
     /** The account would go available &lt; 0. */

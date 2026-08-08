@@ -8,7 +8,7 @@
 
 **Status: design AGREED v1.2 — implemented, pre-1.0.** The schema, the intake
 pipeline, the send worker, the Kafka listener and every endpoint `api.md`
-documents exist, with **46 tests green against real PostgreSQL**. It is not
+documents exist, with **57 tests green against real PostgreSQL**. It is not
 production-ready: nothing is delivered to a customer until the messaging
 connector exists, and [`docs/testing.md`](docs/testing.md) carries the honest
 list of what is still PARTIAL. Read [`docs/design.md`](docs/design.md),
@@ -139,7 +139,7 @@ discovered.
 | Delivery | **Nothing reaches a customer.** Both senders are the `log` adapter; they render, mark sent, and deliver nowhere. The banner at startup says so. The messaging connector is what makes them real, and connectors come last by decision |
 | Delivery receipts, bounces, monetary cost | Need a gateway to report them. The status model exists and is unexercised; segments are counted, money per message is not |
 | Error-catalog test | **Missing.** `api.md`'s codes and the `Suppressed` reasons can drift from the enums without the build noticing |
-| Metrics | None. Health and readiness exist; nothing exports a queue depth or a suppression rate, so no alarm in the design has a measurement behind it |
+| Metrics | Queue depth, oldest-pending age and exhausted-attempts count export at `/actuator/prometheus` (v1.5). Money-per-message still waits on a gateway that can report it |
 | Startup summary | Two loud banners — senders that deliver nothing, and the development address key — but not the consolidated summary the ledger prints |
 | Locale | Selected from the customer, then the tenant default. No per-customer locale exists in Customer for most records yet, so in practice almost everything falls back |
 | Push, WhatsApp | Registry rows and a sender class away, and neither is built. Push is in the PRD; WhatsApp is not |

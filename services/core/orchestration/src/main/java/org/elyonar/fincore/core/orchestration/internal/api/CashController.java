@@ -1,11 +1,11 @@
 package org.elyonar.fincore.core.orchestration.internal.api;
 
 import io.swagger.v3.oas.annotations.tags.Tag;
-import java.time.ZoneId;
 import java.util.UUID;
 import org.elyonar.fincore.auth.Authorization;
 import org.elyonar.fincore.core.orchestration.api.CashCommand;
 import org.elyonar.fincore.core.orchestration.api.TransferResult;
+import org.elyonar.fincore.core.orchestration.internal.TenantZones;
 import org.elyonar.fincore.core.orchestration.internal.saga.CashService;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -30,13 +30,12 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/v1")
 public class CashController {
 
-    /** The tenant's business timezone. Moves to tenant configuration once that exists. */
-    private static final ZoneId BUSINESS_ZONE = ZoneId.of("Africa/Lagos");
-
     private final CashService cash;
+    private final TenantZones zones;
 
-    public CashController(CashService cash) {
+    public CashController(CashService cash, TenantZones zones) {
         this.cash = cash;
+        this.zones = zones;
     }
 
     /** Cash in: debits the till, credits the customer. */
@@ -70,11 +69,13 @@ public class CashController {
                         request.amountMinor(),
                         request.currency(),
                         request.productCode(),
-                        request.channel() == null ? "TELLER" : request.channel(),
+                        // Cash is counter business by definition; the channel is the endpoint,
+                        // never a body field a caller could use to pick a limit tier (ADR 0012).
+                        "TELLER",
                         request.description(),
                         Authorization.initiatedBy(),
                         identity.serviceIdentity() == null ? "core" : identity.serviceIdentity(),
-                        BUSINESS_ZONE));
+                        zones.businessZone(identity.tenantId())));
     }
 
     /**
@@ -94,7 +95,6 @@ public class CashController {
             long amountMinor,
             String currency,
             String productCode,
-            String channel,
             String description) {
 
         String fingerprint(CashCommand.Operation operation) {

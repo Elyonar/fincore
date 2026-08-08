@@ -52,7 +52,8 @@ public class OpsController {
                         identity.tenantId(),
                         request.targetTransactionId(),
                         request.amountMinor(),
-                        Authorization.initiatedBy());
+                        Authorization.initiatedBy(),
+                        unitSnapshot());
         return Map.of("approvalId", id.toString(), "status", "PENDING");
     }
 
@@ -65,7 +66,8 @@ public class OpsController {
     @PostMapping("/approvals/{id}/check")
     public Map<String, Object> check(@PathVariable UUID id, @RequestBody CheckApproval request) {
         var identity = Authorization.require("approvals:check");
-        approvals.check(identity.tenantId(), id, request.approved(), Authorization.initiatedBy());
+        approvals.check(
+                identity.tenantId(), id, request.approved(), Authorization.initiatedBy(), unitSnapshot());
         return Map.of("approvalId", id.toString(), "status", request.approved() ? "APPROVED" : "REJECTED");
     }
 
@@ -86,6 +88,18 @@ public class OpsController {
     public Map<String, Object> resolve(@PathVariable UUID id) {
         var identity = Authorization.require("ops:resolve");
         return cases.reattempt(identity.tenantId(), id);
+    }
+
+    /**
+     * The caller's organizational scope, flattened for the audit column.
+     *
+     * <p>The token's {@code units} claim, sorted and comma-joined — a snapshot of where the signer
+     * sat when they signed (ADR 0012). Attribution, never authorization: nothing branches on it,
+     * and null (no scope) refuses nothing.
+     */
+    private static String unitSnapshot() {
+        var units = new java.util.TreeSet<>(Authorization.units());
+        return units.isEmpty() ? null : String.join(",", units);
     }
 
     /** @param amountMinor must match the target exactly; an approval is bound to one amount */

@@ -146,8 +146,8 @@ class ReversalTest {
 
     /** Raised by one person, checked by another — the whole point of the control. */
     private UUID anApprovalFor(TransferResult transfer) {
-        UUID approvalId = approvals.raise(tenantId, transfer.transactionId(), transfer.amountMinor(), "user:ada");
-        approvals.check(tenantId, approvalId, true, "user:tobi");
+        UUID approvalId = approvals.raise(tenantId, transfer.transactionId(), transfer.amountMinor(), "user:ada", null);
+        approvals.check(tenantId, approvalId, true, "user:tobi", null);
         return approvalId;
     }
 
@@ -216,7 +216,7 @@ class ReversalTest {
         // Raised but never checked. One signature is not maker-checker.
         TransferResult original = aCompletedTransfer("rev-unchecked");
         UUID pending =
-                approvals.raise(tenantId, original.transactionId(), original.amountMinor(), "user:ada");
+                approvals.raise(tenantId, original.transactionId(), original.amountMinor(), "user:ada", null);
 
         assertThat(
                         catchThrowable(
@@ -230,10 +230,10 @@ class ReversalTest {
     void the_maker_cannot_be_the_checker() {
         TransferResult original = aCompletedTransfer("rev-selfcheck");
         UUID approvalId =
-                approvals.raise(tenantId, original.transactionId(), original.amountMinor(), "user:ada");
+                approvals.raise(tenantId, original.transactionId(), original.amountMinor(), "user:ada", null);
 
         // Refused by a CHECK constraint, not by this method remembering to compare.
-        assertThat(catchThrowable(() -> approvals.check(tenantId, approvalId, true, "user:ada")))
+        assertThat(catchThrowable(() -> approvals.check(tenantId, approvalId, true, "user:ada", null)))
                 .isNotNull();
     }
 
@@ -294,8 +294,8 @@ class ReversalTest {
     void an_approval_is_bound_to_its_amount() {
         TransferResult original = aCompletedTransfer("rev-amount");
         UUID wrongAmount =
-                approvals.raise(tenantId, original.transactionId(), original.amountMinor() + 1, "user:ada");
-        approvals.check(tenantId, wrongAmount, true, "user:tobi");
+                approvals.raise(tenantId, original.transactionId(), original.amountMinor() + 1, "user:ada", null);
+        approvals.check(tenantId, wrongAmount, true, "user:tobi", null);
 
         assertThat(
                         catchThrowable(

@@ -257,6 +257,37 @@ class SchemaEnforcementTest extends LedgerPostgresTest {
                 .hasMessageContaining("append-only");
     }
 
+    @org.junit.jupiter.api.Test
+    void a_guarded_account_cannot_be_sharded() {
+        // The restriction that makes fan-in sharding invariant-neutral (design.md): the
+        // negative-balance guard is per-account, so a guarded account split across shards could
+        // go negative in aggregate while every shard stays clean. Enforced by trigger since V9.
+        assertThatThrownBy(
+                        () ->
+                                db.execute(
+                                        """
+                                        INSERT INTO accounts (id, tenant_id, idempotency_key, type, currency,
+                                                              group_ref, allow_negative)
+                                        VALUES (?,?,?, 'FEE','NGN','fees-pool', false)
+                                        """,
+                                        UUID.randomUUID(), tenant, "guarded-shard"))
+                .hasMessageContaining("must not be sharded");
+
+        // The same shape with allow_negative = true is the sanctioned case and must pass.
+        db.execute(
+                """
+                INSERT INTO accounts (id, tenant_id, idempotency_key, type, currency,
+                                      group_ref, allow_negative)
+                VALUES (?,?,?, 'FEE','NGN','fees-pool', true)
+                """,
+                UUID.randomUUID(), tenant, "unguarded-shard");
+
+        // And an update cannot smuggle the forbidden shape in after creation.
+        assertThatThrownBy(
+                        () -> db.execute("UPDATE accounts SET group_ref='late-shard' WHERE id=?", account))
+                .hasMessageContaining("must not be sharded");
+    }
+
     private void insertReversal(UUID id, String key) {
         db.execute(
                 """

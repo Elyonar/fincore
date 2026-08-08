@@ -95,7 +95,7 @@ public class CashService {
                                 command.amountMinor(),
                                 command.currency()));
         if (!decision.permitted()) {
-            throw new TransferService.TransferRefused(ErrorCode.valueOf(decision.refusal().name()));
+            throw TransferService.refusalOf(decision);
         }
         if (command.operation() == CashCommand.Operation.DEPOSIT
                 && decision.feeMinor() >= command.amountMinor()) {
@@ -106,7 +106,9 @@ public class CashService {
         }
 
         UUID sagaId =
-                sagas.openCash(command, decision, till, "daily:" + LocalDate.now(command.businessZone()));
+                sagas.openCash(
+                        command, decision, till, eligibility.kycTier(),
+                        "daily:" + LocalDate.now(command.businessZone()));
 
         // ---- Phase B ---------------------------------------------------------
         LedgerOutcome outcome =
@@ -161,7 +163,13 @@ public class CashService {
                                     entry(till.ledgerAccountId(), LedgerPosting.Direction.CREDIT, amount, command)));
         }
         if (fee > 0) {
-            entries.add(entry(command.feeAccountId(), LedgerPosting.Direction.CREDIT, fee, command));
+            // Configuration first, caller fallback — same resolution the saga row records.
+            entries.add(
+                    entry(
+                            decision.feeAccountId() != null ? decision.feeAccountId() : command.feeAccountId(),
+                            LedgerPosting.Direction.CREDIT,
+                            fee,
+                            command));
         }
         return new LedgerPosting(key, command.initiatedBy(), command.description(), entries);
     }

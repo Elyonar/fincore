@@ -29,12 +29,21 @@
         </dependency>
         <dependency>
             <groupId>org.elyonar</groupId>
+            <artifactId>organization</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.elyonar</groupId>
             <artifactId>orchestration</artifactId>
         </dependency>
 
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+            <scope>runtime</scope>
         </dependency>
         <!--
             The OpenAPI document is generated from the code. docs/api.md stays the agreed design;

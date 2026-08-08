@@ -158,7 +158,7 @@ class CashAndReversalApiTest {
                             }
                         });
 
-        tillId = tills.open(tenantId, "BR-01", tillAccount, "NGN", "user:teller-1");
+        tillId = tills.open(tenantId, "BR-01", null, tillAccount, "NGN", "user:teller-1");
     }
 
     // ------------------------------------------------------------------ harness
@@ -264,7 +264,7 @@ class CashAndReversalApiTest {
         for (String path : new String[] {"/v1/deposits", "/v1/withdrawals"}) {
             assertThat(
                             send(
-                                            as(path, "transfers:create", "user:teller-1")
+                                            as(path, "transfers:create,channel:api", "user:teller-1")
                                                     .POST(HttpRequest.BodyPublishers.ofString(body))
                                                     .build())
                                     .statusCode())
@@ -283,7 +283,7 @@ class CashAndReversalApiTest {
                         .formatted(UUID.randomUUID(), customerId, customerAccount, counterparty, feeAccount, amountMinor);
         HttpResponse<String> posted =
                 send(
-                        as("/v1/transfers", "transfers:create", "user:teller-1")
+                        as("/v1/transfers", "transfers:create,channel:api", "user:teller-1")
                                 .POST(HttpRequest.BodyPublishers.ofString(body))
                                 .build());
         assertThat(posted.statusCode()).isEqualTo(201);
@@ -407,7 +407,7 @@ class CashAndReversalApiTest {
 
         assertThat(
                         send(
-                                        as("/v1/transactions/" + transactionId + "/reverse", "transfers:create", "user:x")
+                                        as("/v1/transactions/" + transactionId + "/reverse", "transfers:create,channel:api", "user:x")
                                                 .POST(
                                                         HttpRequest.BodyPublishers.ofString(
                                                                 "{\"idempotencyKey\":\"k\",\"approvalId\":\""

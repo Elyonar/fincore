@@ -76,6 +76,7 @@ class OrchestrationSchemaTest {
                         "approvals",
                         "limit_reservations",
                         "ops_cases",
+                        "reconciliation_findings",
                         "outbox_events",
                         "saga_attempts",
                         "sagas",

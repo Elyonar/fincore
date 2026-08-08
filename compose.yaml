@@ -167,6 +167,9 @@ services:
       # 'log' is the development adapter and delivers nothing; the startup
       # summary says so plainly rather than letting it pass for delivery.
       FINCORE_EVENTS_BROKER: ${FINCORE_EVENTS_BROKER:-kafka}
+      # Seeds the development tenant at startup, loudly. Local stacks only —
+      # a deployment must never set this (tenant/DevTenantSeeder).
+      LEDGER_DEV_TENANT_ID: 00000000-0000-4000-8000-000000000001
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       SPRING_RABBITMQ_HOST: rabbitmq
       SPRING_RABBITMQ_USERNAME: fincore
@@ -220,6 +223,8 @@ services:
       # Orchestration's only outbound dependency, by service name on the compose
       # network. No other module may hold a ledger client.
       FINCORE_LEDGER_URL: http://ledger:8080
+      # Seeds the development tenant at startup, loudly. Local stacks only.
+      FINCORE_CORE_DEV_TENANT_ID: 00000000-0000-4000-8000-000000000001
       # The same backbone key both services read (libs/events). One key, so an
       # operator cannot half-migrate by changing it in one place.
       FINCORE_EVENTS_BROKER: ${FINCORE_EVENTS_BROKER:-kafka}
@@ -300,6 +305,8 @@ services:
       # The only outbound dependency on the send path. There is no ledger client
       # here and no gateway SDK.
       FINCORE_NOTIFICATION_CORE_BASE_URL: http://core:8081
+      # Seeds the development tenant at startup, loudly. Local stacks only.
+      FINCORE_NOTIFICATION_DEV_TENANT_ID: 00000000-0000-4000-8000-000000000001
 
       # Dev identity, as elsewhere in this file: headers rather than tokens, and
       # libs/auth refuses that unless a sanctioned profile is also active

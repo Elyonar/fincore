@@ -1,0 +1,12 @@
+-- The fee income account is product configuration, not a caller assertion.
+--
+-- Until now the money path took `feeAccountId` from the request body with no validation that the
+-- named account was a fee-income account at all — a caller could route the tenant's fee to any
+-- account it could name. The account a fee credits is a property of the product's pricing, so it
+-- lives here, on the fee rule, versioned and maker-checked like every other pricing fact.
+--
+-- Nullable, deliberately: existing published versions predate the column and cannot be edited
+-- (published versions are immutable). For those, Orchestration falls back to the caller-supplied
+-- account and the API doc says so; a republished version is expected to carry the account, and
+-- the fallback is recorded as a known limitation until the last pre-column version ages out.
+ALTER TABLE product.fee_rules ADD COLUMN fee_account_id UUID;

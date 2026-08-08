@@ -1,6 +1,6 @@
 # Notification — Design & Decision Log
 
-**Status:** AGREED v1.3 (2026-08-06) — implemented from here; amendments via
+**Status:** AGREED v1.5 (2026-08-08) — implemented from here; amendments via
 [`CHANGELOG.md`](CHANGELOG.md) and the
 [design-change convention](../../../docs/conventions/design-changes.md). Code
 that contradicts this document is a bug even if it works.
@@ -327,3 +327,15 @@ Fixed before this service was built, in ledger CHANGELOG v1.7 and Core v1.5: one
 renderer in `libs/events`, all seven fields, for every publisher. The lesson is
 the one ADR 0008 stated in advance — a contract with no consumer is a contract
 nobody has tested.
+
+## When the listener throws
+
+Stated, not defaulted (v1.4). Transient failures — Core unreachable, the
+database down — retry forever with a fixed backoff: the offset is held, the
+event is redelivered, delivery is late and never silently never. A malformed
+envelope is the one exception: it is a publisher contract bug (ADR 0008) that
+can never succeed, so it is skipped **loudly** — ERROR, with topic, partition
+and offset — rather than parking the partition behind a poison message. Spring
+Kafka's default (ten retries, then log-and-advance) is exactly the silent loss
+this service exists to refuse, which is why `KafkaErrorHandling` replaces it
+explicitly rather than trusting the framework's idea of resilience.

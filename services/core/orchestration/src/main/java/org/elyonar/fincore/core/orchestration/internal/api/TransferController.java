@@ -1,14 +1,20 @@
 package org.elyonar.fincore.core.orchestration.internal.api;
 
 import io.swagger.v3.oas.annotations.tags.Tag;
-import java.time.ZoneId;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import org.elyonar.fincore.auth.Authorization;
 import org.elyonar.fincore.core.orchestration.api.TransferCommand;
 import org.elyonar.fincore.core.orchestration.api.TransferResult;
+import org.elyonar.fincore.core.orchestration.internal.TenantZones;
 import org.elyonar.fincore.core.orchestration.internal.saga.ReversalService;
 import org.elyonar.fincore.core.orchestration.internal.saga.SagaRecords;
 import org.elyonar.fincore.core.orchestration.internal.saga.TransferService;
+import org.elyonar.fincore.core.orchestration.api.CoreException;
+import org.elyonar.fincore.core.orchestration.api.ErrorCode;
+import org.elyonar.fincore.core.orchestration.api.ErrorReason;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -24,23 +30,27 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/v1")
 public class TransferController {
 
-    /** The tenant's business timezone. Moves to tenant configuration once that exists. */
-    private static final ZoneId BUSINESS_ZONE = ZoneId.of("Africa/Lagos");
+    /** The channels v1 prices and limits by. A new channel is a design amendment, not a string. */
+    private static final Set<String> CHANNELS = Set.of("API", "TELLER");
 
     private final TransferService transfers;
     private final ReversalService reversals;
     private final SagaRecords sagas;
+    private final TenantZones zones;
 
-    public TransferController(TransferService transfers, ReversalService reversals, SagaRecords sagas) {
+    public TransferController(
+            TransferService transfers, ReversalService reversals, SagaRecords sagas, TenantZones zones) {
         this.transfers = transfers;
         this.reversals = reversals;
         this.sagas = sagas;
+        this.zones = zones;
     }
 
     @PostMapping("/transfers")
     @ResponseStatus(HttpStatus.CREATED)
     public TransferResult transfer(@RequestBody TransferRequest request) {
         var identity = Authorization.require("transfers:create");
+        String channel = channel(request.channel());
 
         return transfers.transfer(
                 new TransferCommand(
@@ -56,11 +66,12 @@ public class TransferController {
                         request.amountMinor(),
                         request.currency(),
                         request.productCode(),
-                        request.channel() == null ? "API" : request.channel(),
+                        channel,
                         request.description(),
                         Authorization.initiatedBy(),
                         identity.serviceIdentity() == null ? "core" : identity.serviceIdentity(),
-                        BUSINESS_ZONE));
+                        // Tenant configuration: the DAILY window rolls at *this* tenant's midnight.
+                        zones.businessZone(identity.tenantId())));
     }
 
     /**
@@ -92,6 +103,28 @@ public class TransferController {
         var identity = Authorization.require("transfers:reverse");
         return reversals.reverse(
                 identity.tenantId(), id, request.approvalId(), request.idempotencyKey(), Authorization.initiatedBy());
+    }
+
+    /**
+     * The channel, validated and permission-gated.
+     *
+     * <p>The channel selects which limit rules apply, which makes it an authorization input — and
+     * an authorization input a caller can freely assert is a limit tier a caller can freely
+     * choose. So asserting one costs a permission: {@code channel:api} to transact as an API
+     * channel, {@code channel:teller} as a counter. Tokens carry channel permissions the same way
+     * they carry everything else; a caller without the matching one is refused, 403.
+     */
+    private static String channel(String requested) {
+        String channel = requested == null ? "API" : requested;
+        if (!CHANNELS.contains(channel)) {
+            throw new CoreException(
+                    ErrorCode.COMMAND_INVALID,
+                    ErrorReason.CHANNEL_INVALID,
+                    "channel must be one of " + CHANNELS,
+                    Map.of());
+        }
+        Authorization.require("channel:" + channel.toLowerCase(Locale.ROOT));
+        return channel;
     }
 
     /** @param approvalId a maker-checker approval bound to this transaction and its amount */

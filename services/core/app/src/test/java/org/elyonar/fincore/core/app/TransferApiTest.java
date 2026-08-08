@@ -193,7 +193,7 @@ class TransferApiTest {
         ledgerStatus.set(500);
         ledgerBody.set("{\"code\":\"INTERNAL\"}");
 
-        HttpResponse<String> response = post("api-unknown", 100_000, "transfers:create");
+        HttpResponse<String> response = post("api-unknown", 100_000, "transfers:create,channel:api");
 
         assertThat(response.statusCode()).isEqualTo(503);
         assertThat(response.body()).contains("OUTCOME_UNKNOWN").contains("transactionId");
@@ -203,7 +203,7 @@ class TransferApiTest {
 
     @Test
     void a_committed_transfer_answers_201_with_the_fee_that_was_applied() {
-        HttpResponse<String> response = post("api-ok", 100_000, "transfers:create");
+        HttpResponse<String> response = post("api-ok", 100_000, "transfers:create,channel:api");
 
         assertThat(response.statusCode()).isEqualTo(201);
         assertThat(response.body()).contains("\"state\":\"COMPLETED\"").contains("feeMinor");
@@ -214,7 +214,7 @@ class TransferApiTest {
         ledgerStatus.set(422);
         ledgerBody.set("{\"code\":\"INSUFFICIENT_FUNDS\"}");
 
-        HttpResponse<String> response = post("api-refused", 100_000, "transfers:create");
+        HttpResponse<String> response = post("api-refused", 100_000, "transfers:create,channel:api");
 
         assertThat(response.statusCode()).isEqualTo(422);
         assertThat(response.body()).contains("INSUFFICIENT_FUNDS");
@@ -222,7 +222,7 @@ class TransferApiTest {
 
     @Test
     void a_limit_breach_is_refused_without_the_ledger_being_called() {
-        HttpResponse<String> response = post("api-limit", 9_000_000, "transfers:create");
+        HttpResponse<String> response = post("api-limit", 9_000_000, "transfers:create,channel:api");
 
         assertThat(response.statusCode()).isEqualTo(422);
         assertThat(response.body()).contains("LIMIT_EXCEEDED");
@@ -230,9 +230,9 @@ class TransferApiTest {
 
     @Test
     void the_same_key_with_different_economics_answers_409() {
-        post("api-reuse", 100_000, "transfers:create");
+        post("api-reuse", 100_000, "transfers:create,channel:api");
 
-        HttpResponse<String> second = post("api-reuse", 900_000, "transfers:create");
+        HttpResponse<String> second = post("api-reuse", 900_000, "transfers:create,channel:api");
 
         assertThat(second.statusCode()).isEqualTo(409);
         assertThat(second.body()).contains("IDEMPOTENCY_KEY_REUSED");
@@ -240,8 +240,8 @@ class TransferApiTest {
 
     @Test
     void replaying_the_same_request_answers_201_again_with_the_same_transaction() {
-        String first = post("api-replay", 100_000, "transfers:create").body();
-        HttpResponse<String> second = post("api-replay", 100_000, "transfers:create");
+        String first = post("api-replay", 100_000, "transfers:create,channel:api").body();
+        HttpResponse<String> second = post("api-replay", 100_000, "transfers:create,channel:api");
 
         assertThat(second.statusCode()).isEqualTo(201);
         assertThat(second.body()).isEqualTo(first);
@@ -273,7 +273,7 @@ class TransferApiTest {
     @Test
     void status_can_be_read_without_mutating_anything() {
         // What a crashed caller does instead of re-posting to find out.
-        String created = post("api-status", 100_000, "transfers:create").body();
+        String created = post("api-status", 100_000, "transfers:create,channel:api").body();
         String id = created.substring(created.indexOf("\"transactionId\":\"") + 17, created.indexOf("\",", created.indexOf("\"transactionId\":\"")));
 
         HttpResponse<String> response =
@@ -285,7 +285,7 @@ class TransferApiTest {
 
     @Test
     void the_status_read_names_the_accounts_the_money_moved_between() {
-        String created = post("api-accounts", 100_000, "transfers:create").body();
+        String created = post("api-accounts", 100_000, "transfers:create,channel:api").body();
         String id = created.substring(
                 created.indexOf("\"transactionId\":\"") + 17,
                 created.indexOf("\",", created.indexOf("\"transactionId\":\"")));

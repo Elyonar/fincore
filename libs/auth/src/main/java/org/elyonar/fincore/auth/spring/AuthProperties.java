@@ -46,6 +46,9 @@ public class AuthProperties {
     /** Claim carrying the caller's permissions, as an array of strings. */
     private String permissionsClaim = "permissions";
 
+    /** The claim carrying the caller's organizational-unit codes (ADR 0012). Optional. */
+    private String unitsClaim = "units";
+
     /**
      * Profiles in which {@link Mode#DEV} is permitted.
      *
@@ -122,6 +125,14 @@ public class AuthProperties {
 
     public void setPermissionsClaim(String permissionsClaim) {
         this.permissionsClaim = permissionsClaim;
+    }
+
+    public String getUnitsClaim() {
+        return unitsClaim;
+    }
+
+    public void setUnitsClaim(String unitsClaim) {
+        this.unitsClaim = unitsClaim;
     }
 
     public String[] getOpenPaths() {

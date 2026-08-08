@@ -13,6 +13,7 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.elyonar.fincore.core.customer.api.CustomerErrorCode;
+import org.elyonar.fincore.core.organization.api.OrganizationErrorCode;
 import org.elyonar.fincore.core.product.api.ProductDecision;
 import org.elyonar.fincore.core.product.api.ProductErrorCode;
 import org.junit.jupiter.api.DisplayName;
@@ -118,14 +119,18 @@ class ErrorCodeCatalogTest {
     }
 
     /**
-     * Every code Core can return, across all three modules.
+     * Every code Core can return, across all four modules.
      *
      * <p>Core is one deployable holding several modules, and each owns its own catalog — a shared
      * enum would make every module compile against Orchestration (ADR 0006). The published API is
-     * still one surface, so the doc is one table and this test unions the three.
+     * still one surface, so the doc is one table and this test unions the four.
      */
     private static Set<String> allCoreCodes() {
-        return Stream.of(ErrorCode.values(), CustomerErrorCode.values(), ProductErrorCode.values())
+        return Stream.of(
+                        ErrorCode.values(),
+                        CustomerErrorCode.values(),
+                        ProductErrorCode.values(),
+                        OrganizationErrorCode.values())
                 .flatMap(Arrays::stream)
                 .map(Enum::name)
                 .collect(Collectors.toCollection(TreeSet::new));

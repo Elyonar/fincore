@@ -380,7 +380,9 @@ public class EventIntake {
                 """,
                 publisher, event.eventId(), event.tenantId(), event.eventType(),
                 java.sql.Timestamp.from(event.occurredAt()), event.epoch(),
-                disposition == Disposition.ALREADY_HANDLED ? Disposition.IGNORED.name() : disposition.name());
+                // ALREADY_HANDLED never reaches here: handleScoped returns it before recording,
+                // because the first handling's row already stands.
+                disposition.name());
         return disposition;
     }
 

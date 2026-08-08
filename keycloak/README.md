@@ -106,5 +106,9 @@ the JSON, which is also what makes a change reviewable.
   identity, verified by mutual TLS. There is no mTLS here, so
   `Authorization.requireCallerAnyOf(...)` exists, is unit-tested, and is called
   by nobody — the ledger's allowlist admitting only `core` is still prose.
+- **Identity sync for organizational units.** The `units` user attribute feeds a
+  multivalued `units` claim (ADR 0012) — ada and bola carry `branch-01`. The
+  Organization module's assignments table is the system of record; until sync
+  exists, an admin maintains both, and the ADR says so.
 - **MFA, session policy, federation, per-tenant realms.** One realm, one tenant,
   password grants. PRD §4.10 describes what a real deployment adds.

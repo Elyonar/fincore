@@ -28,6 +28,7 @@ public class DevIdentityResolver implements IdentityResolver {
     static final String PRINCIPAL_HEADER = "X-Dev-Principal";
     static final String PERMISSIONS_HEADER = "X-Dev-Permissions";
     static final String SERVICE_HEADER = "X-Dev-Service";
+    static final String UNITS_HEADER = "X-Dev-Units";
 
     public DevIdentityResolver(String[] activeProfiles, String[] sanctionedProfiles) {
         if (!sanctioned(activeProfiles, sanctionedProfiles)) {
@@ -84,9 +85,11 @@ public class DevIdentityResolver implements IdentityResolver {
                 principal,
                 request.getHeader(SERVICE_HEADER),
                 permissions(request.getHeader(PERMISSIONS_HEADER)),
-                null);
+                null,
+                permissions(request.getHeader(UNITS_HEADER)));
     }
 
+    /** Comma-separated header values — used for both permissions and unit codes. */
     private Set<String> permissions(String header) {
         if (header == null || header.isBlank()) {
             return Set.of();

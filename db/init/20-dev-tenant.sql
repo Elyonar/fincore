@@ -1,18 +1,11 @@
--- Local development only. Runs once, at first container start.
+-- The development tenant.
 --
--- Stands in for the provisioning script a real deployment runs: a tenant must
--- exist in `tenants` before it can hold money, and a fresh database otherwise
--- has none, so every request would be refused as an unknown tenant.
+-- This script cannot seed it: init scripts run when the PostgreSQL volume is first created,
+-- before any service has started, so the `tenants` tables Flyway owns do not exist yet.
 --
--- The id is fixed so it can be pasted into X-Tenant-Id and into Swagger UI
--- without looking it up first.
---
--- Note this runs before Flyway creates the table, so it records the intent and
--- the application's own migration backfills nothing; the INSERT below is
--- executed by the ledger on first start via db/init ordering only when the
--- table already exists. For a first-run database, use:
---   docker compose exec postgres psql -U fincore -d ledger \
---     -c "INSERT INTO tenants (id, name, created_by) VALUES
---         ('00000000-0000-0000-0000-00000000dev0','local development','db/init')
---         ON CONFLICT DO NOTHING;"
-SELECT 'dev tenant seeding is documented above; tenants is created by Flyway V6' AS note;
+-- Seeding is done by each service's DevTenantSeeder at startup instead — compose sets
+-- LEDGER_DEV_TENANT_ID, FINCORE_CORE_DEV_TENANT_ID and FINCORE_NOTIFICATION_DEV_TENANT_ID to
+-- 00000000-0000-4000-8000-000000000001, each service registers it in its own registry and
+-- announces having done so. A deployment must never set those variables; real provisioning
+-- belongs to the control plane when it exists.
+SELECT 'dev tenant is seeded by each service at startup (DevTenantSeeder); see compose.yaml' AS note;

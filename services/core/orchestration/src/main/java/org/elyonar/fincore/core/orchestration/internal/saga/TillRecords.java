@@ -31,18 +31,49 @@ public class TillRecords {
         jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenantId.toString());
     }
 
-    /** Provisions a till against an existing ledger account. */
+    /**
+     * Provisions a till against an existing ledger account, inside a validated branch.
+     *
+     * <p>The unit id comes from the Organization module's port, never from the request — the
+     * controller resolves the branch code and refuses a till whose branch does not exist
+     * (ADR 0012). Kept as a plain column rather than a foreign key because the units table is
+     * another module's schema.
+     */
     @Transactional
-    public UUID open(UUID tenantId, String branchCode, UUID ledgerAccountId, String currency, String assignedTo) {
+    public UUID open(
+            UUID tenantId,
+            String branchCode,
+            UUID unitId,
+            UUID ledgerAccountId,
+            String currency,
+            String assignedTo) {
         scopeTo(tenantId);
         return jdbc.queryForObject(
                 """
                 INSERT INTO orchestration.tills
-                    (tenant_id, branch_code, ledger_account_id, currency, assigned_to)
-                VALUES (?,?,?,?,?)
+                    (tenant_id, branch_code, unit_id, ledger_account_id, currency, assigned_to)
+                VALUES (?,?,?,?,?,?)
                 RETURNING id
                 """,
-                UUID.class, tenantId, branchCode, ledgerAccountId, currency, assignedTo);
+                UUID.class, tenantId, branchCode, unitId, ledgerAccountId, currency, assignedTo);
+    }
+
+    /** The tenant's tills, open and closed — the operational inventory a supervisor reads. */
+    @Transactional(readOnly = true)
+    public java.util.List<TillSummary> list(UUID tenantId) {
+        scopeTo(tenantId);
+        return jdbc.query(
+                "SELECT id, branch_code, unit_id, ledger_account_id, currency, assigned_to, status"
+                        + " FROM orchestration.tills ORDER BY branch_code, opened_at",
+                (rs, i) ->
+                        new TillSummary(
+                                rs.getObject("id", UUID.class),
+                                rs.getString("branch_code"),
+                                rs.getObject("unit_id", UUID.class),
+                                rs.getObject("ledger_account_id", UUID.class),
+                                rs.getString("currency"),
+                                rs.getString("assigned_to"),
+                                rs.getString("status")));
     }
 
     /**
@@ -77,4 +108,14 @@ public class TillRecords {
 
     /** An open till and the ledger account it draws on. */
     public record Till(UUID id, UUID ledgerAccountId, String currency) {}
+
+    /** A till as the admin surface lists it. */
+    public record TillSummary(
+            UUID id,
+            String branchCode,
+            UUID unitId,
+            UUID ledgerAccountId,
+            String currency,
+            String assignedTo,
+            String status) {}
 }

@@ -83,13 +83,14 @@ public class TransferService {
                                 command.amountMinor(),
                                 command.currency()));
         if (!decision.permitted()) {
-            throw new TransferRefused(ErrorCode.valueOf(decision.refusal().name()));
+            throw refusalOf(decision);
         }
 
         UUID sagaId =
                 sagas.open(
                         command,
                         decision,
+                        eligibility.kycTier(),
                         // Calendar day in the tenant's business timezone — regulatory tier limits
                         // mean calendar days, and a customer understands a limit that resets at
                         // midnight (design.md).
@@ -147,9 +148,32 @@ public class TransferService {
         if (fee > 0) {
             entries.add(
                     new LedgerPosting.Entry(
-                            command.feeAccountId(), LedgerPosting.Direction.CREDIT, fee, command.currency()));
+                            // The product's configured fee-income account when the pricing names
+                            // one; the caller's only as the documented fallback for published
+                            // versions that predate the configuration column.
+                            decision.feeAccountId() != null ? decision.feeAccountId() : command.feeAccountId(),
+                            LedgerPosting.Direction.CREDIT,
+                            fee,
+                            command.currency()));
         }
         return new LedgerPosting(key, command.initiatedBy(), command.description(), entries);
+    }
+
+    /**
+     * A product refusal as a Core error, with the reason attached where one code spans causes:
+     * {@code LIMIT_EXCEEDED} here always means the per-transaction limit — the daily window is
+     * enforced later, against the day's reservations, and carries {@code DAILY_LIMIT}.
+     */
+    static TransferRefused refusalOf(ProductDecision decision) {
+        ErrorCode code = ErrorCode.valueOf(decision.refusal().name());
+        if (decision.refusal() == ProductDecision.Refusal.LIMIT_EXCEEDED) {
+            return new TransferRefused(
+                    code,
+                    org.elyonar.fincore.core.orchestration.api.ErrorReason.PER_TRANSACTION_LIMIT,
+                    "the amount exceeds the per-transaction limit",
+                    java.util.Map.of());
+        }
+        return new TransferRefused(code);
     }
 
     /** Same key, different economics. A caller bug, and never answered with a silent success. */

@@ -7,7 +7,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * One migration history per module, three of them, run as the schema owner.
+ * One migration history per module, run as the schema owner.
  *
  * <p>Spring Boot's autoconfiguration manages a single {@link Flyway}, which would give the three
  * modules one shared version sequence: adding a table to Product would collide with an unrelated
@@ -31,7 +31,7 @@ public class FlywayConfiguration {
      * ADR 0006 forbids outright. It migrates last because its backfill reads the three that
      * precede it.
      */
-    private static final String[] MODULES = {"customer", "product", "orchestration", "platform"};
+    private static final String[] MODULES = {"customer", "product", "organization", "orchestration", "platform"};
 
     @Bean
     public InitializingBean migrateEveryModule(DataSource ownerDataSource) {

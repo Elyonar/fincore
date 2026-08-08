@@ -1,6 +1,7 @@
 package org.elyonar.fincore.core.product.internal;
 
 import java.util.Map;
+import java.util.UUID;
 import org.elyonar.fincore.core.product.api.ProductDecision;
 import org.elyonar.fincore.core.product.api.ProductDecisions;
 import org.elyonar.fincore.core.product.api.ProductRequest;
@@ -56,7 +57,7 @@ public class JdbcProductDecisions implements ProductDecisions {
         Object versionId = version.get("id");
         int versionNumber = (Integer) version.get("version");
 
-        Long limitMinor = perTransactionLimit(versionId, request);
+        Long limitMinor = limitFor(versionId, request, "PER_TXN");
         if (limitMinor == null) {
             // No limit rule for this tier and channel means the product does not offer this
             // operation to this customer — a refusal, not an unlimited allowance. Deny by default
@@ -67,30 +68,38 @@ public class JdbcProductDecisions implements ProductDecisions {
             return ProductDecision.refused(ProductDecision.Refusal.LIMIT_EXCEEDED, versionNumber);
         }
 
-        return ProductDecision.permitted(fee(versionId, request), limitMinor, versionNumber);
+        Fee fee = fee(versionId, request);
+        // The DAILY rule is stated here and enforced by Orchestration, which holds the day's
+        // running total of reservations. Product cannot enforce it alone: two concurrent
+        // transfers each pass a here-and-now check, which is the race reservations exist for.
+        Long dailyLimitMinor = limitFor(versionId, request, "DAILY");
+        return ProductDecision.permitted(
+                fee.amountMinor(), fee.accountId(), limitMinor, dailyLimitMinor, versionNumber);
     }
 
-    private Long perTransactionLimit(Object versionId, ProductRequest request) {
+    private Long limitFor(Object versionId, ProductRequest request, String limitType) {
         return jdbc.query(
                 """
                 SELECT max_amount_minor FROM product.limit_rules
-                 WHERE product_version_id = ? AND kyc_tier = ? AND channel = ? AND limit_type = 'PER_TXN'
+                 WHERE product_version_id = ? AND kyc_tier = ? AND channel = ? AND limit_type = ?
                 """,
                 rs -> rs.next() ? rs.getLong(1) : null,
                 versionId,
                 request.kycTier(),
-                request.channel());
+                request.channel(),
+                limitType);
     }
 
     /**
      * The fee for this operation. No rule means no fee — an absent price is free, which is the only
      * reading that cannot silently overcharge.
      */
-    private long fee(Object versionId, ProductRequest request) {
-        Map<String, Object> rule =
+    private Fee fee(Object versionId, ProductRequest request) {
+        record Row(String kind, long flat, int bps, long cap, UUID accountId) {}
+        Row rule =
                 jdbc.query(
                         """
-                        SELECT kind, flat_minor, basis_points, cap_minor
+                        SELECT kind, flat_minor, basis_points, cap_minor, fee_account_id
                           FROM product.fee_rules
                          WHERE product_version_id = ? AND operation = ?
                         """,
@@ -98,31 +107,35 @@ public class JdbcProductDecisions implements ProductDecisions {
                             if (!rs.next()) {
                                 return null;
                             }
-                            return Map.of(
-                                    "kind", rs.getString("kind"),
-                                    "flat", rs.getObject("flat_minor") == null ? 0L : rs.getLong("flat_minor"),
-                                    "bps", rs.getObject("basis_points") == null ? 0 : rs.getInt("basis_points"),
-                                    "cap", rs.getObject("cap_minor") == null ? -1L : rs.getLong("cap_minor"));
+                            return new Row(
+                                    rs.getString("kind"),
+                                    rs.getObject("flat_minor") == null ? 0L : rs.getLong("flat_minor"),
+                                    rs.getObject("basis_points") == null ? 0 : rs.getInt("basis_points"),
+                                    rs.getObject("cap_minor") == null ? -1L : rs.getLong("cap_minor"),
+                                    rs.getObject("fee_account_id", UUID.class));
                         },
                         versionId,
                         request.operation().name());
 
         if (rule == null) {
-            return 0L;
+            return new Fee(0L, null);
         }
 
         long computed;
-        if ("FLAT".equals(rule.get("kind"))) {
-            computed = (Long) rule.get("flat");
+        if ("FLAT".equals(rule.kind())) {
+            computed = rule.flat();
         } else {
             // Integer arithmetic throughout. Basis points are hundredths of a percent, so the
             // divisor is 10_000; the division truncates, which rounds the fee *down* — in the
             // customer's favour, and deterministically rather than by a floating-point rule
             // nobody can reproduce.
-            computed = (request.amountMinor() * (Integer) rule.get("bps")) / 10_000L;
+            computed = (request.amountMinor() * rule.bps()) / 10_000L;
         }
 
-        long cap = (Long) rule.get("cap");
-        return cap >= 0 ? Math.min(computed, cap) : computed;
+        long cap = rule.cap();
+        return new Fee(cap >= 0 ? Math.min(computed, cap) : computed, rule.accountId());
     }
+
+    /** The fee and, when configured, the account it credits — pricing facts travel together. */
+    private record Fee(long amountMinor, UUID accountId) {}
 }

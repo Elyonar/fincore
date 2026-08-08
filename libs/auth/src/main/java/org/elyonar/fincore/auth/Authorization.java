@@ -73,4 +73,15 @@ public final class Authorization {
     public static String executedBy() {
         return IdentityContextHolder.require().serviceIdentity();
     }
+
+    /**
+     * The organizational units the caller is assigned to, as unit codes (ADR 0012).
+     *
+     * <p>Asserted by the identity provider, never by the caller — the same trust rule as
+     * permissions. Empty for machine identities and for tenants without organizational units; a
+     * consumer that requires a unit treats an empty set as a refusal, never as "everywhere".
+     */
+    public static java.util.Set<String> units() {
+        return IdentityContextHolder.require().units();
+    }
 }

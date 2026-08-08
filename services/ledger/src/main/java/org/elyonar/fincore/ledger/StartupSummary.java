@@ -104,7 +104,7 @@ public class StartupSummary {
     }
 
     private void describeEventBackbone() {
-        String broker = environment.getProperty("ledger.events.broker", "log");
+        String broker = environment.getProperty("fincore.events.broker", "log");
         if ("log".equals(broker)) {
             // Loud on purpose. A deployment on the logging adapter emits nothing at all, and that
             // is invisible from outside — no error, no backlog, just silence downstream.

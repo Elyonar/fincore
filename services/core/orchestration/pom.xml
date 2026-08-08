@@ -29,6 +29,10 @@
         </dependency>
         <dependency>
             <groupId>org.elyonar</groupId>
+            <artifactId>organization</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.elyonar</groupId>
             <artifactId>auth</artifactId>
             <version>${project.version}</version>
         </dependency>
