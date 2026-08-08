@@ -47,6 +47,24 @@ public class SagaRecords {
                 .formatted(sagaId, amountMinor, feeMinor, currency);
     }
 
+    /**
+     * The immutable snapshot of the decision this saga was opened under — the answer to "why was
+     * this fee ₦20 last March" that survives the configuration moving on. Amounts as decimal
+     * strings inside JSON, matching every other JSON this platform emits.
+     */
+    private static String decisionSnapshot(ProductDecision decision, String channel, String kycTier) {
+        return """
+               {"productVersion":%d,"feeMinor":"%d","feeAccountId":%s,"limitMinor":"%d",               "dailyLimitMinor":%s,"channel":"%s","kycTier":"%s"}"""
+                .formatted(
+                        decision.productVersion(),
+                        decision.feeMinor(),
+                        decision.feeAccountId() == null ? "null" : "\"" + decision.feeAccountId() + "\"",
+                        decision.limitMinor(),
+                        decision.dailyLimitMinor() == null ? "null" : "\"" + decision.dailyLimitMinor() + "\"",
+                        channel,
+                        kycTier);
+    }
+
     private void scopeTo(UUID tenantId) {
         jdbc.queryForObject("SELECT set_config(\'app.tenant_id\', ?, true)", String.class, tenantId.toString());
     }
@@ -144,7 +162,7 @@ public class SagaRecords {
      * "call the Ledger" and "record that we called" is recoverable rather than an orphan posting.
      */
     @Transactional
-    public UUID open(TransferCommand command, ProductDecision decision, String windowKey) {
+    public UUID open(TransferCommand command, ProductDecision decision, String kycTier, String windowKey) {
         scopeTo(command.tenantId());
 
         UUID sagaId =
@@ -152,10 +170,10 @@ public class SagaRecords {
                         """
                         INSERT INTO orchestration.sagas
                             (tenant_id, type, state, channel_idempotency_key, request_fingerprint,
-                             subject_customer_id, product_code, product_version, amount_minor,
+                             subject_customer_id, product_code, product_version, decision, amount_minor,
                              fee_minor, currency, initiated_by, executed_by,
                              from_account_id, to_account_id, fee_account_id)
-                        VALUES (?, 'TRANSFER', 'POSTING', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        VALUES (?, 'TRANSFER', 'POSTING', ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?, ?, ?, ?, ?, ?)
                         RETURNING id
                         """,
                         UUID.class,
@@ -165,6 +183,7 @@ public class SagaRecords {
                         command.customerId(),
                         command.productCode(),
                         decision.productVersion(),
+                        decisionSnapshot(decision, command.channel(), kycTier),
                         command.amountMinor(),
                         decision.feeMinor(),
                         command.currency(),
@@ -213,6 +232,7 @@ public class SagaRecords {
             org.elyonar.fincore.core.orchestration.api.CashCommand command,
             ProductDecision decision,
             TillRecords.Till till,
+            String kycTier,
             String windowKey) {
         scopeTo(command.tenantId());
 
@@ -227,10 +247,10 @@ public class SagaRecords {
                         """
                         INSERT INTO orchestration.sagas
                             (tenant_id, type, state, channel_idempotency_key, request_fingerprint,
-                             subject_customer_id, product_code, product_version, amount_minor,
+                             subject_customer_id, product_code, product_version, decision, amount_minor,
                              fee_minor, currency, initiated_by, executed_by,
                              from_account_id, to_account_id, fee_account_id, till_id)
-                        VALUES (?, ?, 'POSTING', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        VALUES (?, ?, 'POSTING', ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         RETURNING id
                         """,
                         UUID.class,
@@ -241,6 +261,7 @@ public class SagaRecords {
                         command.customerId(),
                         command.productCode(),
                         decision.productVersion(),
+                        decisionSnapshot(decision, command.channel(), kycTier),
                         command.amountMinor(),
                         decision.feeMinor(),
                         command.currency(),

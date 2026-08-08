@@ -42,6 +42,10 @@ public final class CoreProperties {
 
     public static final String OUTBOX_RELAY_INTERVAL_MS = PREFIX + ".outbox.relay.interval-ms";
 
+    public static final String RECONCILIATION_ENABLED = PREFIX + ".reconciliation.enabled";
+    public static final String RECONCILIATION_INTERVAL_MS = PREFIX + ".reconciliation.interval-ms";
+    public static final String RECONCILIATION_LOOKBACK_HOURS = PREFIX + ".reconciliation.lookback-hours";
+
     /**
      * Spring bean names for the per-module datasources and their transaction managers.
      *

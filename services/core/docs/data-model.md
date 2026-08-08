@@ -1,6 +1,6 @@
 # Core — Data Model
 
-**Status:** AGREED v1.13 (2026-08-08) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
+**Status:** AGREED v1.14 (2026-08-08) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
 
 One database, three schemas, one database role per schema. Amounts are integer
 minor units (`BIGINT`), `tenant_id` on **every** row.
@@ -373,6 +373,20 @@ foreign key** into this schema — modules reach each other through published
 interfaces, never tables. Tills validate through the `OrganizationUnits` port
 at creation; approval snapshots are historical fact, and the answer to "which
 branch approved this" must not change when someone is reassigned next month.
+
+### Reconciliation (v1.14)
+
+**`reconciliation_findings`** — invariant 6's evidence. Append-only by trigger,
+one row per saga per kind (`LEDGER_MISSING`, `AMOUNT_MISMATCH`), worker-scoped
+like the sagas it examines. A finding also opens an `ops_cases` row of kind
+`RECONCILIATION_MISMATCH`; a one-open-case-per-saga partial index keeps an
+unfixed mismatch from opening a case per run.
+
+Also as of v1.14: `platform.tenants.business_timezone` (IANA id, default
+`Africa/Lagos`) is the authority for the tenant's business day — the DAILY
+window rolls at that midnight; and `sagas.decision` is finally *written*, a
+JSONB snapshot of version, fee, fee account, both limits, channel and KYC tier
+at Phase A.
 
 ## Rules that apply to every schema
 

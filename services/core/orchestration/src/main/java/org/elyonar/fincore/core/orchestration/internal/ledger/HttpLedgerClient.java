@@ -10,6 +10,7 @@ import java.util.Map;
 import java.util.UUID;
 import org.elyonar.fincore.core.orchestration.api.LedgerOutcome;
 import org.elyonar.fincore.core.orchestration.api.LedgerPosting;
+import org.elyonar.fincore.core.orchestration.api.LedgerRead;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
 
@@ -100,6 +101,38 @@ public class HttpLedgerClient implements LedgerClient {
             // Includes connect failures, read timeouts and resets. The classifier unwraps causes,
             // so a client library wrapping them cannot hide which one happened.
             return OutcomeClassifier.ofTransportFailure(e);
+        }
+    }
+
+    @Override
+    public LedgerRead read(UUID tenantId, UUID ledgerTransactionId) {
+        try {
+            var response =
+                    http.get()
+                            .uri("/v1/transactions/" + ledgerTransactionId)
+                            .header(TENANT_HEADER, tenantId.toString())
+                            .exchange((request, res) -> new RawResponse(res.getStatusCode().value(), readBody(res)), false);
+
+            if (response.status() == 404) {
+                return new LedgerRead.NotFound();
+            }
+            if (response.status() < 200 || response.status() >= 300) {
+                return new LedgerRead.Unknown("status " + response.status());
+            }
+            JsonNode parsed = parse(response.body());
+            if (parsed == null || parsed.get("status") == null || parsed.get("entries") == null) {
+                return new LedgerRead.Unknown("unparseable 2xx body");
+            }
+            long debits = 0;
+            for (JsonNode entry : parsed.get("entries")) {
+                if ("DEBIT".equals(entry.path("direction").asString())) {
+                    // The wire amount is minor units as a decimal string (the ledger's Money.toWire).
+                    debits += Long.parseLong(entry.path("amountMinor").asString());
+                }
+            }
+            return new LedgerRead.Found(parsed.path("status").asString(), debits);
+        } catch (RuntimeException e) {
+            return new LedgerRead.Unknown(e.getClass().getSimpleName());
         }
     }
 

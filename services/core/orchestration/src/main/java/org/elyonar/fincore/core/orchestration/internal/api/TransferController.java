@@ -1,7 +1,6 @@
 package org.elyonar.fincore.core.orchestration.internal.api;
 
 import io.swagger.v3.oas.annotations.tags.Tag;
-import java.time.ZoneId;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
@@ -9,6 +8,7 @@ import java.util.UUID;
 import org.elyonar.fincore.auth.Authorization;
 import org.elyonar.fincore.core.orchestration.api.TransferCommand;
 import org.elyonar.fincore.core.orchestration.api.TransferResult;
+import org.elyonar.fincore.core.orchestration.internal.TenantZones;
 import org.elyonar.fincore.core.orchestration.internal.saga.ReversalService;
 import org.elyonar.fincore.core.orchestration.internal.saga.SagaRecords;
 import org.elyonar.fincore.core.orchestration.internal.saga.TransferService;
@@ -30,20 +30,20 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/v1")
 public class TransferController {
 
-    /** The tenant's business timezone. Moves to tenant configuration once that exists. */
-    private static final ZoneId BUSINESS_ZONE = ZoneId.of("Africa/Lagos");
-
     /** The channels v1 prices and limits by. A new channel is a design amendment, not a string. */
     private static final Set<String> CHANNELS = Set.of("API", "TELLER");
 
     private final TransferService transfers;
     private final ReversalService reversals;
     private final SagaRecords sagas;
+    private final TenantZones zones;
 
-    public TransferController(TransferService transfers, ReversalService reversals, SagaRecords sagas) {
+    public TransferController(
+            TransferService transfers, ReversalService reversals, SagaRecords sagas, TenantZones zones) {
         this.transfers = transfers;
         this.reversals = reversals;
         this.sagas = sagas;
+        this.zones = zones;
     }
 
     @PostMapping("/transfers")
@@ -70,7 +70,8 @@ public class TransferController {
                         request.description(),
                         Authorization.initiatedBy(),
                         identity.serviceIdentity() == null ? "core" : identity.serviceIdentity(),
-                        BUSINESS_ZONE));
+                        // Tenant configuration: the DAILY window rolls at *this* tenant's midnight.
+                        zones.businessZone(identity.tenantId())));
     }
 
     /**

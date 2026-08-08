@@ -106,7 +106,9 @@ public class CashService {
         }
 
         UUID sagaId =
-                sagas.openCash(command, decision, till, "daily:" + LocalDate.now(command.businessZone()));
+                sagas.openCash(
+                        command, decision, till, eligibility.kycTier(),
+                        "daily:" + LocalDate.now(command.businessZone()));
 
         // ---- Phase B ---------------------------------------------------------
         LedgerOutcome outcome =

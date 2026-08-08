@@ -8,6 +8,23 @@ Newest entry first.
 
 ---
 
+## [1.5.0] — 2026-08-08 · MINOR
+
+**The queue's documented alarms get measurements.**
+
+- **Docs:** `testing.md`
+- **Why:** the README's known-limitations table said it plainly: "nothing
+  exports a queue depth or a suppression rate, so no alarm in the design has a
+  measurement behind it."
+- **What changed:** `SendMetrics` exposes `/actuator/prometheus` gauges —
+  queue depth (PENDING + SENDING), oldest-pending age (the delivery-delay
+  alert's number), and exhausted-attempts count. Reads run in worker scope in
+  their own transaction, from the table on every scrape, so a stalled worker
+  still reports its backlog honestly. Segment *cost* (money per message) still
+  waits on a gateway that can report it; the README row narrows accordingly.
+
+---
+
 ## [1.4.0] — 2026-08-08 · MINOR
 
 **What happens when the listener throws is now stated, not defaulted.**

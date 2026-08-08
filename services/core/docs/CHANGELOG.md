@@ -8,6 +8,54 @@ entry first.
 
 ---
 
+## [1.14.0] — 2026-08-08 · MINOR
+
+**The safety net under the money path: invariant 6 runs, crashes are injected, alarms are measured.**
+
+- **Docs:** `testing.md`, `data-model.md`, `design.md`, `architecture.md`
+- **Why:** the service's two strongest claims — "Core and the Ledger agree" and
+  "complete or compensated, never partial" — were prose. Invariant 6 was
+  "specified and not yet running on a schedule"; the failure-injection suite was
+  named "the primary suite here" and did not exist; and every documented alarm
+  threshold had no measurement behind it.
+- **What changed:**
+  - **Reconciliation runs** (`internal/reconcile`, hourly by default, worker
+    identity). Every saga COMPLETED inside the lookback window is read back
+    from the Ledger: the transaction must exist and its debit total must equal
+    principal + fee. A violation is an append-only
+    `reconciliation_findings` row (unique per saga and kind — an unfixed
+    mismatch never multiplies) and an ops case of new kind
+    `RECONCILIATION_MISMATCH`, arbitrated by a one-open-case-per-saga partial
+    index. An unreachable ledger records **nothing**: a maintenance window is
+    not a discrepancy. The ledger client gains its first non-mutating read
+    (`LedgerRead`: Found / NotFound / Unknown — three-valued like everything
+    else). Deliberately not probed: FAILED sagas, because "the ledger posted
+    but the saga failed" needs a read-by-idempotency-key the Ledger does not
+    offer, and re-posting the key to find out could *make* it true. That half
+    waits on a ledger amendment and testing.md says so.
+  - **The failure-injection suite exists** and drives each crash window to
+    convergence: after Phase A before the call, mid-call with the answer lost,
+    after the ledger committed but before Phase C, and a worker dying
+    mid-lease. The repeated assertion is the load-bearing one: recovery
+    re-sends the *original derived key* — replay, never a second posting.
+  - **The tenant business timezone is configuration**
+    (`platform.tenants.business_timezone`, IANA id, default Africa/Lagos).
+    It stopped being cosmetic when DAILY limits became enforced: the window
+    rolls at the *tenant's* midnight now, not Lagos's. Unparseable zones fall
+    back loudly rather than refusing money movement over a typo.
+  - **`sagas.decision` is written.** The column existed since V2 and nothing
+    populated it; Phase A now snapshots the whole decision (version, fee, fee
+    account, both limits, channel, KYC tier), so a past transaction stays
+    explicable to an examiner after the configuration moves on.
+  - **Metrics exist** (`/actuator/prometheus`): outbox pending and oldest-age,
+    outstanding sagas, open ops cases — read from the tables on scrape, never
+    counted in memory, so a stalled relay still reports its backlog honestly.
+- **Known gaps, honestly:** reconciliation covers COMPLETED sagas only (above);
+  entry-level fee-account verification (which account the fee credited, not
+  just the total) joins the suite when the read carries account roles.
+
+---
+
 ## [1.13.0] — 2026-08-08 · MINOR
 
 **Organizational units arrive (ADR 0012), and three caller assertions stop being taken on trust.**

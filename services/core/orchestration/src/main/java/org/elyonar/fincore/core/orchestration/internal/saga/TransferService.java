@@ -90,6 +90,7 @@ public class TransferService {
                 sagas.open(
                         command,
                         decision,
+                        eligibility.kycTier(),
                         // Calendar day in the tenant's business timezone — regulatory tier limits
                         // mean calendar days, and a customer understands a limit that resets at
                         // midnight (design.md).

@@ -193,7 +193,7 @@ discovered. Per-suite status lives in [`docs/testing.md`](docs/testing.md).
 | Consumed events | None. Core is command-driven, so consumer-side dedupe and epoch fencing are not built here — Notification builds them first |
 | Interest accrual | Not built, and deliberately unassigned for deposits. Product's rule model carries FLAT/PERCENT fees and PER_TXN/DAILY limits only |
 | Identity | `libs/auth` validates tokens, but the deployed realm model is not provisioned; dev mode uses headers and announces itself |
-| Reconciliation | Invariant 6 — Core and the Ledger agree — is specified and **not yet running on a schedule** |
+| Reconciliation | Runs hourly against COMPLETED sagas (v1.14). The FAILED-saga half waits on a ledger read-by-key amendment; see `testing.md` |
 | Fee account fallback | Published versions predating `fee_rules.fee_account_id` cannot be edited to carry it (published versions are immutable), so for those the caller-supplied account still applies. Ages out as versions are republished |
 | Unit scope | Organizational units exist and are attributed (ADR 0012), but no endpoint yet *requires* one — unit-scoped authorization arrives with the teller application |
 | Performance | Targets in `architecture.md` are intent. Nothing has been benchmarked |

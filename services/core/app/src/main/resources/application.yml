@@ -101,7 +101,7 @@ management:
     web:
       exposure:
         # Deliberately limited, as in the ledger. An actuator surface is an attack surface.
-        include: health,info
+        include: health,info,prometheus
   endpoint:
     health:
       probes:

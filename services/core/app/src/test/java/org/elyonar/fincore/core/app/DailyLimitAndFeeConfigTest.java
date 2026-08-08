@@ -64,8 +64,12 @@ class DailyLimitAndFeeConfigTest {
         ledger.createContext(
                 "/",
                 exchange -> {
-                    lastRequest.set(
-                            new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+                    String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+                    // Capture postings only: an empty-bodied request (a read, a probe) must not
+                    // clobber the posting this suite is about to assert against.
+                    if ("POST".equals(exchange.getRequestMethod()) && !body.isEmpty()) {
+                        lastRequest.set(body);
+                    }
                     byte[] bytes =
                             ("{\"transactionId\":\"" + UUID.randomUUID() + "\"}").getBytes(StandardCharsets.UTF_8);
                     exchange.getResponseHeaders().add("Content-Type", "application/json");
@@ -86,6 +90,8 @@ class DailyLimitAndFeeConfigTest {
         registry.add("fincore.core.ledger.base-url", () -> "http://127.0.0.1:" + ledger.getAddress().getPort());
         registry.add("fincore.core.worker.interval-ms", () -> "3600000");
         registry.add("fincore.core.outbox.relay.interval-ms", () -> "3600000");
+        // Anchors this class to its own application context and stub ledger; see ReconciliationTest.
+        registry.add("fincore.test.context", () -> "daily-limit-and-fee");
     }
 
     @BeforeEach

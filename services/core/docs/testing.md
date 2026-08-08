@@ -1,6 +1,6 @@
 # Core — Invariants & Test Strategy
 
-**Status:** AGREED v1.13 (2026-08-08) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
+**Status:** AGREED v1.14 (2026-08-08) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
 
 **Suites are marked `IMPLEMENTED` / `PARTIAL` / `DEFERRED` individually, and only
 `IMPLEMENTED` ones gate merges.** An unmarked suite is not yet written. This
@@ -97,11 +97,16 @@ injection tests that claim. For the ledger, injection tests hardened a design
 that was already provable from its schema; for Core there is no equivalent
 structural proof, because the failure window spans a network.
 
-**Failure-injection suite.** Kill the database connection at each phase
-boundary — after Phase A commits and before the ledger call; mid-call; after the
-ledger commits and before Phase C records it. Assert every case converges, on
-recovery, to a state consistent with what the ledger actually holds. Kill the
-worker mid-lease and assert another instance reclaims and retries the same key.
+**Failure-injection suite — IMPLEMENTED (v1.14),** as `FailureInjectionTest`:
+each crash window driven to convergence — after Phase A commits and before the
+ledger call; mid-call with the outcome unknown; after the ledger commits and
+before Phase C records it; and a worker dying mid-lease, reclaimed by another
+under the same key. The crash is simulated by construction (a saga opened and
+never driven *is* the after-Phase-A crash; a stub answering 500 *is* the lost
+response); what a literal connection kill adds — mid-statement termination
+inside Phase A — is PostgreSQL's transaction atomicity, which the ledger's
+suite already exercises. The repeated assertion is the load-bearing one: every
+recovery path re-sends the original derived key.
 
 **Outcome-classification suite.** A ledger stub returning each response class —
 2xx, every 4xx in the ledger's catalog, 5xx, read timeout, connection refused
@@ -202,10 +207,16 @@ probes on every mutating endpoint; no tenant context ⇒ no rows; and the
 tenant B on the same physical connection, assert A's rows are invisible. A
 session-scoped `SET` passes every other test and fails this one.
 
-**Reconciliation suite.** Invariant 6 as a runnable job, with planted
-discrepancies: a saga marked complete whose ledger transaction does not exist; a
-ledger transaction under a derived key whose saga says failed; entries that do
-not match the decided fee. Every planted mismatch must be flagged.
+**Reconciliation suite — IMPLEMENTED (v1.14),** as `ReconciliationTest`
+against the scheduled job in `internal/reconcile`: planted discrepancies — a
+completed saga the ledger never saw, debits that disagree with the decided
+amount — are each flagged exactly once (append-only finding + one ops case,
+however many runs re-observe them), and an unreachable ledger records nothing.
+**Deliberately not covered:** a ledger transaction whose saga says FAILED.
+Detecting it needs a read-by-idempotency-key on the Ledger's API, which does
+not exist; re-posting the key to find out could *make* it true. That half of
+the invariant waits on a ledger amendment and is recorded here rather than
+implied covered.
 
 **Organization & trust-boundary suites (v1.13).** `OrgUnitApiTest` — the tree
 over HTTP: creation, parents, closure, assignment/revocation, deny-by-default,

@@ -3,6 +3,7 @@ package org.elyonar.fincore.core.orchestration.internal.ledger;
 import java.util.UUID;
 import org.elyonar.fincore.core.orchestration.api.LedgerOutcome;
 import org.elyonar.fincore.core.orchestration.api.LedgerPosting;
+import org.elyonar.fincore.core.orchestration.api.LedgerRead;
 
 /**
  * What Core may ask the Ledger to do.
@@ -26,4 +27,10 @@ public interface LedgerClient {
 
     /** Reverses a previously posted transaction, under its own derived key. */
     LedgerOutcome reverse(UUID tenantId, UUID ledgerTransactionId, String idempotencyKey, String initiatedBy);
+
+    /**
+     * Reads a transaction back — non-mutating, for reconciliation and recovery. Never throws;
+     * "could not ask" is an answer ({@link LedgerRead.Unknown}), not an exception.
+     */
+    LedgerRead read(UUID tenantId, UUID ledgerTransactionId);
 }
