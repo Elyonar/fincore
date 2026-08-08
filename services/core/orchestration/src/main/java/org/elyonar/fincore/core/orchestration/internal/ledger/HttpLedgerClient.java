@@ -30,6 +30,11 @@ public class HttpLedgerClient implements LedgerClient {
     private final ObjectMapper json;
 
     public HttpLedgerClient(String baseUrl, Duration connectTimeout, Duration readTimeout, ObjectMapper json) {
+        this(baseUrl, connectTimeout, readTimeout, json, null);
+    }
+
+    public HttpLedgerClient(
+            String baseUrl, Duration connectTimeout, Duration readTimeout, ObjectMapper json, String serviceToken) {
         // Timeouts are not optional. Without a read timeout an unresponsive Ledger holds a worker
         // thread indefinitely, which turns one partner's stall into Core's outage.
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
@@ -38,6 +43,28 @@ public class HttpLedgerClient implements LedgerClient {
 
         this.http = RestClient.builder().baseUrl(baseUrl).requestFactory(factory).build();
         this.json = json;
+        this.serviceToken = serviceToken == null || serviceToken.isBlank() ? null : serviceToken;
+    }
+
+    /**
+     * Core's own credential for addressing the ledger in jwt mode (ADR 0014) — a service token
+     * for the {@code core} client. Null in dev/header mode, where the tenant header suffices.
+     */
+    private final String serviceToken;
+
+    /**
+     * Identity on every outbound call: the tenant header the ledger scopes on (asserted by this
+     * verified caller for its system jobs), Core's service credential when configured, and — when
+     * this thread is serving an authenticated request — the originating user's token, forwarded so
+     * the ledger records attribution as a verified fact (outbound propagation, ADR 0014).
+     */
+    private void identity(org.springframework.http.HttpHeaders headers, UUID tenantId) {
+        headers.set(TENANT_HEADER, tenantId.toString());
+        if (serviceToken != null) {
+            headers.set("Authorization", "Bearer " + serviceToken);
+        }
+        org.elyonar.fincore.auth.Authorization.bearer()
+                .ifPresent(bearer -> headers.set("X-Forwarded-Authorization", "Bearer " + bearer));
     }
 
     /**
@@ -75,7 +102,7 @@ public class HttpLedgerClient implements LedgerClient {
             var response =
                     http.post()
                             .uri(path)
-                            .header(TENANT_HEADER, tenantId.toString())
+                            .headers(h -> identity(h, tenantId))
                             .body(body)
                             // Every status is handled here rather than thrown, so a 4xx and a 5xx
                             // travel the same code path into the classifier and cannot be
@@ -110,7 +137,7 @@ public class HttpLedgerClient implements LedgerClient {
             var response =
                     http.get()
                             .uri("/v1/transactions/" + ledgerTransactionId)
-                            .header(TENANT_HEADER, tenantId.toString())
+                            .headers(h -> identity(h, tenantId))
                             .exchange((request, res) -> new RawResponse(res.getStatusCode().value(), readBody(res)), false);
 
             if (response.status() == 404) {
@@ -133,6 +160,22 @@ public class HttpLedgerClient implements LedgerClient {
             return new LedgerRead.Found(parsed.path("status").asString(), debits);
         } catch (RuntimeException e) {
             return new LedgerRead.Unknown(e.getClass().getSimpleName());
+        }
+    }
+
+    @Override
+    public LedgerClient.RawRead get(UUID tenantId, String pathAndQuery) {
+        try {
+            var response =
+                    http.get()
+                            .uri(pathAndQuery)
+                            .headers(h -> identity(h, tenantId))
+                            .exchange((request, res) -> new RawResponse(res.getStatusCode().value(), readBody(res)), false);
+            return new LedgerClient.RawRead(response.status(), response.body());
+        } catch (RuntimeException e) {
+            // Transport failure: status 0, no body. The caller answers 503 — "could not ask" is
+            // an answer, never an invented result.
+            return new LedgerClient.RawRead(0, null);
         }
     }
 

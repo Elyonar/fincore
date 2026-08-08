@@ -28,4 +28,15 @@ public interface CustomerEligibility {
      * failure from a customer who may not transact, and the two deserve distinct error codes.
      */
     boolean holdsAccount(UUID tenantId, UUID customerId, UUID ledgerAccountId);
+
+    /**
+     * The accounts this customer currently holds — the customer-360 read (ui-runway.md §3).
+     *
+     * <p>Account ids, currencies and roles only: the money side (balances) is the ledger's answer
+     * and Orchestration joins the two. Still no names, no documents, no PII — the narrowness of
+     * this port is load-bearing and this method keeps its discipline.
+     */
+    java.util.List<HeldAccount> heldAccounts(UUID tenantId, UUID customerId);
+
+    record HeldAccount(UUID ledgerAccountId, String currency, String role) {}
 }

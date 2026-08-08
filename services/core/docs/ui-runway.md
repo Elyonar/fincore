@@ -1,6 +1,6 @@
 # Core — The UI Runway
 
-**Status:** AGREED v1.18 (2026-08-08) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
+**Status:** AGREED v1.19 (2026-08-08) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
 
 The bridge between the APIs that exist and the client apps that will consume
 them ([ADR 0014](../../../docs/adr/0014-ui-runway.md)): identity made real,
@@ -61,19 +61,19 @@ today. **Planned** rows are this design's implementation checklist and enter
 
 | Screen | Needs | State |
 |---|---|---|
-| Login | realm per tenant, PKCE flow | Planned (template + script) |
+| Login | realm per tenant, PKCE flow | **Built** (`keycloak/realm-template.json` + `scripts/provision-tenant.sh`) |
 | Teller till | open/close till, till list | **Built** (`/v1/tills…`) |
-| Teller till | the till's day: movements + running position | Planned: `GET /v1/tills/{id}/activity?date=` |
-| Customer search | find by name/external ref | Planned: `GET /v1/customers?q=&page=` |
+| Teller till | the till's day: movements + running position | **Built** (`GET /v1/tills/{id}/activity?date=`) |
+| Customer search | find by name/external ref | **Built** (`GET /v1/customers?q=&page=`) |
 | Customer 360 | profile, tier, status | **Built** (`GET /v1/customers/{id}`) |
-| Customer 360 | accounts with balances | Planned: `GET /v1/customers/{id}/accounts` (ledger-read proxy) |
-| Statement print | period statement, final/interim label | Planned: `GET /v1/accounts/{ledgerAccountId}/statement?from=&to=` (proxy) |
+| Customer 360 | accounts with balances | **Built** (`GET /v1/customers/{id}/accounts`, ledger-read proxy) |
+| Statement print | period statement, final/interim label | **Built** (`GET /v1/accounts/{ledgerAccountId}/statement?from=&to=`, byte-for-byte proxy) |
 | Deposit / withdraw / transfer | the money paths | **Built** |
-| Reversal + approvals | pending approvals for this checker | Planned: `GET /v1/approvals/pending` |
-| Loan desk | applications by state / awaiting my signature | Planned: `GET /v1/loan-applications?state=&awaiting=me&page=` |
-| Loan desk | a customer's loans | Planned: `GET /v1/customers/{id}/loans` |
+| Reversal + approvals | pending approvals for this checker | **Built** (`GET /v1/approvals/pending`) |
+| Loan desk | applications by state / awaiting my signature | **Built** (`GET /v1/loan-applications?state=&awaiting=me&page=`) |
+| Loan desk | a customer's loans | **Built** (`GET /v1/customers/{id}/loans`) |
 | Loan account | balances, schedule, payoff | **Built** (`/v1/loans/{id}…`) |
-| Loan account | repayment history | Planned: `GET /v1/loans/{id}/repayments` |
+| Loan account | repayment history | **Built** (`GET /v1/loans/{id}/repayments`) |
 | Product config | products and versions | **Built** (`GET /v1/products`) |
 | Report preview | PAR by bucket × product × officer × unit | **Built** (`GET /v1/portfolio/par`) |
 | Ops | unresolved-outcome cases | **Built** (`GET /v1/ops/cases`) |

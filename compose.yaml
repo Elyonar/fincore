@@ -141,6 +141,20 @@ services:
       retries: 20
       start_period: 30s
 
+  # The edge (ADR 0014): one origin for client apps, TLS termination in deployments, path
+  # routing, bearer passed through untouched. Deliberately no route to the ledger.
+  edge:
+    image: nginx:1.27-alpine
+    profiles: ["edge"]
+    depends_on:
+      core:
+        condition: service_healthy
+    volumes:
+      - ./edge/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./edge/html:/usr/share/nginx/html:ro
+    ports:
+      - "${FINCORE_EDGE_PORT:-8088}:80"
+
   ledger:
     build:
       # Root context: the Dockerfile builds through the Maven reactor, so it
@@ -170,6 +184,13 @@ services:
       # Seeds the development tenant at startup, loudly. Local stacks only —
       # a deployment must never set this (tenant/DevTenantSeeder).
       LEDGER_DEV_TENANT_ID: 00000000-0000-4000-8000-000000000001
+      # Ledger identity (ADR 0014): header mode is the dev stand-in, double-locked to a
+      # sanctioned profile exactly like libs/auth's dev mode. Set FINCORE_LEDGER_AUTH_MODE=jwt
+      # (with the issuer/JWKS pair below) to verify service credentials for real.
+      FINCORE_LEDGER_AUTH_MODE: ${FINCORE_LEDGER_AUTH_MODE:-header}
+      FINCORE_LEDGER_AUTH_ISSUER_URI: ${FINCORE_AUTH_ISSUER_URI:-}
+      FINCORE_LEDGER_AUTH_JWKS_URI: ${FINCORE_AUTH_JWKS_URI:-}
+      SPRING_PROFILES_ACTIVE: ${FINCORE_LEDGER_PROFILE:-dev}
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       SPRING_RABBITMQ_HOST: rabbitmq
       SPRING_RABBITMQ_USERNAME: fincore
@@ -241,6 +262,9 @@ services:
       # token both say; this is a name only the compose network resolves. Set together, or
       # neither.
       FINCORE_AUTH_JWKS_URI: ${FINCORE_AUTH_JWKS_URI:-}
+      # Core's own credential for addressing the ledger in jwt mode (ADR 0014): a service token
+      # minted for the `core` client. Unset in dev — header mode needs none.
+      FINCORE_CORE_LEDGER_SERVICE_TOKEN: ${FINCORE_CORE_LEDGER_SERVICE_TOKEN:-}
       SPRING_PROFILES_ACTIVE: ${FINCORE_CORE_PROFILE:-dev}
     ports:
       # Published on 58081 for the same reason the ledger uses 58080: Core's own tests bind 8081.

@@ -1,6 +1,6 @@
 # Core — Invariants & Test Strategy
 
-**Status:** AGREED v1.18 (2026-08-08) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
+**Status:** AGREED v1.19 (2026-08-08) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
 
 **Suites are marked `IMPLEMENTED` / `PARTIAL` / `DEFERRED` individually, and only
 `IMPLEMENTED` ones gate merges.** An unmarked suite is not yet written. This
@@ -252,6 +252,17 @@ per-repayment derived key, replays converge (job rerun posts nothing twice),
 `recognized_interest_minor` advances only by posted amounts, and an unconfigured version resolves
 as a recorded no-op. Funding account: the configured `loan_rules.funding_account_id` overrides
 the caller's on disburse.
+
+**UI-runway suites (v1.19).** `UiReadsApiTest` — every screen-opener from `ui-runway.md` §3
+with the standing probes: search by name and reference with keyset pages that stay disjoint and
+ordered under an opaque cursor; balances joined from the ledger with "could not ask" answered as
+503 and never as zero; the statement passed through byte-identical including a 404; the till's
+day with a consistent net; the checker's queue; the loan desk's awaiting-me filter reproducing
+the approve guard's own conditions; deny-by-default and cross-tenant emptiness on all of them.
+`JwtEndToEndTest` — Core in jwt mode against a local JWKS: dev headers inert, health open,
+missing permission 403, and a full disbursement on real tokens with the outbound side asserted —
+the ledger stub must receive Core's service credential and the forwarded user bearer. The
+ledger's own `LedgerJwtAuthTest` covers the receiving half.
 
 ## What is deliberately not tested in v1
 

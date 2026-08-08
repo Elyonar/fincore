@@ -141,6 +141,61 @@ public class LendingController {
                 identity.serviceIdentity() == null ? "core" : identity.serviceIdentity());
     }
 
+    /** The loan desk's opening screen: applications by state, or awaiting my signature. */
+    @GetMapping("/loan-applications")
+    public Map<String, Object> applications(
+            @org.springframework.web.bind.annotation.RequestParam(required = false) String state,
+            @org.springframework.web.bind.annotation.RequestParam(required = false) String awaiting,
+            @org.springframework.web.bind.annotation.RequestParam(required = false) String page) {
+        var identity = Authorization.require("loans:read");
+        String awaitingPrincipal = "me".equals(awaiting) ? Authorization.initiatedBy() : null;
+        UUID after = decodeCursor(page);
+        var rows = records.applications(identity.tenantId(), state, awaitingPrincipal, after, 51);
+        boolean more = rows.size() > 50;
+        var pageRows = more ? rows.subList(0, 50) : rows;
+        var view = new java.util.LinkedHashMap<String, Object>();
+        view.put("applications", pageRows);
+        view.put(
+                "nextPage",
+                more
+                        ? java.util.Base64.getUrlEncoder()
+                                .withoutPadding()
+                                .encodeToString(
+                                        ((String) pageRows.get(pageRows.size() - 1).get("applicationId"))
+                                                .getBytes(java.nio.charset.StandardCharsets.UTF_8))
+                        : null);
+        return view;
+    }
+
+    private static UUID decodeCursor(String page) {
+        if (page == null || page.isBlank()) {
+            return null;
+        }
+        try {
+            return UUID.fromString(
+                    new String(
+                            java.util.Base64.getUrlDecoder().decode(page),
+                            java.nio.charset.StandardCharsets.UTF_8));
+        } catch (RuntimeException e) {
+            return null; // an unreadable cursor restarts from the top rather than erroring
+        }
+    }
+
+    /** The customer-360 lending panel. */
+    @GetMapping("/customers/{id}/loans")
+    public Map<String, Object> customerLoans(@PathVariable UUID id) {
+        var identity = Authorization.require("loans:read");
+        return Map.of("customerId", id.toString(), "loans", records.loansOf(identity.tenantId(), id));
+    }
+
+    /** A loan's repayment history, with the component split per repayment. */
+    @GetMapping("/loans/{id}/repayments")
+    public Map<String, Object> repayments(@PathVariable UUID id) {
+        var identity = Authorization.require("loans:read");
+        loans.requireLoan(identity.tenantId(), id);
+        return Map.of("loanId", id.toString(), "repayments", records.repaymentsOf(identity.tenantId(), id));
+    }
+
     @GetMapping("/portfolio/par")
     public List<Map<String, Object>> portfolioAtRisk() {
         var identity = Authorization.require("loans:portfolio");

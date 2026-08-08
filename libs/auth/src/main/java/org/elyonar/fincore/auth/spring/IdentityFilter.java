@@ -57,18 +57,34 @@ public class IdentityFilter extends OncePerRequestFilter {
             return;
         }
 
+        // The raw bearer rides along only when the resolver actually verified it (ADR 0014's
+        // outbound propagation). A dev-mode header assertion must never be forwarded: propagation
+        // would launder it into something downstream mistakes for a credential.
+        String bearer = resolver.verifies() ? rawBearer(request) : null;
         try {
-            IdentityContextHolder.callIn(
-                    context,
-                    () -> {
-                        chain.doFilter(request, response);
-                        return null;
-                    });
+            org.elyonar.fincore.auth.PropagatedBearer.callWith(
+                    bearer,
+                    () ->
+                            IdentityContextHolder.callIn(
+                                    context,
+                                    () -> {
+                                        chain.doFilter(request, response);
+                                        return null;
+                                    }));
         } catch (ServletException | IOException | RuntimeException e) {
             throw e;
         } catch (Exception e) {
             throw new ServletException(e);
         }
+    }
+
+    private static String rawBearer(HttpServletRequest request) {
+        String header = request.getHeader("Authorization");
+        if (header == null || !header.regionMatches(true, 0, "Bearer ", 0, 7)) {
+            return null;
+        }
+        String token = header.substring(7).trim();
+        return token.isEmpty() ? null : token;
     }
 
     private boolean isOpen(String path) {

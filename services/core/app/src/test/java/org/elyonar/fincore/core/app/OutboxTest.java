@@ -233,11 +233,27 @@ class OutboxTest {
 
     // ----------------------------------------------------------------- the relay
 
+    /**
+     * Publishes until nothing is pending. The suite's shared database accumulates other tests'
+     * events, and a single batch is the oldest N rows — not necessarily ours. What this class
+     * asserts is per-row effects, so each probe drains rather than counting on one batch.
+     */
+    private void drainRelay() {
+        int guard = 0;
+        while (relay.publishBatch(500) > 0 && ++guard < 100) {
+            // draining
+        }
+    }
+
     @Test
     void the_relay_publishes_pending_events_and_marks_them() {
         UUID sagaId = transfer("ob-relay");
 
-        assertThat(relay.publishBatch(100)).isPositive();
+        // The effect is asserted, not the return: cached test contexts keep live relay
+        // schedulers, and any of them may win the race to this row — or a backlog of other
+        // tests' rows may fill the batch. Whoever wins runs the same code; the claim under test
+        // is "pending events get published and marked".
+        drainRelay();
 
         assertThat(
                         relayDb.queryForObject(
@@ -249,10 +265,25 @@ class OutboxTest {
 
     @Test
     void a_published_event_is_not_published_twice() {
-        transfer("ob-once");
-        relay.publishBatch(100);
+        UUID sagaId = transfer("ob-once");
+        drainRelay();
 
-        assertThat(relay.publishBatch(100)).isZero();
+        // Not-twice is a fact about this row, not about the batch counter — a concurrent relay
+        // in another cached context can make the counter say anything. The published_at stamp
+        // moving would be the double publish.
+        var stamped =
+                relayDb.queryForObject(
+                        "SELECT published_at FROM orchestration.outbox_events"
+                                + " WHERE aggregate_id = ? AND event_type = 'transfer.initiated'",
+                        java.time.OffsetDateTime.class, sagaId.toString());
+        assertThat(stamped).isNotNull();
+        drainRelay();
+        assertThat(
+                        relayDb.queryForObject(
+                                "SELECT published_at FROM orchestration.outbox_events"
+                                        + " WHERE aggregate_id = ? AND event_type = 'transfer.initiated'",
+                                java.time.OffsetDateTime.class, sagaId.toString()))
+                .isEqualTo(stamped);
     }
 
     @Test
@@ -287,7 +318,7 @@ class OutboxTest {
 
             // Still uncommitted. Meanwhile a later event is written and relayed.
             UUID fastSaga = transfer("ob-latecommit");
-            assertThat(relay.publishBatch(100)).isPositive();
+            drainRelay(); // the effect below is the assertion; a single batch's count races
             assertThat(
                             relayDb.queryForObject(
                                     "SELECT count(*) FROM orchestration.outbox_events"
@@ -301,7 +332,7 @@ class OutboxTest {
             throw new IllegalStateException(e);
         }
 
-        relay.publishBatch(100);
+        drainRelay();
 
         assertThat(
                         relayDb.queryForObject(

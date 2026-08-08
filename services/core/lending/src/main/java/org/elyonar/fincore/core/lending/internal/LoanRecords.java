@@ -579,6 +579,121 @@ public class LoanRecords {
     public record RecognitionCandidate(
             UUID loanId, String state, boolean recognized, long interestMinor, long penaltyMinor) {}
 
+    // ---------------------------------------------------------------- screen lists (ui-runway.md §3)
+
+    /**
+     * Applications, filterable by state and by "awaiting my signature" — the loan desk's opening
+     * screen. Keyset-paginated on id; the awaiting filter reproduces the approve guard's own
+     * conditions (applicant may not sign, one signature per principal, chain unsatisfied), so the
+     * queue never lists an application the sign button would refuse.
+     */
+    @Transactional(readOnly = true, transactionManager = LendingBeans.TRANSACTION_MANAGER)
+    public List<Map<String, Object>> applications(
+            UUID tenantId, String state, String awaitingPrincipal, UUID afterId, int limit) {
+        scopeTo(tenantId);
+        return jdbc.query(
+                """
+                SELECT la.id, la.customer_id, la.product_code, la.amount_minor, la.term_months,
+                       la.currency, la.state, la.approvals_required, la.applied_by, la.created_at,
+                       (SELECT count(*) FROM lending.loan_approvals a WHERE a.application_id = la.id) AS approvals
+                  FROM lending.loan_applications la
+                 WHERE (?::text IS NULL OR la.state = ?)
+                   AND (?::uuid IS NULL OR la.id > ?::uuid)
+                   AND (?::text IS NULL OR (
+                        la.state = 'APPLIED'
+                        AND la.applied_by <> ?
+                        AND NOT EXISTS (SELECT 1 FROM lending.loan_approvals a
+                                         WHERE a.application_id = la.id AND a.approved_by = ?)
+                        AND (SELECT count(*) FROM lending.loan_approvals a
+                              WHERE a.application_id = la.id) < la.approvals_required))
+                 ORDER BY la.id
+                 LIMIT ?
+                """,
+                (rs, i) -> {
+                    var row = new java.util.LinkedHashMap<String, Object>();
+                    row.put("applicationId", rs.getObject("id", UUID.class).toString());
+                    row.put("customerId", rs.getObject("customer_id", UUID.class).toString());
+                    row.put("productCode", rs.getString("product_code"));
+                    row.put("amountMinor", money(rs.getLong("amount_minor")));
+                    row.put("termMonths", rs.getInt("term_months"));
+                    row.put("currency", rs.getString("currency"));
+                    row.put("state", rs.getString("state"));
+                    row.put("approvals", rs.getInt("approvals"));
+                    row.put("approvalsRequired", rs.getInt("approvals_required"));
+                    row.put("appliedBy", rs.getString("applied_by"));
+                    row.put("createdAt", rs.getObject("created_at", java.time.OffsetDateTime.class).toString());
+                    return row;
+                },
+                state, state, afterId, afterId,
+                awaitingPrincipal, awaitingPrincipal, awaitingPrincipal, limit);
+    }
+
+    /** A customer's loans — the 360 view's lending panel. */
+    @Transactional(readOnly = true, transactionManager = LendingBeans.TRANSACTION_MANAGER)
+    public List<Map<String, Object>> loansOf(UUID tenantId, UUID customerId) {
+        scopeTo(tenantId);
+        return jdbc.query(
+                """
+                SELECT id, product_code, principal_minor, principal_outstanding_minor,
+                       accrued_interest_minor, penalty_charged_minor, penalty_paid_minor,
+                       currency, current_bucket, state, disbursed_on
+                  FROM lending.loans
+                 WHERE customer_id = ?
+                 ORDER BY disbursed_on DESC, id
+                """,
+                (rs, i) -> {
+                    var row = new java.util.LinkedHashMap<String, Object>();
+                    row.put("loanId", rs.getObject("id", UUID.class).toString());
+                    row.put("productCode", rs.getString("product_code"));
+                    row.put("principalMinor", money(rs.getLong("principal_minor")));
+                    row.put("principalOutstandingMinor", money(rs.getLong("principal_outstanding_minor")));
+                    row.put(
+                            "payoffMinor",
+                            money(
+                                    rs.getLong("principal_outstanding_minor")
+                                            + rs.getLong("accrued_interest_minor")
+                                            + rs.getLong("penalty_charged_minor")
+                                            - rs.getLong("penalty_paid_minor")));
+                    row.put("currency", rs.getString("currency"));
+                    row.put("bucket", rs.getString("current_bucket"));
+                    row.put("state", rs.getString("state"));
+                    row.put("disbursedOn", rs.getObject("disbursed_on", LocalDate.class).toString());
+                    return row;
+                },
+                customerId);
+    }
+
+    /** A loan's repayment history — evidence, oldest first. */
+    @Transactional(readOnly = true, transactionManager = LendingBeans.TRANSACTION_MANAGER)
+    public List<Map<String, Object>> repaymentsOf(UUID tenantId, UUID loanId) {
+        scopeTo(tenantId);
+        return jdbc.query(
+                """
+                SELECT r.id, r.amount_minor, r.state, r.received_on, r.created_at,
+                       COALESCE((SELECT SUM(a.amount_minor) FROM lending.repayment_allocations a
+                                  WHERE a.repayment_id = r.id AND a.component = 'PRINCIPAL'), 0) AS principal,
+                       COALESCE((SELECT SUM(a.amount_minor) FROM lending.repayment_allocations a
+                                  WHERE a.repayment_id = r.id AND a.component = 'INTEREST'), 0) AS interest,
+                       COALESCE((SELECT SUM(a.amount_minor) FROM lending.repayment_allocations a
+                                  WHERE a.repayment_id = r.id AND a.component = 'PENALTY'), 0) AS penalty
+                  FROM lending.repayments r
+                 WHERE r.loan_id = ?
+                 ORDER BY r.created_at, r.id
+                """,
+                (rs, i) -> {
+                    var row = new java.util.LinkedHashMap<String, Object>();
+                    row.put("repaymentId", rs.getObject("id", UUID.class).toString());
+                    row.put("amountMinor", money(rs.getLong("amount_minor")));
+                    row.put("state", rs.getString("state"));
+                    row.put("receivedOn", rs.getObject("received_on", LocalDate.class).toString());
+                    row.put("principalMinor", money(rs.getLong("principal")));
+                    row.put("interestMinor", money(rs.getLong("interest")));
+                    row.put("penaltyMinor", money(rs.getLong("penalty")));
+                    return row;
+                },
+                loanId);
+    }
+
     // ---------------------------------------------------------------- analytics
 
     /** PAR: outstanding principal per bucket × product × officer × unit. */

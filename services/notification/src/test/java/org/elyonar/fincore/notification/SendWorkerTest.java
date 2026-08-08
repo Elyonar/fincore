@@ -31,6 +31,14 @@ import org.springframework.transaction.PlatformTransactionManager;
 @DisplayName("send worker — claim, attempt, and record what happened")
 class SendWorkerTest {
 
+    // The scheduled worker is quieted: every test here drives its own worker with its own stub
+    // sender, and a background claim from the scheduler mid-test reads as a lease the test never
+    // took (state SENDING where FAILED was earned).
+    @org.springframework.test.context.DynamicPropertySource
+    static void quiet(org.springframework.test.context.DynamicPropertyRegistry registry) {
+        registry.add("fincore.notification.worker.interval-ms", () -> "3600000");
+    }
+
     @Autowired @Qualifier("appJdbcTemplate") private JdbcTemplate app;
     @Autowired @Qualifier("workerJdbcTemplate") private JdbcTemplate workerDb;
     @Autowired private AddressCipher cipher;

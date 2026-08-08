@@ -102,6 +102,30 @@ public class ApprovalRecords {
     }
 
     /** The approval does not authorize this. */
+    /** The checker's queue (ui-runway.md §3): pending approvals, oldest first. */
+    @Transactional(readOnly = true)
+    public java.util.List<java.util.Map<String, Object>> pending(UUID tenantId) {
+        scopeTo(tenantId);
+        return jdbc.query(
+                """
+                SELECT id, action, target_saga_id, amount_minor, made_by, made_in_unit, made_at
+                  FROM orchestration.approvals
+                 WHERE status = 'PENDING'
+                 ORDER BY made_at
+                """,
+                (rs, i) -> {
+                    var row = new java.util.LinkedHashMap<String, Object>();
+                    row.put("approvalId", rs.getObject("id", UUID.class).toString());
+                    row.put("action", rs.getString("action"));
+                    row.put("targetSagaId", rs.getObject("target_saga_id", UUID.class).toString());
+                    row.put("amountMinor", Long.toString(rs.getLong("amount_minor")));
+                    row.put("madeBy", rs.getString("made_by"));
+                    row.put("madeInUnit", rs.getString("made_in_unit"));
+                    row.put("madeAt", rs.getObject("made_at", java.time.OffsetDateTime.class).toString());
+                    return row;
+                });
+    }
+
     public static class ApprovalRejected extends RuntimeException {
         public ApprovalRejected(String message) {
             super(message);

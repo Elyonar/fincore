@@ -55,6 +55,53 @@ public class CustomerController {
     }
 
     /** The profile, tier, status and live account links. */
+    /**
+     * The search a teller screen opens with (ui-runway.md §3): name or reference, keyset-paged.
+     * The cursor is opaque; a missing {@code q} lists from the top, which is how a small tenant
+     * browses their whole book.
+     */
+    @GetMapping
+    public java.util.Map<String, Object> search(
+            @org.springframework.web.bind.annotation.RequestParam(required = false) String q,
+            @org.springframework.web.bind.annotation.RequestParam(required = false) String page) {
+        var identity = org.elyonar.fincore.auth.Authorization.require("customers:read");
+        java.util.UUID after = Cursor.decode(page);
+        var rows = customers.search(identity.tenantId(), q, after, 51);
+        boolean more = rows.size() > 50;
+        var pageRows = more ? rows.subList(0, 50) : rows;
+        var view = new java.util.LinkedHashMap<String, Object>();
+        view.put("customers", pageRows);
+        view.put(
+                "nextPage",
+                more ? Cursor.encode((String) pageRows.get(pageRows.size() - 1).get("customerId")) : null);
+        return view;
+    }
+
+    /** The cursor: an id, base64url-wrapped — opaque to callers, keyset underneath. */
+    static final class Cursor {
+        private Cursor() {}
+
+        static String encode(String id) {
+            return java.util.Base64.getUrlEncoder()
+                    .withoutPadding()
+                    .encodeToString(id.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        }
+
+        static java.util.UUID decode(String page) {
+            if (page == null || page.isBlank()) {
+                return null;
+            }
+            try {
+                return java.util.UUID.fromString(
+                        new String(
+                                java.util.Base64.getUrlDecoder().decode(page),
+                                java.nio.charset.StandardCharsets.UTF_8));
+            } catch (RuntimeException e) {
+                return null; // an unreadable cursor restarts from the top rather than erroring
+            }
+        }
+    }
+
     @GetMapping("/{id}")
     public CustomerRecords.Profile read(@PathVariable UUID id) {
         var identity = Authorization.require("customers:read");

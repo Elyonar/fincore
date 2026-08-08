@@ -28,7 +28,11 @@ public class SendScheduler {
         this.batchSize = batchSize;
     }
 
-    @Scheduled(fixedDelayString = "${fincore.notification.worker.interval-ms:1000}")
+    // Initial delay = interval, like Core's jobs: a scheduler firing at t=0 races every test's
+    // manual drain and every instance's own startup.
+    @Scheduled(
+            initialDelayString = "${fincore.notification.worker.interval-ms:1000}",
+            fixedDelayString = "${fincore.notification.worker.interval-ms:1000}")
     public void tick() {
         try {
             worker.drain(batchSize);

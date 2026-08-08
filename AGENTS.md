@@ -144,7 +144,7 @@ service directory first.
 Verified by running the suites, not by reading the docs: **521 tests green** —
 26 `libs/auth`, 9 `libs/events`, 231 ledger, 198 Core, 57 Notification.
 
-- `services/ledger` — **design AGREED v1.9; implemented and merged to main.**
+- `services/ledger` — **design AGREED v1.10; implemented and merged to main.**
   Every documented endpoint exists. Do not re-implement the schema, posting
   engine, holds, reversal, outbox, value dating, statements or invariants: they
   are done.
@@ -164,7 +164,7 @@ Verified by running the suites, not by reading the docs: **521 tests green** —
     and two cross-tenant probes
   - no performance, soak or disaster-recovery evidence exists
 
-- `services/core` — **design AGREED v1.18; implemented, merged, and running.**
+- `services/core` — **design AGREED v1.19; implemented, merged, and running.**
   One deployable holding six modules ([ADR 0006](docs/adr/0006-modular-core.md),
   [ADR 0013](docs/adr/0013-lending-module-first.md)): `customer`, `product`,
   `organization`, `orchestration`, `lending` and `app`, with a schema and a

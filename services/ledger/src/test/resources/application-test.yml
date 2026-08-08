@@ -25,3 +25,8 @@ logging:
 ledger.outbox.relay.enabled: false
 ledger.holds.expiry.enabled: false
 ledger.invariants.enabled: false
+
+# The suite runs in header mode (the development stand-in, sanctioned by this profile); the jwt
+# lane overrides this per-class with a local JWKS (LedgerJwtAuthTest).
+fincore.ledger.auth:
+  mode: header

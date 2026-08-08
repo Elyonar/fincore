@@ -33,4 +33,18 @@ public interface LedgerClient {
      * "could not ask" is an answer ({@link LedgerRead.Unknown}), not an exception.
      */
     LedgerRead read(UUID tenantId, UUID ledgerTransactionId);
+
+    /**
+     * A shape-preserving read for the surfaces Core proxies to clients (ADR 0014): statements and
+     * account balances. The ledger's response travels back byte-for-byte — its statement contract
+     * (period-bounded, {@code opening + Σ movements = closing}, final vs interim) is the product
+     * feature, and Core must not blur it. Status 0 means "could not ask".
+     */
+    RawRead get(UUID tenantId, String pathAndQuery);
+
+    record RawRead(int status, String body) {
+        public boolean unreachable() {
+            return status == 0;
+        }
+    }
 }

@@ -413,4 +413,35 @@ public class CustomerRecords {
             super("that ledger account is already held by a customer");
         }
     }
+    /**
+     * The screen-opener (ui-runway.md §3): find customers by name or the tenant's own reference.
+     *
+     * <p>Keyset-paginated on id — an opaque cursor to callers, stable under concurrent writes in
+     * a way an offset never is. One page is {@code limit} rows; the caller passes the last row's
+     * cursor back to continue.
+     */
+    @Transactional(readOnly = true, transactionManager = "customerTransactionManager")
+    public List<Map<String, Object>> search(UUID tenantId, String query, UUID afterId, int limit) {
+        scopeTo(tenantId);
+        String like = "%" + (query == null ? "" : query.trim()) + "%";
+        return jdbc.query(
+                """
+                SELECT id, external_ref, full_name, status, kyc_tier
+                  FROM customer.customers
+                 WHERE (full_name ILIKE ? OR external_ref ILIKE ?)
+                   AND (?::uuid IS NULL OR id > ?::uuid)
+                 ORDER BY id
+                 LIMIT ?
+                """,
+                (rs, i) -> {
+                    var row = new LinkedHashMap<String, Object>();
+                    row.put("customerId", rs.getObject("id", UUID.class).toString());
+                    row.put("externalRef", rs.getString("external_ref"));
+                    row.put("fullName", rs.getString("full_name"));
+                    row.put("status", rs.getString("status"));
+                    row.put("kycTier", rs.getString("kyc_tier"));
+                    return row;
+                },
+                like, like, afterId, afterId, limit);
+    }
 }

@@ -1,0 +1,157 @@
+package org.elyonar.fincore.core.orchestration.internal.api;
+
+import io.swagger.v3.oas.annotations.tags.Tag;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import org.elyonar.fincore.auth.Authorization;
+import org.elyonar.fincore.core.customer.api.CustomerEligibility;
+import org.elyonar.fincore.core.orchestration.api.CoreException;
+import org.elyonar.fincore.core.orchestration.api.ErrorCode;
+import org.elyonar.fincore.core.orchestration.internal.approval.ApprovalRecords;
+import org.elyonar.fincore.core.orchestration.internal.ledger.LedgerClient;
+import org.elyonar.fincore.core.orchestration.internal.saga.TillRecords;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
+
+/**
+ * The reads client screens open with (ui-runway.md §3, ADR 0014) — shapes over existing facts,
+ * never new business rules.
+ *
+ * <p>Two of these proxy the ledger, because clients never address it: balances joined onto the
+ * customer's held accounts, and the statement passed through <em>byte-for-byte</em> — the
+ * ledger's statement contract (period-bounded, {@code opening + Σ movements = closing}, final vs
+ * interim) is the product feature and Core must not blur it. "Could not ask" is a 503, never an
+ * invented answer — the outcome discipline, applied to reads.
+ */
+@Tag(name = "Client reads", description = "Screen-shaped reads: accounts, statements, till activity, approvals")
+@RestController
+@RequestMapping("/v1")
+public class ClientReadsController {
+
+    private final CustomerEligibility customers;
+    private final LedgerClient ledger;
+    private final TillRecords tills;
+    private final ApprovalRecords approvals;
+    private final JsonMapper json = JsonMapper.builder().build();
+
+    public ClientReadsController(
+            CustomerEligibility customers,
+            LedgerClient ledger,
+            TillRecords tills,
+            ApprovalRecords approvals) {
+        this.customers = customers;
+        this.ledger = ledger;
+        this.tills = tills;
+        this.approvals = approvals;
+    }
+
+    /** The customer-360 money view: held accounts with the ledger's balances joined on. */
+    @GetMapping("/customers/{id}/accounts")
+    public Map<String, Object> accounts(@PathVariable UUID id) {
+        var identity = Authorization.require("customers:read");
+        List<CustomerEligibility.HeldAccount> held = customers.heldAccounts(identity.tenantId(), id);
+
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (CustomerEligibility.HeldAccount account : held) {
+            LedgerClient.RawRead read =
+                    ledger.get(identity.tenantId(), "/v1/accounts/" + account.ledgerAccountId());
+            if (read.unreachable() || read.status() >= 500) {
+                // A balance we could not ask for is not a balance of zero.
+                throw new CoreException(ErrorCode.LEDGER_UNREACHABLE, "could not read balances");
+            }
+            var row = new LinkedHashMap<String, Object>();
+            row.put("ledgerAccountId", account.ledgerAccountId().toString());
+            row.put("currency", account.currency());
+            row.put("role", account.role());
+            if (read.status() == 200) {
+                JsonNode parsed = json.readTree(read.body());
+                row.put("currentMinor", parsed.path("currentMinor").asString());
+                row.put("availableMinor", parsed.path("availableMinor").asString());
+                row.put("holdsMinor", parsed.path("holdsMinor").asString());
+            }
+            out.add(row);
+        }
+        return Map.of("customerId", id.toString(), "accounts", out);
+    }
+
+    /**
+     * The statement, passed through exactly as the ledger answers it. Status and body travel
+     * untouched — including 404's indistinguishability and the interim label.
+     */
+    @GetMapping("/accounts/{ledgerAccountId}/statement")
+    public ResponseEntity<String> statement(
+            @PathVariable UUID ledgerAccountId, @RequestParam String from, @RequestParam String to) {
+        var identity = Authorization.require("transfers:read");
+        requireDate(from, "from");
+        requireDate(to, "to");
+        LedgerClient.RawRead read =
+                ledger.get(
+                        identity.tenantId(),
+                        "/v1/accounts/" + ledgerAccountId + "/entries?from=" + from + "&to=" + to);
+        if (read.unreachable()) {
+            throw new CoreException(ErrorCode.LEDGER_UNREACHABLE, "could not read the statement");
+        }
+        return ResponseEntity.status(read.status())
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(read.body());
+    }
+
+    /** A till's day: every saga that touched its account on the date, with the net position. */
+    @GetMapping("/tills/{id}/activity")
+    public Map<String, Object> tillActivity(@PathVariable UUID id, @RequestParam String date) {
+        var identity = Authorization.require("tills:read");
+        requireDate(date, "date");
+        UUID accountId = tills.ledgerAccountOf(identity.tenantId(), id);
+        if (accountId == null) {
+            throw new CoreException(ErrorCode.TILL_NOT_OPEN, "no such till");
+        }
+        List<Map<String, Object>> movements = tills.dayActivity(identity.tenantId(), accountId, date);
+        long in =
+                movements.stream()
+                        .filter(m -> "IN".equals(m.get("direction")) && "COMPLETED".equals(m.get("state")))
+                        .mapToLong(m -> Long.parseLong((String) m.get("amountMinor")))
+                        .sum();
+        long out =
+                movements.stream()
+                        .filter(m -> "OUT".equals(m.get("direction")) && "COMPLETED".equals(m.get("state")))
+                        .mapToLong(m -> Long.parseLong((String) m.get("amountMinor")))
+                        .sum();
+        var view = new LinkedHashMap<String, Object>();
+        view.put("tillId", id.toString());
+        view.put("date", date);
+        view.put("movements", movements);
+        view.put("completedInMinor", Long.toString(in));
+        view.put("completedOutMinor", Long.toString(out));
+        view.put("netMinor", Long.toString(in - out));
+        return view;
+    }
+
+    /**
+     * A date parameter is a date before it is anything else — validated here so garbage is a 422
+     * at the door rather than a 500 from the database or an oddly-shaped ledger query.
+     */
+    private static void requireDate(String value, String field) {
+        try {
+            java.time.LocalDate.parse(value);
+        } catch (java.time.format.DateTimeParseException e) {
+            throw new CoreException(ErrorCode.COMMAND_INVALID, field + " must be an ISO date (yyyy-MM-dd)");
+        }
+    }
+
+    /** The checker's queue: approvals awaiting a decision, oldest first. */
+    @GetMapping("/approvals/pending")
+    public Map<String, Object> pendingApprovals() {
+        var identity = Authorization.require("approvals:check");
+        return Map.of("approvals", approvals.pending(identity.tenantId()));
+    }
+}

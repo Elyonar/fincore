@@ -72,4 +72,24 @@ public class JdbcCustomerEligibility implements CustomerEligibility {
                         ledgerAccountId);
         return found != null;
     }
+    @Override
+    @org.springframework.transaction.annotation.Transactional(
+            readOnly = true,
+            transactionManager = "customerTransactionManager")
+    public java.util.List<HeldAccount> heldAccounts(java.util.UUID tenantId, java.util.UUID customerId) {
+        jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenantId.toString());
+        return jdbc.query(
+                """
+                SELECT ledger_account_id, currency, role
+                  FROM customer.customer_accounts
+                 WHERE customer_id = ? AND unlinked_at IS NULL
+                 ORDER BY linked_at
+                """,
+                (rs, i) ->
+                        new HeldAccount(
+                                rs.getObject("ledger_account_id", java.util.UUID.class),
+                                rs.getString("currency"),
+                                rs.getString("role")),
+                customerId);
+    }
 }
