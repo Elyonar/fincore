@@ -126,10 +126,11 @@ refuses to start unsanctioned.
 
 ## Not built yet
 
-- **Outbound propagation.** A service calling another currently presents its own
-  certificate; carrying the originating principal onward is designed
-  (PRD §6.3, "signed headers / propagated JWT") and not implemented. Core needs
-  it when it calls the ledger, so it lands with Core's ledger client.
+- ~~**Outbound propagation.**~~ Built (ADR 0014): the identity filter holds the verified inbound
+  bearer for the request's duration (`PropagatedBearer`, exposed as `Authorization.bearer()`),
+  and Core's ledger client forwards it as `X-Forwarded-Authorization` alongside its own service
+  credential — so the ledger records who initiated a posting as a verified fact. Dev-mode
+  assertions are never propagated; only a verifying resolver populates the holder.
 - **The permission vocabulary.** Kept in the services for now. It centralizes in
   Identity when there is a second service to disagree with the first.
 - **Realm provisioning.** The tenant-admin flow that creates a realm per tenant

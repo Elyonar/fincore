@@ -1,6 +1,6 @@
 # Core — API Surface (v1)
 
-**Status:** AGREED v1.18 (2026-08-08) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
+**Status:** AGREED v1.19 (2026-08-08) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
 
 REST/JSON. Every request carries a validated identity token — **the tenant comes
 from the token, never from a header**
@@ -34,6 +34,11 @@ the first place.
 | `POST /v1/transactions/{id}/reverse` | **business** reversal of a completed transaction — approval required | orchestration | `transfers:reverse` | ops, supervisor |
 | `POST /v1/customers` | create a customer | customer | `customers:create` | admin, API |
 | `GET  /v1/customers/{id}` | customer profile, tier, status, linked accounts | customer | `customers:read` | teller, API |
+| `GET  /v1/customers` | search by name or reference, keyset-paged (`q`, `page`) | customer | `customers:read` | teller, API |
+| `GET  /v1/customers/{id}/accounts` | held accounts with the ledger's balances joined on | orchestration | `customers:read` | teller, API |
+| `GET  /v1/accounts/{ledgerAccountId}/statement` | the ledger's period statement, passed through byte-for-byte (`from`, `to`) | orchestration | `transfers:read` | teller, API |
+| `GET  /v1/tills/{id}/activity` | the till's day: its sagas and net position (`date`) | orchestration | `tills:read` | supervisor |
+| `GET  /v1/approvals/pending` | the checker's queue, oldest first | orchestration | `approvals:check` | supervisor |
 | `POST /v1/customers/{id}/tier` | change KYC tier (attributed, reason required) | customer | `customers:tier` | compliance, admin |
 | `POST /v1/customers/{id}/accounts` | link a ledger account to a customer | customer | `customers:link` | admin |
 | `GET  /v1/customers/by-account/{ledgerAccountId}` | contact addresses, language and consent for the holder of an account — **no name, no tier** | customer | `customers:contact` | notification, API |
@@ -63,6 +68,9 @@ the first place.
 | `POST /v1/loan-applications/{id}/disburse` | opens the funding saga; idempotent per application | lending | `loans:disburse` | supervisor |
 | `GET  /v1/loans/{id}` | balances: outstanding, accrued, penalty due, recognized, payoff | lending | `loans:read` | loan officer, API |
 | `GET  /v1/loans/{id}/schedule` | the installment rows | lending | `loans:read` | loan officer, API |
+| `GET  /v1/loan-applications` | applications by state or awaiting my signature, keyset-paged (`state`, `awaiting`, `page`) | lending | `loans:read` | loan officer, supervisor |
+| `GET  /v1/customers/{id}/loans` | a customer's loans with payoff — the 360 view's lending panel | lending | `loans:read` | loan officer, API |
+| `GET  /v1/loans/{id}/repayments` | repayment history with the component split | lending | `loans:read` | loan officer, API |
 | `POST /v1/loans/{id}/repayments` | intake: opens the repayment saga, allocates on completion | lending | `loans:repay` | loan officer, API |
 | `GET  /v1/portfolio/par` | PAR by bucket × product × officer × unit | lending | `loans:portfolio` | admin, ops |
 | `POST /v1/lending/approval-tiers` | set a tier: ceiling → approvals required, zero permitted | lending | `loans:tiers` | admin |

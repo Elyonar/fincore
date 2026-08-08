@@ -8,6 +8,35 @@ entry first.
 
 ---
 
+## [1.19.0] — 2026-08-08 · MINOR
+
+**The UI runway is built.** The v1.18 design implemented whole; the platform is ready for client
+development.
+
+- **Identity, end to end.** `keycloak/realm-template.json` (the dev realm generalized: job
+  composites, `units` claim, a PKCE-only `fincore-web` client, and a confidential `core` service
+  client that deliberately carries no tenant claim) plus `scripts/provision-tenant.sh` — realm and
+  registry row as one operation that rolls back rather than half-succeeds. `JwtEndToEndTest`
+  drives a full disbursement on real RS256 tokens against a local JWKS: dev headers are inert in
+  jwt mode, deny-by-default holds, and health stays open.
+- **The ledger's tenant header is dead** (its own CHANGELOG 1.10.0 records the contract change).
+  In jwt mode the ledger accepts only trusted service credentials (`core`); the originating user's
+  token travels as `X-Forwarded-Authorization` and decides tenant *and* posting attribution —
+  verified fact over copied string; the caller may assert a tenant only for its own system jobs.
+  Core's ledger client sends its service credential and forwards the inbound bearer (outbound
+  propagation — `libs/auth`'s recorded gap, closed).
+- **The edge exists as configuration**: `edge/nginx.conf` + a compose service — one origin, path
+  routing, bearer passed through, no ledger route by construction.
+- **The nine read rows are served** (`api.md`): customer search (keyset-paged), customer accounts
+  with balances joined from the ledger, the statement passed through byte-for-byte, the till's
+  day, the checker's queue, applications by state / awaiting-me, a customer's loans, repayment
+  history. Zero new permissions, zero new error codes.
+- **Tests:** `UiReadsApiTest` (every screen-opener with the standing probes: deny-by-default,
+  cross-tenant invisibility, keyset pagination staying disjoint and ordered),
+  `JwtEndToEndTest`, and the ledger's `LedgerJwtAuthTest`.
+
+---
+
 ## [1.18.0] — 2026-08-08 · MINOR
 
 **The UI runway is designed (ADR 0014). Docs only — no code in this amendment.**

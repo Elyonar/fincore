@@ -1,6 +1,19 @@
 spring:
   application:
     name: ledger
+  autoconfigure:
+    # The shared library's servlet filter authenticates user-facing surfaces. The ledger's
+    # callers are services; its posture is LedgerAuth (ADR 0014), so the filter stays out.
+    exclude: org.elyonar.fincore.auth.spring.AuthAutoConfiguration
+
+# Who may address the ledger (ADR 0014). header = development stand-in, double-locked to
+# dev/test/local profiles and loudly announced; jwt = service credentials verified against the
+# issuer, tenant from a forwarded user token or asserted by an allowlisted caller.
+fincore.ledger.auth:
+  mode: ${FINCORE_LEDGER_AUTH_MODE:header}
+  issuer-uri: ${FINCORE_LEDGER_AUTH_ISSUER_URI:}
+  jwks-uri: ${FINCORE_LEDGER_AUTH_JWKS_URI:}
+  trusted-callers: ${FINCORE_LEDGER_AUTH_TRUSTED_CALLERS:core}
 
 server:
   port: ${LEDGER_PORT:8080}

@@ -24,8 +24,14 @@ public class LedgerClientConfiguration {
             @Value("${" + CoreProperties.LEDGER_CONNECT_TIMEOUT_MS + ":2000}") long connectMs,
             // Shorter than a caller would tolerate waiting. An unresponsive Ledger must become an
             // UNKNOWN we retry, not a thread held until someone gives up.
-            @Value("${" + CoreProperties.LEDGER_READ_TIMEOUT_MS + ":5000}") long readMs) {
+            @Value("${" + CoreProperties.LEDGER_READ_TIMEOUT_MS + ":5000}") long readMs,
+            // Core's service credential for the ledger's jwt mode (ADR 0014). Empty in dev.
+            @Value("${fincore.core.ledger.service-token:}") String serviceToken) {
         return new HttpLedgerClient(
-                baseUrl, Duration.ofMillis(connectMs), Duration.ofMillis(readMs), JsonMapper.builder().build());
+                baseUrl,
+                Duration.ofMillis(connectMs),
+                Duration.ofMillis(readMs),
+                JsonMapper.builder().build(),
+                serviceToken);
     }
 }

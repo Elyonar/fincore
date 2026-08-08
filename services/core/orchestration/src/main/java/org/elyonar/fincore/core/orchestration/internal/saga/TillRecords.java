@@ -98,6 +98,47 @@ public class TillRecords {
                 tillId);
     }
 
+    /** The till's ledger account, open or closed — a closed till's day is still readable. */
+    @Transactional(readOnly = true)
+    public UUID ledgerAccountOf(UUID tenantId, UUID tillId) {
+        scopeTo(tenantId);
+        return jdbc.query(
+                "SELECT ledger_account_id FROM orchestration.tills WHERE id = ?",
+                rs -> rs.next() ? rs.getObject("ledger_account_id", UUID.class) : null,
+                tillId);
+    }
+
+    /**
+     * The till's day (ui-runway.md §3): every saga that touched its account on the date. Runs in
+     * a read transaction so the tenant scope is genuinely transaction-local — set_config outside
+     * a transaction is a no-op, which RLS would answer with silence, not an error.
+     */
+    @Transactional(readOnly = true)
+    public java.util.List<java.util.Map<String, Object>> dayActivity(
+            UUID tenantId, UUID accountId, String date) {
+        scopeTo(tenantId);
+        return jdbc.query(
+                """
+                SELECT id, type, state, amount_minor, from_account_id, created_at
+                  FROM orchestration.sagas
+                 WHERE (from_account_id = ? OR to_account_id = ?)
+                   AND created_at >= ?::date AND created_at < (?::date + 1)
+                 ORDER BY created_at
+                """,
+                (rs, i) -> {
+                    var row = new java.util.LinkedHashMap<String, Object>();
+                    row.put("sagaId", rs.getObject("id", UUID.class).toString());
+                    row.put("type", rs.getString("type"));
+                    row.put("state", rs.getString("state"));
+                    row.put("amountMinor", Long.toString(rs.getLong("amount_minor")));
+                    boolean out = accountId.equals(rs.getObject("from_account_id", UUID.class));
+                    row.put("direction", out ? "OUT" : "IN");
+                    row.put("at", rs.getObject("created_at", java.time.OffsetDateTime.class).toString());
+                    return row;
+                },
+                accountId, accountId, date, date);
+    }
+
     /** Closes a till. Cash cannot move through it afterwards. */
     @Transactional
     public void close(UUID tenantId, UUID tillId) {

@@ -92,6 +92,18 @@ public class ApiExceptionHandler {
     }
 
     /**
+     * Unverified callers get a bare 401 (ADR 0014). The reason stays in the debug log: a caller
+     * learning exactly why a credential failed learns how to make one that does not. 4xx, so an
+     * orchestrator treats it as terminal for the key rather than as an unknown outcome.
+     */
+    @ExceptionHandler(org.elyonar.fincore.auth.NotAuthenticatedException.class)
+    public ResponseEntity<ApiError> unauthenticated(org.elyonar.fincore.auth.NotAuthenticatedException e) {
+        log.debug("rejected an unauthenticated ledger call: {}", e.getMessage());
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .body(ApiError.of("NOT_AUTHENTICATED", "credentials required"));
+    }
+
+    /**
      * Spring's own web failures keep their own status.
      *
      * <p>A missing route, an unreadable body or a wrong method is a 4xx that Spring has already

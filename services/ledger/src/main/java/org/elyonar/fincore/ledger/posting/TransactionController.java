@@ -106,12 +106,18 @@ public class TransactionController {
                                                 e.valueDate() == null ? null : LocalDate.parse(e.valueDate())))
                         .toList();
 
+        var identity = tenants.identify(http);
         PostingResult result =
                 postings.post(
                         new PostTransactionCommand(
-                                tenants.resolve(http),
+                                identity.tenantId(),
                                 request.idempotencyKey(),
-                                request.initiatedBy(),
+                                // Verified over asserted: when Core forwarded the originating
+                                // user's token, attribution comes from it (ADR 0014). The body's
+                                // value stands for system jobs, which carry no user token.
+                                identity.attributedInitiator() != null
+                                        ? identity.attributedInitiator()
+                                        : request.initiatedBy(),
                                 request.executedBy() == null ? "svc:orchestration" : request.executedBy(),
                                 request.description(),
                                 entries,
@@ -139,13 +145,16 @@ public class TransactionController {
                         + " `detail`, so a saga converges instead of retry-looping.")
     public ReverseResponse reverse(
             HttpServletRequest http, @PathVariable UUID id, @RequestBody ReverseRequest request) {
+        var reverseIdentity = tenants.identify(http);
         PostingResult result =
                 reversals.reverse(
                         new ReverseTransactionCommand(
-                                tenants.resolve(http),
+                                reverseIdentity.tenantId(),
                                 id,
                                 request.idempotencyKey(),
-                                request.initiatedBy(),
+                                reverseIdentity.attributedInitiator() != null
+                                        ? reverseIdentity.attributedInitiator()
+                                        : request.initiatedBy(),
                                 request.executedBy() == null ? "svc:orchestration" : request.executedBy()));
         return new ReverseResponse(result.transactionId().toString(), id.toString(), result.replayed());
     }

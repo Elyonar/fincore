@@ -8,6 +8,34 @@ entry first.
 
 ---
 
+## [1.10.0] — 2026-08-08 · MINOR
+
+**The tenant header dies, as ADR 0010 promised and ADR 0014 scheduled.** A contract change,
+recorded where the ledger's consumers look.
+
+- **`fincore.ledger.auth.mode=jwt`** (`LedgerAuth`): the `Authorization` bearer must be a
+  <em>service credential</em> — a verified token with no tenant claim whose client id is on the
+  trusted-caller list (`core`). A user token presented directly is a 401: clients never address
+  the ledger. The originating user's token arrives separately as `X-Forwarded-Authorization`;
+  when present it decides the tenant <em>and</em> posting attribution (`initiated_by` becomes a
+  verified fact, overriding the body's copied string). When absent — Core's system jobs:
+  recovery, reconciliation, recognition — the verified caller may assert the tenant via
+  `X-Tenant-Id`, an assertion now scoped to an authenticated allowlisted service rather than to
+  anyone holding a UUID.
+- **`header` mode remains the development stand-in**, with the shared library's two locks
+  applied verbatim: it refuses to start outside a sanctioned profile (`dev`/`test`/`local`) and
+  announces itself loudly. `TenantResolver` kept its promise — identity arrived and touched that
+  class and nothing else.
+- **`NOT_AUTHENTICATED` (401)** joins the HTTP mapping: bare, reason logged not returned, 4xx so
+  an orchestrator treats it as terminal for the key rather than an unknown outcome.
+- **Tests:** `LedgerJwtAuthTest` — real RS256 tokens against a local JWKS: no credential 401,
+  direct user token 401, unlisted service 401, trusted service asserting tenant for system jobs,
+  and the forwarded token deciding attribution.
+- The "the header is not authentication" known-limitation posture this README carried since v1.0
+  is closed in jwt mode; header mode carries the banner instead.
+
+---
+
 ## [1.9.0] — 2026-08-08 · MINOR
 
 **Three documented facts become true, and the banner stops lying about the broker.**

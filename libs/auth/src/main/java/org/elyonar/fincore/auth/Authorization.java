@@ -84,4 +84,15 @@ public final class Authorization {
     public static java.util.Set<String> units() {
         return IdentityContextHolder.require().units();
     }
+
+    /**
+     * The verified inbound bearer token, for forwarding on an outbound call (ADR 0014's outbound
+     * propagation) — how the ledger learns, verifiably, who initiated the posting Core asks for.
+     *
+     * <p>Empty on worker threads and wherever the resolver did not verify: dev-mode assertions
+     * are never propagated, so a downstream service can treat a forwarded token as a credential.
+     */
+    public static java.util.Optional<String> bearer() {
+        return PropagatedBearer.current();
+    }
 }
