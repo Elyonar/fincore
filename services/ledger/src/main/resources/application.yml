@@ -10,7 +10,9 @@ spring:
 # dev/test/local profiles and loudly announced; jwt = service credentials verified against the
 # issuer, tenant from a forwarded user token or asserted by an allowlisted caller.
 fincore.ledger.auth:
-  mode: ${FINCORE_LEDGER_AUTH_MODE:header}
+  # jwt is the only deployable mode, and the default — the same fail-safe posture as Core's
+  # fincore.auth.mode. header is the development stand-in: explicit, profile-locked, loud.
+  mode: ${FINCORE_LEDGER_AUTH_MODE:jwt}
   issuer-uri: ${FINCORE_LEDGER_AUTH_ISSUER_URI:}
   jwks-uri: ${FINCORE_LEDGER_AUTH_JWKS_URI:}
   trusted-callers: ${FINCORE_LEDGER_AUTH_TRUSTED_CALLERS:core}

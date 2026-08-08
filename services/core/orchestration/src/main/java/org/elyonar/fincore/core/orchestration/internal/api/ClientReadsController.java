@@ -92,6 +92,8 @@ public class ClientReadsController {
     public ResponseEntity<String> statement(
             @PathVariable UUID ledgerAccountId, @RequestParam String from, @RequestParam String to) {
         var identity = Authorization.require("transfers:read");
+        requireDate(from, "from");
+        requireDate(to, "to");
         LedgerClient.RawRead read =
                 ledger.get(
                         identity.tenantId(),
@@ -108,6 +110,7 @@ public class ClientReadsController {
     @GetMapping("/tills/{id}/activity")
     public Map<String, Object> tillActivity(@PathVariable UUID id, @RequestParam String date) {
         var identity = Authorization.require("tills:read");
+        requireDate(date, "date");
         UUID accountId = tills.ledgerAccountOf(identity.tenantId(), id);
         if (accountId == null) {
             throw new CoreException(ErrorCode.TILL_NOT_OPEN, "no such till");
@@ -131,6 +134,18 @@ public class ClientReadsController {
         view.put("completedOutMinor", Long.toString(out));
         view.put("netMinor", Long.toString(in - out));
         return view;
+    }
+
+    /**
+     * A date parameter is a date before it is anything else — validated here so garbage is a 422
+     * at the door rather than a 500 from the database or an oddly-shaped ledger query.
+     */
+    private static void requireDate(String value, String field) {
+        try {
+            java.time.LocalDate.parse(value);
+        } catch (java.time.format.DateTimeParseException e) {
+            throw new CoreException(ErrorCode.COMMAND_INVALID, field + " must be an ISO date (yyyy-MM-dd)");
+        }
     }
 
     /** The checker's queue: approvals awaiting a decision, oldest first. */

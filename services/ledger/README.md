@@ -64,9 +64,10 @@ docker compose up --build
 curl http://localhost:58080/actuator/health/readiness  # {"status":"UP"}
 open  http://localhost:58080/docs                      # interactive API
 
-# database only, running the service from an IDE
+# database only, running the service from an IDE. Identity defaults to jwt and refuses to
+# start unverified — development runs say so explicitly (CHANGELOG 1.10.0):
 docker compose up -d postgres
-./mvnw -pl services/ledger spring-boot:run
+FINCORE_LEDGER_AUTH_MODE=header SPRING_PROFILES_ACTIVE=dev ./mvnw -pl services/ledger spring-boot:run
 
 # this service's tests — requires the database above to be running
 docker compose up -d postgres
