@@ -105,7 +105,14 @@ public class LendingController {
         view.put("principalMinor", Long.toString(loan.principalMinor()));
         view.put("principalOutstandingMinor", Long.toString(loan.principalOutstandingMinor()));
         view.put("accruedInterestMinor", Long.toString(loan.accruedInterestMinor()));
-        view.put("payoffMinor", Long.toString(loan.principalOutstandingMinor() + loan.accruedInterestMinor()));
+        view.put("penaltyDueMinor", Long.toString(loan.penaltyDueMinor()));
+        view.put("recognizedInterestMinor", Long.toString(loan.recognizedInterestMinor()));
+        view.put(
+                "payoffMinor",
+                Long.toString(
+                        loan.principalOutstandingMinor()
+                                + loan.accruedInterestMinor()
+                                + loan.penaltyDueMinor()));
         view.put("currency", loan.currency());
         view.put("productCode", loan.productCode());
         view.put("productVersion", loan.productVersion());

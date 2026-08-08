@@ -30,6 +30,8 @@ class LendingJobsAndSchemaTest {
     @Autowired @Qualifier("workerJdbcTemplate") private JdbcTemplate workerDb;
     @Autowired @Qualifier("lendingJdbcTemplate") private JdbcTemplate lendingDb;
     @Autowired @Qualifier("lendingTransactionManager") private PlatformTransactionManager lendingTx;
+    @Autowired @Qualifier("productJdbcTemplate") private JdbcTemplate productDb;
+    @Autowired @Qualifier("productTransactionManager") private PlatformTransactionManager productTx;
 
     private UUID tenantId;
     private UUID loanId;
@@ -70,14 +72,15 @@ class LendingJobsAndSchemaTest {
                                     INSERT INTO lending.loans
                                         (id, tenant_id, application_id, customer_id, product_code, product_version,
                                          principal_minor, principal_outstanding_minor, interest_rate_bp,
-                                         schedule_kind, currency, accrual_through, disbursed_on,
+                                         schedule_kind, currency, accrual_through, disbursed_on, penalty_through,
                                          funding_account_id, customer_account_id, officer)
                                     VALUES (?,?,?,?, 'AJO_LOAN', 1, 1000000, 1000000, 3650, 'FLAT', 'NGN',
-                                            ?, ?, ?, ?, 'user:o')
+                                            ?, ?, ?, ?, ?, 'user:o')
                                     """,
                                     loanId, tenantId, applicationId, UUID.randomUUID(),
                                     LocalDate.now(ZoneOffset.UTC).minusDays(10),
                                     LocalDate.now(ZoneOffset.UTC).minusDays(40),
+                                    LocalDate.now(ZoneOffset.UTC).minusDays(10),
                                     UUID.randomUUID(), UUID.randomUUID());
                             lendingDb.update(
                                     """
@@ -165,6 +168,83 @@ class LendingJobsAndSchemaTest {
                                 Long.class,
                                 tenantId))
                 .isEqualTo(1L);
+    }
+
+    @Test
+    void the_penalty_pass_charges_flat_once_daily_on_overdue_and_the_cap_binds() {
+        // Price penalties on the product: ₦200 flat per late installment, 10 bp/day on overdue
+        // principal, capped at ₦240 lifetime. Uncapped arithmetic here would be
+        // 20,000 + (500,000 × 10 × 10 / 10,000) = 25,000 minor — the cap binds at 24,000.
+        new TransactionTemplate(productTx)
+                .executeWithoutResult(
+                        s -> {
+                            productDb.queryForObject(
+                                    "SELECT set_config('app.tenant_id', ?, true)", String.class, tenantId.toString());
+                            UUID productId =
+                                    productDb.queryForObject(
+                                            "INSERT INTO product.products (tenant_id, code, name, type)"
+                                                    + " VALUES (?, 'AJO_LOAN', 'Ajo Loan', 'LOAN') RETURNING id",
+                                            UUID.class, tenantId);
+                            UUID versionId =
+                                    productDb.queryForObject(
+                                            "INSERT INTO product.product_versions (tenant_id, product_id, version,"
+                                                    + " status, created_by, published_by)"
+                                                    + " VALUES (?,?,1,'PUBLISHED','user:author','user:publisher') RETURNING id",
+                                            UUID.class, tenantId, productId);
+                            productDb.update(
+                                    """
+                                    INSERT INTO product.loan_rules
+                                        (tenant_id, product_version_id, interest_rate_bp, schedule_kind,
+                                         min_amount_minor, max_amount_minor, min_term_months, max_term_months,
+                                         currency, penalty_flat_minor, penalty_rate_bp, penalty_cap_minor)
+                                    VALUES (?,?, 3650, 'FLAT', 10000, 100000000, 1, 36, 'NGN', 20000, 10, 24000)
+                                    """,
+                                    tenantId, versionId);
+                        });
+
+        jobs.penalize();
+
+        assertThat(
+                        workerDb.queryForObject(
+                                "SELECT penalty_charged_minor FROM lending.loans WHERE id = ?", Long.class, loanId))
+                .isEqualTo(24_000L);
+        // The flat charge marked its installment; the daily charge advanced the date.
+        assertThat(
+                        workerDb.queryForObject(
+                                "SELECT count(*) FROM lending.loan_schedule WHERE loan_id = ?"
+                                        + " AND penalty_applied_at IS NOT NULL",
+                                Long.class, loanId))
+                .isEqualTo(1L);
+        assertThat(
+                        workerDb.queryForObject(
+                                "SELECT penalty_through FROM lending.loans WHERE id = ?", LocalDate.class, loanId))
+                .isEqualTo(LocalDate.now(ZoneOffset.UTC));
+        assertThat(
+                        workerDb.queryForObject(
+                                "SELECT count(*) FROM lending.outbox_events WHERE tenant_id = ?"
+                                        + " AND event_type = 'loan.penalty_applied'",
+                                Long.class, tenantId))
+                .isEqualTo(1L);
+
+        // Same day, same facts: nothing unmarked, zero days advanced, cap already reached.
+        jobs.penalize();
+        assertThat(
+                        workerDb.queryForObject(
+                                "SELECT penalty_charged_minor FROM lending.loans WHERE id = ?", Long.class, loanId))
+                .isEqualTo(24_000L);
+    }
+
+    @Test
+    void without_penalty_pricing_the_pass_advances_the_date_and_charges_nothing() {
+        jobs.penalize(); // no product rules seeded for this tenant at all
+        assertThat(
+                        workerDb.queryForObject(
+                                "SELECT penalty_charged_minor FROM lending.loans WHERE id = ?", Long.class, loanId))
+                .isZero();
+        assertThat(
+                        workerDb.queryForObject(
+                                "SELECT penalty_through FROM lending.loans WHERE id = ?", LocalDate.class, loanId))
+                .isEqualTo(LocalDate.now(ZoneOffset.UTC));
     }
 
     @Test

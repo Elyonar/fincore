@@ -53,6 +53,8 @@ class LendingApiTest {
     private UUID tenantId;
     private UUID customerId;
     private UUID customerAccount;
+    private UUID incomeAccount;
+    private UUID configuredFunding;
 
     @org.junit.jupiter.api.BeforeAll
     static void startLedger() throws IOException {
@@ -95,6 +97,8 @@ class LendingApiTest {
         tenantRegistry.register(tenantId, "test tenant", "test");
         customerId = UUID.randomUUID();
         customerAccount = UUID.randomUUID();
+        incomeAccount = UUID.randomUUID();
+        configuredFunding = UUID.randomUUID();
         postStatus.set(201);
 
         new TransactionTemplate(customerTx)
@@ -133,10 +137,10 @@ class LendingApiTest {
                                     INSERT INTO product.loan_rules
                                         (tenant_id, product_version_id, interest_rate_bp, schedule_kind,
                                          min_amount_minor, max_amount_minor, min_term_months, max_term_months,
-                                         currency)
-                                    VALUES (?,?, 2400, 'FLAT', 10000, 100000000, 1, 36, 'NGN')
+                                         currency, interest_income_account_id, funding_account_id)
+                                    VALUES (?,?, 2400, 'FLAT', 10000, 100000000, 1, 36, 'NGN', ?, ?)
                                     """,
-                                    tenantId, versionId);
+                                    tenantId, versionId, incomeAccount, configuredFunding);
                         });
     }
 
@@ -317,6 +321,174 @@ class LendingApiTest {
         assertThat(after.get("state").asString()).isEqualTo("ACCEPTED");
     }
 
+    // ---------------------------------------------------------------- v1.17: penalties, recognition, funding config
+
+    @Test
+    void the_configured_funding_account_overrides_the_callers() throws Exception {
+        setTier(100_000_000, 0);
+        JsonNode app = apply(1_000_000, "user:officer");
+        disburseToActive(app.get("id").asString()); // disburseToActive supplies a random account
+
+        UUID recorded =
+                workerDb.queryForObject(
+                        "SELECT funding_account_id FROM lending.loans WHERE application_id = ?::uuid",
+                        UUID.class, app.get("id").asString());
+        assertThat(recorded).isEqualTo(configuredFunding);
+    }
+
+    @Test
+    void collected_interest_is_recognized_under_the_repayments_derived_key_and_replays_converge()
+            throws Exception {
+        setTier(100_000_000, 0);
+        JsonNode app = apply(1_000_000, "user:officer");
+        disburseToActive(app.get("id").asString());
+        UUID loanId = UUID.fromString(findLoanId(app.get("id").asString()));
+        workerDb.update(
+                "UPDATE lending.loans SET accrued_interest_minor = 10000 WHERE id = ?", loanId);
+
+        JsonNode repaid =
+                mapper.readTree(
+                        post("/v1/loans/" + loanId + "/repayments", ALL, "user:officer",
+                                        "{\"idempotencyKey\":\"int-%s\",\"amountMinor\":10000,\"sourceAccountId\":\"%s\"}"
+                                                .formatted(loanId, customerAccount))
+                                .body());
+        String repaymentId = repaid.get("repaymentId").asString();
+
+        // The income posting exists as a RECOGNITION saga under the per-repayment derived key,
+        // from the loan's funding account to the product's income account.
+        assertThat(
+                        workerDb.queryForObject(
+                                "SELECT count(*) FROM orchestration.sagas WHERE type = 'RECOGNITION'"
+                                        + " AND channel_idempotency_key = ?",
+                                Long.class, "lending:recognize:" + repaymentId + ":interest"))
+                .isEqualTo(1L);
+        assertThat(
+                        workerDb.queryForObject(
+                                "SELECT to_account_id FROM orchestration.sagas WHERE channel_idempotency_key = ?",
+                                UUID.class, "lending:recognize:" + repaymentId + ":interest"))
+                .isEqualTo(incomeAccount);
+        assertThat(
+                        workerDb.queryForObject(
+                                "SELECT recognized_interest_minor FROM lending.loans WHERE id = ?", Long.class, loanId))
+                .isEqualTo(10_000L);
+        assertThat(
+                        workerDb.queryForObject(
+                                "SELECT recognized_at IS NOT NULL FROM lending.repayments WHERE id = ?::uuid",
+                                Boolean.class, repaymentId))
+                .isTrue();
+
+        // The catch-up pass finds nothing to redo; the derived key means nothing double-posts.
+        jobs.recognize();
+        assertThat(
+                        workerDb.queryForObject(
+                                "SELECT count(*) FROM orchestration.sagas WHERE channel_idempotency_key = ?",
+                                Long.class, "lending:recognize:" + repaymentId + ":interest"))
+                .isEqualTo(1L);
+        assertThat(
+                        workerDb.queryForObject(
+                                "SELECT recognized_interest_minor FROM lending.loans WHERE id = ?", Long.class, loanId))
+                .isEqualTo(10_000L);
+    }
+
+    @Test
+    void penalties_allocate_first_count_in_payoff_and_gate_closure() throws Exception {
+        setTier(100_000_000, 0);
+        JsonNode app = apply(1_000_000, "user:officer");
+        disburseToActive(app.get("id").asString());
+        UUID loanId = UUID.fromString(findLoanId(app.get("id").asString()));
+        workerDb.update("UPDATE lending.loans SET penalty_charged_minor = 50000 WHERE id = ?", loanId);
+
+        // The view carries the due, and payoff includes it.
+        JsonNode view = mapper.readTree(send(as("/v1/loans/" + loanId, ALL, "user:officer").GET().build()).body());
+        assertThat(view.get("penaltyDueMinor").asString()).isEqualTo("50000");
+        assertThat(view.get("payoffMinor").asString()).isEqualTo("1050000");
+
+        // A kobo beyond payoff-with-penalties is refused at intake.
+        assertThat(
+                        post("/v1/loans/" + loanId + "/repayments", ALL, "user:officer",
+                                        "{\"idempotencyKey\":\"o-%s\",\"amountMinor\":1050001,\"sourceAccountId\":\"%s\"}"
+                                                .formatted(loanId, customerAccount))
+                                .statusCode())
+                .isEqualTo(422);
+
+        // A partial payment reaches PENALTY first (the default order), and the penalty portion
+        // is recognized to the fallback income account under the :penalty derived key.
+        JsonNode part =
+                mapper.readTree(
+                        post("/v1/loans/" + loanId + "/repayments", ALL, "user:officer",
+                                        "{\"idempotencyKey\":\"p-%s\",\"amountMinor\":30000,\"sourceAccountId\":\"%s\"}"
+                                                .formatted(loanId, customerAccount))
+                                .body());
+        assertThat(
+                        workerDb.queryForObject(
+                                "SELECT SUM(amount_minor) FROM lending.repayment_allocations"
+                                        + " WHERE repayment_id = ?::uuid AND component = 'PENALTY'",
+                                Long.class, part.get("repaymentId").asString()))
+                .isEqualTo(30_000L);
+        assertThat(
+                        workerDb.queryForObject(
+                                "SELECT count(*) FROM orchestration.sagas WHERE type = 'RECOGNITION'"
+                                        + " AND channel_idempotency_key = ?",
+                                Long.class,
+                                "lending:recognize:" + part.get("repaymentId").asString() + ":penalty"))
+                .isEqualTo(1L);
+        assertThat(
+                        mapper.readTree(send(as("/v1/loans/" + loanId, ALL, "user:officer").GET().build()).body())
+                                .get("penaltyDueMinor").asString())
+                .isEqualTo("20000");
+
+        // Settling the rest — remaining penalty plus principal — closes the loan.
+        assertThat(
+                        post("/v1/loans/" + loanId + "/repayments", ALL, "user:officer",
+                                        "{\"idempotencyKey\":\"f-%s\",\"amountMinor\":1020000,\"sourceAccountId\":\"%s\"}"
+                                                .formatted(loanId, customerAccount))
+                                .statusCode())
+                .isEqualTo(201);
+        assertThat(
+                        mapper.readTree(send(as("/v1/loans/" + loanId, ALL, "user:officer").GET().build()).body())
+                                .get("state").asString())
+                .isEqualTo("CLOSED");
+    }
+
+    @Test
+    void an_unconfigured_income_account_resolves_recognition_as_a_recorded_noop() throws Exception {
+        new TransactionTemplate(productTx)
+                .executeWithoutResult(
+                        s -> {
+                            productDb.queryForObject(
+                                    "SELECT set_config('app.tenant_id', ?, true)", String.class, tenantId.toString());
+                            productDb.update("UPDATE product.loan_rules SET interest_income_account_id = NULL");
+                        });
+        setTier(100_000_000, 0);
+        JsonNode app = apply(1_000_000, "user:officer");
+        disburseToActive(app.get("id").asString());
+        UUID loanId = UUID.fromString(findLoanId(app.get("id").asString()));
+        workerDb.update("UPDATE lending.loans SET accrued_interest_minor = 5000 WHERE id = ?", loanId);
+
+        JsonNode repaid =
+                mapper.readTree(
+                        post("/v1/loans/" + loanId + "/repayments", ALL, "user:officer",
+                                        "{\"idempotencyKey\":\"n-%s\",\"amountMinor\":5000,\"sourceAccountId\":\"%s\"}"
+                                                .formatted(loanId, customerAccount))
+                                .body());
+
+        // Resolved as an explicit no-op: marked, nothing posted, nothing pending for the gauge.
+        assertThat(
+                        workerDb.queryForObject(
+                                "SELECT recognized_at IS NOT NULL FROM lending.repayments WHERE id = ?::uuid",
+                                Boolean.class, repaid.get("repaymentId").asString()))
+                .isTrue();
+        assertThat(
+                        workerDb.queryForObject(
+                                "SELECT recognized_interest_minor FROM lending.loans WHERE id = ?", Long.class, loanId))
+                .isZero();
+        assertThat(
+                        workerDb.queryForObject(
+                                "SELECT count(*) FROM orchestration.sagas WHERE channel_idempotency_key LIKE ?",
+                                Long.class, "lending:recognize:" + repaid.get("repaymentId").asString() + "%"))
+                .isZero();
+    }
+
     // ---------------------------------------------------------------- guards
 
     @Test
@@ -365,6 +537,8 @@ class LendingApiTest {
     // ---------------------------------------------------------------- lookup
 
     @Autowired private org.elyonar.fincore.core.lending.internal.LoanRecords lendingRecords;
+    @Autowired private org.elyonar.fincore.core.lending.internal.LendingJobs jobs;
+    @Autowired @Qualifier("workerJdbcTemplate") private JdbcTemplate workerDb;
     @Autowired @Qualifier("lendingJdbcTemplate") private JdbcTemplate lendingDb;
     @Autowired @Qualifier("lendingTransactionManager") private PlatformTransactionManager lendingTx;
 

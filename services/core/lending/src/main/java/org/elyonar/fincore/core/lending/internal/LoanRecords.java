@@ -288,16 +288,16 @@ public class LoanRecords {
                             INSERT INTO lending.loans
                                 (tenant_id, application_id, customer_id, product_code, product_version,
                                  principal_minor, principal_outstanding_minor, interest_rate_bp,
-                                 schedule_kind, currency, accrual_through, disbursed_on,
+                                 schedule_kind, currency, accrual_through, disbursed_on, penalty_through,
                                  funding_account_id, customer_account_id, officer, unit_code)
-                            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                             RETURNING id
                             """,
                             UUID.class,
                             tenantId, app.id(), app.customerId(), app.productCode(), app.productVersion(),
                             app.amountMinor(), app.amountMinor(), rateBp, scheduleKind, app.currency(),
-                            disbursedOn, disbursedOn, app.fundingAccountId(), app.destinationAccountId(),
-                            officer, unitCode);
+                            disbursedOn, disbursedOn, disbursedOn, app.fundingAccountId(),
+                            app.destinationAccountId(), officer, unitCode);
         } catch (DuplicateKeyException e) {
             // A concurrent activation won; converge on it.
             return jdbc.queryForObject(
@@ -332,7 +332,9 @@ public class LoanRecords {
                 SELECT id, application_id, customer_id, product_code, product_version, principal_minor,
                        principal_outstanding_minor, interest_rate_bp, schedule_kind, currency,
                        accrued_interest_minor, accrual_through, disbursed_on, funding_account_id,
-                       customer_account_id, officer, unit_code, current_bucket, state
+                       customer_account_id, officer, unit_code, current_bucket, state,
+                       interest_paid_minor, recognized_interest_minor,
+                       penalty_charged_minor, penalty_paid_minor
                   FROM lending.loans WHERE id = ?
                 """,
                 rs -> rs.next() ? mapLoan(rs) : null,
@@ -359,7 +361,11 @@ public class LoanRecords {
                 rs.getString("officer"),
                 rs.getString("unit_code"),
                 rs.getString("current_bucket"),
-                rs.getString("state"));
+                rs.getString("state"),
+                rs.getLong("interest_paid_minor"),
+                rs.getLong("recognized_interest_minor"),
+                rs.getLong("penalty_charged_minor"),
+                rs.getLong("penalty_paid_minor"));
     }
 
     @Transactional(readOnly = true, transactionManager = LendingBeans.TRANSACTION_MANAGER)
@@ -483,16 +489,20 @@ public class LoanRecords {
                 """
                 UPDATE lending.loans
                    SET principal_outstanding_minor = principal_outstanding_minor - ?,
-                       accrued_interest_minor = accrued_interest_minor - ?
+                       accrued_interest_minor = accrued_interest_minor - ?,
+                       interest_paid_minor = interest_paid_minor + ?,
+                       penalty_paid_minor = penalty_paid_minor + ?
                  WHERE id = ?
                 """,
-                allocation.principalMinor(), allocation.interestMinor(), allocation.loanId());
+                allocation.principalMinor(), allocation.interestMinor(), allocation.interestMinor(),
+                allocation.penaltyMinor(), allocation.loanId());
         outbox.append(
                 tenantId,
                 "loan.repayment_allocated",
                 allocation.loanId(),
-                "{\"loanId\":\"%s\",\"repaymentId\":\"%s\",\"principalMinor\":\"%d\",\"interestMinor\":\"%d\"}"
-                        .formatted(allocation.loanId(), repaymentId, allocation.principalMinor(), allocation.interestMinor()));
+                "{\"loanId\":\"%s\",\"repaymentId\":\"%s\",\"principalMinor\":\"%d\",\"interestMinor\":\"%d\",\"penaltyMinor\":\"%d\"}"
+                        .formatted(allocation.loanId(), repaymentId, allocation.principalMinor(),
+                                allocation.interestMinor(), allocation.penaltyMinor()));
         if (allocation.closesLoan()) {
             jdbc.update(
                     "UPDATE lending.loans SET state = 'CLOSED', closed_at = now(), current_bucket = 'CURRENT'"
@@ -510,6 +520,64 @@ public class LoanRecords {
         }
         return true;
     }
+
+    // ---------------------------------------------------------------- recognition
+
+    /**
+     * What an allocated repayment has to recognize: its interest and penalty portions, read from
+     * the allocation evidence — fixed forever the moment allocation committed, which is what
+     * makes the per-repayment saga keys replay-stable (lending.md v1.17).
+     */
+    @Transactional(readOnly = true, transactionManager = LendingBeans.TRANSACTION_MANAGER)
+    public RecognitionCandidate recognitionCandidate(UUID tenantId, UUID repaymentId) {
+        scopeTo(tenantId);
+        return jdbc.query(
+                """
+                SELECT r.loan_id, r.state, r.recognized_at,
+                       COALESCE((SELECT SUM(a.amount_minor) FROM lending.repayment_allocations a
+                                  WHERE a.repayment_id = r.id AND a.component = 'INTEREST'), 0) AS interest,
+                       COALESCE((SELECT SUM(a.amount_minor) FROM lending.repayment_allocations a
+                                  WHERE a.repayment_id = r.id AND a.component = 'PENALTY'), 0) AS penalty
+                  FROM lending.repayments r WHERE r.id = ?
+                """,
+                rs ->
+                        rs.next()
+                                ? new RecognitionCandidate(
+                                        rs.getObject("loan_id", UUID.class),
+                                        rs.getString("state"),
+                                        rs.getObject("recognized_at") != null,
+                                        rs.getLong("interest"),
+                                        rs.getLong("penalty"))
+                                : null,
+                repaymentId);
+    }
+
+    /**
+     * Recognition resolved: the mark is claimed conditionally, so the loan's recognized counter
+     * advances exactly once per repayment however many paths race to converge it.
+     */
+    @Transactional(transactionManager = LendingBeans.TRANSACTION_MANAGER)
+    public boolean markRecognized(UUID tenantId, UUID repaymentId, UUID loanId, long postedInterestMinor) {
+        scopeTo(tenantId);
+        int claimed =
+                jdbc.update(
+                        "UPDATE lending.repayments SET recognized_at = now()"
+                                + " WHERE id = ? AND state = 'ALLOCATED' AND recognized_at IS NULL",
+                        repaymentId);
+        if (claimed == 0) {
+            return false;
+        }
+        if (postedInterestMinor > 0) {
+            jdbc.update(
+                    "UPDATE lending.loans SET recognized_interest_minor = recognized_interest_minor + ?"
+                            + " WHERE id = ?",
+                    postedInterestMinor, loanId);
+        }
+        return true;
+    }
+
+    public record RecognitionCandidate(
+            UUID loanId, String state, boolean recognized, long interestMinor, long penaltyMinor) {}
 
     // ---------------------------------------------------------------- analytics
 
@@ -552,14 +620,21 @@ public class LoanRecords {
             long principalMinor, long principalOutstandingMinor, int interestRateBp, String scheduleKind,
             String currency, long accruedInterestMinor, LocalDate accrualThrough, LocalDate disbursedOn,
             UUID fundingAccountId, UUID customerAccountId, String officer, String unitCode,
-            String currentBucket, String state) {}
+            String currentBucket, String state, long interestPaidMinor, long recognizedInterestMinor,
+            long penaltyChargedMinor, long penaltyPaidMinor) {
+
+        /** Penalties owed right now — always the subtraction, never a third counter. */
+        public long penaltyDueMinor() {
+            return penaltyChargedMinor - penaltyPaidMinor;
+        }
+    }
 
     public record Repayment(
             UUID id, UUID loanId, long amountMinor, UUID sourceAccountId, UUID sagaId, String state) {}
 
     /** What an allocation did, computed by the service, applied here whole. */
     public record Allocation(
-            UUID loanId, long principalMinor, long interestMinor, boolean closesLoan,
+            UUID loanId, long principalMinor, long interestMinor, long penaltyMinor, boolean closesLoan,
             List<Component> components, List<InstallmentUpdate> installmentUpdates) {
         public record Component(String component, long amountMinor, Integer installmentNo) {}
 

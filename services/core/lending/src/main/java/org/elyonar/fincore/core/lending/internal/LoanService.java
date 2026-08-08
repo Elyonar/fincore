@@ -156,6 +156,14 @@ public class LoanService {
             }
             throw new Refused(LendingErrorCode.APPLICATION_STATE_INVALID, "not accepted");
         }
+        // Configuration-first (v1.17): the product's funding account overrides the caller's,
+        // which stays only as the fallback for versions predating the column — the fee-account
+        // pattern. Resolved before DISBURSING is recorded, so retries and the convergence job
+        // re-drive from the same resolved account.
+        LoanProducts.LoanTerms disburseTerms = products.termsFor(tenantId, app.productCode());
+        if (disburseTerms != null && disburseTerms.fundingAccountId() != null) {
+            fundingAccountId = disburseTerms.fundingAccountId();
+        }
         records.setDisbursing(tenantId, applicationId, null, fundingAccountId, destinationAccountId);
 
         TransferResult outcome;
@@ -241,7 +249,8 @@ public class LoanService {
         if (!"ACTIVE".equals(loan.state())) {
             throw new Refused(LendingErrorCode.LOAN_NOT_ACTIVE, loan.state());
         }
-        long payoff = loan.principalOutstandingMinor() + loan.accruedInterestMinor();
+        long payoff =
+                loan.principalOutstandingMinor() + loan.accruedInterestMinor() + loan.penaltyDueMinor();
         if (amountMinor > payoff) {
             throw new Refused(
                     LendingErrorCode.REPAYMENT_EXCEEDS_PAYOFF,
@@ -269,13 +278,70 @@ public class LoanService {
                                 loan.currency(), "loan repayment " + loanId, initiatedBy, executedBy));
         records.recordRepaymentSaga(tenantId, repayment.id(), outcome.transactionId());
         allocate(tenantId, repayment.id(), requireLoan(tenantId, loanId), repayment.amountMinor());
+        try {
+            // Income recognition rides the allocation (lending.md v1.17) — best-effort inline;
+            // a failure here changes nothing the daily catch-up can't converge under the same keys.
+            recognize(tenantId, repayment.id());
+        } catch (RuntimeException deferred) {
+            // The catch-up pass owns it now.
+        }
         return Map.of("repaymentId", repayment.id().toString(), "state", "ALLOCATED");
     }
 
     /**
+     * Income recognition for one allocated repayment (lending.md v1.17): the interest portion to
+     * the product's interest income account, the penalty portion to the penalty income account
+     * (falling back to the interest one) — each as a {@code RECOGNITION} funding saga under a key
+     * derived from the repayment, replay-stable because the portions were fixed at allocation.
+     * Versions without an income account resolve as an explicit no-op: marked, so the gap in the
+     * books is a recorded fact that ages out on republish, and the pending gauge stays honest.
+     */
+    public void recognize(UUID tenantId, UUID repaymentId) {
+        LoanRecords.RecognitionCandidate candidate = records.recognitionCandidate(tenantId, repaymentId);
+        if (candidate == null || candidate.recognized() || !"ALLOCATED".equals(candidate.state())) {
+            return; // nothing to do, or another path already converged it
+        }
+        Loan loan = records.loan(tenantId, candidate.loanId());
+        if (loan == null) {
+            return;
+        }
+        LoanProducts.LoanTerms terms = products.termsFor(tenantId, loan.productCode());
+        UUID interestAccount = terms == null ? null : terms.interestIncomeAccountId();
+        UUID penaltyAccount =
+                terms == null
+                        ? null
+                        : terms.penaltyIncomeAccountId() != null
+                                ? terms.penaltyIncomeAccountId()
+                                : terms.interestIncomeAccountId();
+
+        long postedInterest = 0;
+        if (candidate.interestMinor() > 0 && interestAccount != null) {
+            movements.fund(
+                    new FundingCommand(
+                            tenantId, FundingCommand.Kind.RECOGNITION,
+                            "lending:recognize:" + repaymentId + ":interest", null,
+                            loan.fundingAccountId(), interestAccount, candidate.interestMinor(),
+                            loan.currency(), "interest recognition " + loan.id(),
+                            "system:lending-recognition", "core"));
+            postedInterest = candidate.interestMinor();
+        }
+        if (candidate.penaltyMinor() > 0 && penaltyAccount != null) {
+            movements.fund(
+                    new FundingCommand(
+                            tenantId, FundingCommand.Kind.RECOGNITION,
+                            "lending:recognize:" + repaymentId + ":penalty", null,
+                            loan.fundingAccountId(), penaltyAccount, candidate.penaltyMinor(),
+                            loan.currency(), "penalty recognition " + loan.id(),
+                            "system:lending-recognition", "core"));
+        }
+        records.markRecognized(tenantId, repaymentId, candidate.loanId(), postedInterest);
+    }
+
+    /**
      * The allocation as a pure computation over the loan's current dues, applied whole. Order per
-     * the product; v1 has no penalty or fee dues, and the engine skips components with nothing
-     * due rather than special-casing the vocabulary.
+     * the product; penalties are live dues since v1.17 (charged minus paid), fees still have no
+     * dues, and the engine skips components with nothing due rather than special-casing the
+     * vocabulary.
      */
     void allocate(UUID tenantId, UUID repaymentId, Loan loan, long amountMinor) {
         LoanProducts.LoanTerms terms = products.termsFor(tenantId, loan.productCode());
@@ -285,6 +351,7 @@ public class LoanService {
         long remaining = amountMinor;
         long interestAllocated = 0;
         long principalAllocated = 0;
+        long penaltyAllocated = 0;
         List<Allocation.Component> components = new ArrayList<>();
         List<Allocation.InstallmentUpdate> updates = new ArrayList<>();
 
@@ -294,6 +361,16 @@ public class LoanService {
                 break;
             }
             switch (component) {
+                case "PENALTY" -> {
+                    long due = loan.penaltyDueMinor();
+                    long take = Math.min(remaining, due);
+                    if (take > 0) {
+                        penaltyAllocated = take;
+                        remaining -= take;
+                        components.add(new Allocation.Component("PENALTY", take, null));
+                        // No installment spread: penalties are a loan-level due, not schedule rows.
+                    }
+                }
                 case "INTEREST" -> {
                     long due = loan.accruedInterestMinor();
                     long take = Math.min(remaining, due);
@@ -315,17 +392,20 @@ public class LoanService {
                     }
                 }
                 default -> {
-                    // PENALTY and FEE have no dues in v1; the vocabulary is ready for them.
+                    // FEE has no dues in v1; the vocabulary is ready for it.
                 }
             }
         }
 
         boolean closes =
                 principalAllocated == loan.principalOutstandingMinor()
-                        && interestAllocated == loan.accruedInterestMinor();
+                        && interestAllocated == loan.accruedInterestMinor()
+                        && penaltyAllocated == loan.penaltyDueMinor();
         records.allocate(
                 tenantId, repaymentId,
-                new Allocation(loan.id(), principalAllocated, interestAllocated, closes, components, updates));
+                new Allocation(
+                        loan.id(), principalAllocated, interestAllocated, penaltyAllocated, closes,
+                        components, updates));
     }
 
     /** Oldest-first across unsettled installments, capped by each row's remaining due. */

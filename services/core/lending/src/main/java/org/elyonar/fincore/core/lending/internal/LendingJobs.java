@@ -26,9 +26,15 @@ import org.slf4j.LoggerFactory;
  *   <li><strong>Delinquency</strong> — the oldest unsettled installment decides days past due;
  *       transitions are append-only events, one per loan per day, and a rerun is a no-op by the
  *       unique key. Recovery (settling up) transitions back to CURRENT the same way.
+ *   <li><strong>Penalties</strong> (v1.17) — a flat charge once per late installment plus basis
+ *       points per day on overdue principal, capped, advanced through {@code penalty_through} so
+ *       reruns charge zero by construction.
  *   <li><strong>Convergence</strong> — applications stuck DISBURSING and repayments left PENDING
  *       whose sagas have since resolved get their lending-side effects applied, so a lost caller
  *       is never the difference between a loan existing and not.
+ *   <li><strong>Recognition catch-up</strong> (v1.17) — allocated repayments whose income
+ *       recognition has not resolved are re-driven under the same per-repayment derived keys, so
+ *       a crash between allocation and recognition converges instead of double-posting.
  * </ul>
  *
  * <p>Batch claims use {@code FOR UPDATE SKIP LOCKED}, so several instances share the work without
@@ -46,14 +52,17 @@ public class LendingJobs {
     private final JdbcTemplate workerJdbc;
     private final LoanService loans;
     private final LoanRecords records;
+    private final org.elyonar.fincore.core.product.api.LoanProducts products;
 
     public LendingJobs(
             @Qualifier("workerJdbcTemplate") JdbcTemplate workerJdbcTemplate,
             LoanService loans,
-            LoanRecords records) {
+            LoanRecords records,
+            org.elyonar.fincore.core.product.api.LoanProducts products) {
         this.workerJdbc = workerJdbcTemplate;
         this.loans = loans;
         this.records = records;
+        this.products = products;
     }
 
     @Scheduled(
@@ -62,8 +71,10 @@ public class LendingJobs {
     public void tick() {
         try {
             accrue();
+            penalize();
             classify();
             converge();
+            recognize();
         } catch (RuntimeException e) {
             log.error("lending job pass failed; the next tick retries in full", e);
         }
@@ -159,6 +170,114 @@ public class LendingJobs {
         }
     }
 
+    /**
+     * The penalty pass (lending.md v1.17): a flat charge once per late installment, arbitrated by
+     * the {@code penalty_applied_at} mark, plus basis points per day on overdue principal,
+     * advanced through {@code penalty_through} exactly the way accrual advances
+     * {@code accrual_through} — so a same-day rerun charges zero by construction. The optional
+     * lifetime cap binds last. Charges are prospective: a product configuring penalties today
+     * does not backdate them onto yesterday's lateness.
+     */
+    public void penalize() {
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        List<PenaltyRow> due =
+                workerJdbc.query(
+                        """
+                        SELECT id, tenant_id, product_code, penalty_through, penalty_charged_minor
+                          FROM lending.loans
+                         WHERE state = 'ACTIVE' AND penalty_through < ?
+                         ORDER BY penalty_through
+                         FOR UPDATE SKIP LOCKED
+                        """,
+                        (rs, i) ->
+                                new PenaltyRow(
+                                        rs.getObject("id", UUID.class),
+                                        rs.getObject("tenant_id", UUID.class),
+                                        rs.getString("product_code"),
+                                        rs.getObject("penalty_through", LocalDate.class),
+                                        rs.getLong("penalty_charged_minor")),
+                        today);
+        for (PenaltyRow row : due) {
+            var terms = products.termsFor(row.tenantId(), row.productCode());
+            long flat = terms == null ? 0 : terms.penaltyFlatMinor();
+            int rateBp = terms == null ? 0 : terms.penaltyRateBp();
+            Long cap = terms == null ? null : terms.penaltyCapMinor();
+
+            long charge = 0;
+            if (flat > 0) {
+                // Mark-then-count: the rowcount of the conditional UPDATE is the number of
+                // installments charged, however many instances race here.
+                int marked =
+                        workerJdbc.update(
+                                """
+                                UPDATE lending.loan_schedule
+                                   SET penalty_applied_at = now()
+                                 WHERE loan_id = ? AND settled_at IS NULL AND due_date < ?
+                                   AND penalty_applied_at IS NULL
+                                """,
+                                row.id(), today);
+                charge += flat * marked;
+            }
+            if (rateBp > 0) {
+                Long overdue =
+                        workerJdbc.queryForObject(
+                                """
+                                SELECT COALESCE(SUM(principal_due_minor - principal_paid_minor), 0)
+                                  FROM lending.loan_schedule
+                                 WHERE loan_id = ? AND settled_at IS NULL AND due_date < ?
+                                """,
+                                Long.class, row.id(), today);
+                long days = ChronoUnit.DAYS.between(row.through(), today);
+                charge +=
+                        BigDecimal.valueOf(overdue == null ? 0 : overdue)
+                                .multiply(BigDecimal.valueOf(rateBp), MC)
+                                .multiply(BigDecimal.valueOf(days), MC)
+                                .divide(BigDecimal.valueOf(10_000L), MC)
+                                .setScale(0, RoundingMode.DOWN)
+                                .longValueExact();
+            }
+            if (cap != null) {
+                charge = Math.min(charge, Math.max(0, cap - row.chargedMinor()));
+            }
+            workerJdbc.update(
+                    "UPDATE lending.loans SET penalty_charged_minor = penalty_charged_minor + ?,"
+                            + " penalty_through = ? WHERE id = ?",
+                    charge, today, row.id());
+            if (charge > 0) {
+                workerJdbc.update(
+                        """
+                        INSERT INTO lending.outbox_events (tenant_id, event_type, aggregate_id, payload)
+                        VALUES (?,?,?,?::jsonb)
+                        """,
+                        row.tenantId(),
+                        "loan.penalty_applied",
+                        row.id().toString(),
+                        "{\"loanId\":\"%s\",\"amountMinor\":\"%d\",\"asOf\":\"%s\"}"
+                                .formatted(row.id(), charge, today));
+            }
+        }
+    }
+
+    /**
+     * The recognition catch-up (lending.md v1.17): every allocated repayment whose income
+     * recognition has not resolved is re-driven through the service's own path — the same
+     * per-repayment derived keys a crash interrupted, so convergence can never double-post.
+     */
+    public void recognize() {
+        List<Stuck> pending =
+                workerJdbc.query(
+                        "SELECT id, tenant_id FROM lending.repayments"
+                                + " WHERE state = 'ALLOCATED' AND recognized_at IS NULL",
+                        (rs, i) -> new Stuck(rs.getObject("id", UUID.class), rs.getObject("tenant_id", UUID.class)));
+        for (Stuck repayment : pending) {
+            try {
+                loans.recognize(repayment.tenantId(), repayment.id());
+            } catch (RuntimeException e) {
+                log.error("recognition catch-up failed for repayment {}", repayment.id(), e);
+            }
+        }
+    }
+
     public static String bucketFor(long dpd) {
         if (dpd <= 0) {
             return "CURRENT";
@@ -226,6 +345,8 @@ public class LendingJobs {
     private record DelinquencyRow(UUID id, UUID tenantId, String bucket, LocalDate oldestDue) {}
 
     private record Stuck(UUID id, UUID tenantId) {}
+
+    private record PenaltyRow(UUID id, UUID tenantId, String productCode, LocalDate through, long chargedMinor) {}
 
     private record PendingRepayment(UUID id, UUID tenantId, UUID loanId, long amountMinor) {}
 }

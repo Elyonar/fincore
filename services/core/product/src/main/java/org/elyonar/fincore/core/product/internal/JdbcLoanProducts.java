@@ -32,7 +32,9 @@ public class JdbcLoanProducts implements LoanProducts {
                 """
                 SELECT v.version, r.interest_rate_bp, r.schedule_kind, r.min_amount_minor,
                        r.max_amount_minor, r.min_term_months, r.max_term_months, r.grace_months,
-                       r.allocation_order, r.interest_income_account_id, r.prepayment_fee_bp, r.currency
+                       r.allocation_order, r.interest_income_account_id, r.prepayment_fee_bp, r.currency,
+                       r.penalty_flat_minor, r.penalty_rate_bp, r.penalty_cap_minor,
+                       r.penalty_income_account_id, r.funding_account_id
                   FROM product.product_versions v
                   JOIN product.products p ON p.id = v.product_id
                   JOIN product.loan_rules r ON r.product_version_id = v.id
@@ -55,7 +57,14 @@ public class JdbcLoanProducts implements LoanProducts {
                                         order(rs.getString("allocation_order")),
                                         rs.getObject("interest_income_account_id", UUID.class),
                                         rs.getInt("prepayment_fee_bp"),
-                                        rs.getString("currency"))
+                                        rs.getString("currency"),
+                                        rs.getLong("penalty_flat_minor"),
+                                        rs.getInt("penalty_rate_bp"),
+                                        rs.getObject("penalty_cap_minor") == null
+                                                ? null
+                                                : rs.getLong("penalty_cap_minor"),
+                                        rs.getObject("penalty_income_account_id", UUID.class),
+                                        rs.getObject("funding_account_id", UUID.class))
                                 : null,
                 productCode);
     }

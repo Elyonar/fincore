@@ -25,6 +25,13 @@ public interface LoanProducts {
      * @param allocationOrder repayment components in the order money reaches them
      * @param interestIncomeAccountId where recognized interest lands — configuration, not a
      *     caller assertion; null on versions predating the column
+     * @param penaltyFlatMinor charged once per late installment (v1.17); zero means none
+     * @param penaltyRateBp basis points <em>per day</em> on overdue principal (v1.17)
+     * @param penaltyCapMinor lifetime cap on penalties charged per loan; null means uncapped
+     * @param penaltyIncomeAccountId where recognized penalties land; null falls back to
+     *     {@code interestIncomeAccountId}
+     * @param fundingAccountId the tenant's loan funding account, configuration-first on
+     *     disburse; null on versions predating the column (caller-supplied fallback applies)
      */
     record LoanTerms(
             int version,
@@ -38,5 +45,10 @@ public interface LoanProducts {
             List<String> allocationOrder,
             UUID interestIncomeAccountId,
             int prepaymentFeeBp,
-            String currency) {}
+            String currency,
+            long penaltyFlatMinor,
+            int penaltyRateBp,
+            Long penaltyCapMinor,
+            UUID penaltyIncomeAccountId,
+            UUID fundingAccountId) {}
 }

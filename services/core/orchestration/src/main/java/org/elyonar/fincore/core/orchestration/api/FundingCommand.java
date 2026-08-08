@@ -3,8 +3,8 @@ package org.elyonar.fincore.core.orchestration.api;
 import java.util.UUID;
 
 /**
- * An institution-initiated movement: a loan disbursement out of the tenant's funding account, or
- * a repayment into it (lending.md, ADR 0013).
+ * An institution-initiated movement: a loan disbursement out of the tenant's funding account, a
+ * repayment into it, or an income recognition out of it (lending.md, ADR 0013).
  *
  * <p>Not a {@link TransferCommand}, deliberately: no channel (this is not channel traffic), no
  * fee (pricing was the loan's), no product evaluation and no limit reservation (the exposure was
@@ -33,7 +33,13 @@ public record FundingCommand(
 
     public enum Kind {
         DISBURSEMENT,
-        REPAYMENT
+        REPAYMENT,
+        /**
+         * Income recognition (lending.md v1.17): collected interest or penalties moving from the
+         * loan funding account to the product's income account. Institution-internal on both
+         * sides, so it takes the {@code DISBURSEMENT} path — no customer checks.
+         */
+        RECOGNITION
     }
 
     public FundingCommand {
