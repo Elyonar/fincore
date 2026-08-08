@@ -44,9 +44,13 @@ COPY services/core/app/pom.xml services/core/app/pom.xml
 COPY services/notification/pom.xml services/notification/pom.xml
 RUN chmod +x mvnw && ./mvnw -B -pl services/ledger -am dependency:go-offline
 
-# The library's sources too, now that the relay's publishers live there. The ledger never
-# depended on a library before, so this file only ever copied its own tree — the same class of
-# omission as the POM list above, and it fails the same way: a build of code that did not change.
+# The libraries' sources too. A copied POM is enough for dependency *resolution*; building a
+# module from source needs its tree. `auth` was the third time this bit — the ledger gained
+# `LedgerAuth` (ADR 0014) and `mvn install` stayed green, because on a developer's disk the module
+# is right there. Only the image, which sees nothing it was not handed, failed. Every module whose
+# source this build compiles is now asserted by `DockerfileModuleCatalogTest`, so a fourth time
+# fails in the suite instead of at `docker compose up`.
+COPY libs/auth/src libs/auth/src
 COPY libs/events/src libs/events/src
 COPY services/ledger/src services/ledger/src
 RUN ./mvnw -B -pl services/ledger -am clean package -DskipTests \
