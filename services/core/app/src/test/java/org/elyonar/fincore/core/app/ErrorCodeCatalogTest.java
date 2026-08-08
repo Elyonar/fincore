@@ -1,4 +1,9 @@
-package org.elyonar.fincore.core.orchestration.api;
+package org.elyonar.fincore.core.app;
+
+import org.elyonar.fincore.core.orchestration.api.CashCommand;
+import org.elyonar.fincore.core.orchestration.api.ErrorCode;
+import org.elyonar.fincore.core.orchestration.api.ErrorReason;
+import org.elyonar.fincore.core.orchestration.api.LedgerPosting;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -14,6 +19,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.elyonar.fincore.core.customer.api.CustomerErrorCode;
 import org.elyonar.fincore.core.organization.api.OrganizationErrorCode;
+import org.elyonar.fincore.core.lending.api.LendingErrorCode;
 import org.elyonar.fincore.core.product.api.ProductDecision;
 import org.elyonar.fincore.core.product.api.ProductErrorCode;
 import org.junit.jupiter.api.DisplayName;
@@ -21,6 +27,10 @@ import org.junit.jupiter.api.Test;
 
 /**
  * Core's published error catalog must match the code that produces it.
+ *
+ * <p>Lives in {@code app} — the one module that sees every other — because the catalog spans five
+ * modules and the union cannot be assembled anywhere a boundary rule would not have to bend
+ * (orchestration must not know lending; ADR 0013).
  *
  * <p>The Ledger's twin of this test found four miscatalogued entries on its first run. Core needs
  * it more, not less: its catalog listed fifteen codes while the source threw a different set, and
@@ -119,18 +129,19 @@ class ErrorCodeCatalogTest {
     }
 
     /**
-     * Every code Core can return, across all four modules.
+     * Every code Core can return, across all five modules.
      *
      * <p>Core is one deployable holding several modules, and each owns its own catalog — a shared
      * enum would make every module compile against Orchestration (ADR 0006). The published API is
-     * still one surface, so the doc is one table and this test unions the four.
+     * still one surface, so the doc is one table and this test unions the five.
      */
     private static Set<String> allCoreCodes() {
         return Stream.of(
                         ErrorCode.values(),
                         CustomerErrorCode.values(),
                         ProductErrorCode.values(),
-                        OrganizationErrorCode.values())
+                        OrganizationErrorCode.values(),
+                        LendingErrorCode.values())
                 .flatMap(Arrays::stream)
                 .map(Enum::name)
                 .collect(Collectors.toCollection(TreeSet::new));

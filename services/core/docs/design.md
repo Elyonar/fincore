@@ -1,6 +1,6 @@
 # Core — Design Index & Decision Log
 
-**Status:** AGREED v1.14 (2026-08-08) — implemented from here; amendments via
+**Status:** AGREED v1.17 (2026-08-08) — implemented from here; amendments via
 [`CHANGELOG.md`](CHANGELOG.md) and the [design-change convention](../../../docs/conventions/design-changes.md).
 **Source:** platform PRD §4.2 (Customer), §4.3 (Product), §4.4 (Orchestration),
 §3 (constitution), §5 (communication map), §6 (security), §7 (NFRs), §8
@@ -324,6 +324,13 @@ attribution. No money-path decision branches on a unit — that restraint is the
 design: the operational tree can be reorganized without a migration touching
 money. Vault movements and teller assignment still arrive with the teller
 application, on a Branch that now exists.
+
+**Lending → the fifth module, designed apart (ADR 0013,
+[`lending.md`](lending.md)).** It sits above Orchestration in the dependency
+order — the one amendment to "nothing asks Orchestration" — because a loan's
+every money movement is a saga, and a module that decided *and* posted would be
+a second path to the Ledger wearing a domain's name. Implementation follows
+that document's agreement, not this paragraph.
 
 **The publisher adapters are duplicated with the ledger's, deliberately, for
 now.** Both services now carry Kafka and logging publishers, so the `libs/`

@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.elyonar</groupId>
+        <artifactId>core</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
+        <relativePath>../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>lending</artifactId>
+    <name>fincore :: core :: lending</name>
+    <description>Lending module (ADR 0013): origination, schedules, disbursement instructions,
+        repayment allocation, accrual and delinquency. Sits above Orchestration — every money
+        movement is a saga through its published api; Lending never gains its own path to the
+        Ledger. Owns the `lending` schema; connects as `core_lending`.</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.elyonar</groupId>
+            <artifactId>auth</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!--
+            The one sanctioned dependency on Orchestration in the whole reactor (ADR 0013):
+            lending consumes its published api — MoneyMovements, the commands, the exceptions —
+            and ModuleBoundaryTest refuses anything deeper.
+        -->
+        <dependency>
+            <groupId>org.elyonar</groupId>
+            <artifactId>orchestration</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.elyonar</groupId>
+            <artifactId>customer</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.elyonar</groupId>
+            <artifactId>product</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-jdbc</artifactId>
+        </dependency>
+
+        <!-- OpenAPI annotations only, never the springdoc starter — the starter lives in app. -->
+        <dependency>
+            <groupId>io.swagger.core.v3</groupId>
+            <artifactId>swagger-annotations-jakarta</artifactId>
+            <version>2.2.52</version>
+        </dependency>
+    </dependencies>
+</project>

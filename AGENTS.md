@@ -164,16 +164,21 @@ Verified by running the suites, not by reading the docs: **521 tests green** —
     and two cross-tenant probes
   - no performance, soak or disaster-recovery evidence exists
 
-- `services/core` — **design AGREED v1.14; implemented, merged, and running.**
-  One deployable holding four modules ([ADR 0006](docs/adr/0006-modular-core.md)):
-  `customer`, `product`, `orchestration` and `app`, with a schema and a database
-  role each. Transfers, cash in and out, business reversal with maker-checker
-  approval, customer contact and consent, product versioning with publish
-  control. It has its own image and compose service, and calls the ledger over
-  HTTP.
+- `services/core` — **design AGREED v1.17; implemented, merged, and running.**
+  One deployable holding six modules ([ADR 0006](docs/adr/0006-modular-core.md),
+  [ADR 0013](docs/adr/0013-lending-module-first.md)): `customer`, `product`,
+  `organization`, `orchestration`, `lending` and `app`, with a schema and a
+  database role each. Transfers, cash in and out, business reversal with
+  maker-checker approval, customer contact and consent, product versioning with
+  publish control, organizational units (ADR 0012), and lending — origination
+  through tiered approval to disbursement, schedules, repayment allocation,
+  daily accrual, the penalty engine, delinquency classification, and income
+  recognition on collection (v1.17). It has its own image and compose service,
+  and calls the ledger over HTTP.
 
-  `customer` and `product` carry no unit tests of their own; both are covered by
-  `app`'s integration suite, which is why Core's 193 sit in two modules.
+  The domain modules carry no unit tests of their own; all are covered by
+  `app`'s integration suite (plus `ScheduleEngineTest`'s seeded sweep), which
+  is why Core's 213 sit almost entirely in `app`.
 
   Read `services/core/docs/design.md` and then `outcome-protocol.md` before
   touching anything here. The rule that matters most: **an unknown outcome is
@@ -187,7 +192,7 @@ Verified by running the suites, not by reading the docs: **521 tests green** —
   that the two publishers were emitting different envelopes despite ADR 0008
   mandating one — fixed before this service was built.
 
-  One schema, six tables, two database roles, its own image and compose service.
+  One schema, eight tables, two database roles, its own image and compose service.
   It consumes `transfer.completed`, resolves contact and consent from Core, and
   queues a message per side of a transfer. **Every consumed event ends as a
   message or as a suppression carrying a reason code** — that is the guarantee
@@ -198,8 +203,11 @@ Verified by running the suites, not by reading the docs: **521 tests green** —
   - **nothing reaches a customer.** The `log` senders deliver nowhere and say so
     at startup; the messaging connector that would make them real is not built,
     by decision — connectors come last
-  - no error-catalog test and no metrics. The scaffold asks for both and
-    `testing.md` marks them PLANNED rather than implying coverage
+  - no error-catalog test. The scaffold asks for one and `testing.md` marks it
+    PLANNED rather than implying coverage; `api.md`'s codes and the `Suppressed`
+    reasons can still drift from the enums without the build noticing. Metrics
+    are **no longer a gap** — `SendMetrics` exports queue depth, oldest-pending
+    age and exhausted-attempts count since v1.5
   - delivery receipts, bounce handling and monetary cost need a gateway to test
     against, so they arrive with the connector
 

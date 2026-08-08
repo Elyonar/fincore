@@ -8,6 +8,46 @@ Newest entry first.
 
 ---
 
+## [1.5.1] — 2026-08-08 · PATCH
+
+**The `tenants` table gets documented, and an off-by-one is chased out.**
+
+- **Docs:** `data-model.md`, `design.md`, `testing.md`, `README.md`
+- **Why:** v1.3.0 added `V4__tenant_registry.sql` and named `data-model.md` in
+  its Docs list, but the table was never added to the table list — so the schema
+  has carried a table the data model does not mention for two versions. A reader
+  reconstructing the design from the docs would have missed the gate both
+  entrances consult.
+- **What changed:**
+  - `tenants` joins the table list, and the row-level-security rule now names
+    **both** deliberate exceptions rather than one. `channels` is a deployment
+    fact; `tenants` is what a caller consults *before* it has a tenant context,
+    so a policy on it would be a lock whose key is inside the box.
+    `SchemaTest.rls_is_forced` already excluded both by name — the doc had not
+    caught up.
+  - The table count is corrected wherever it appears. It was wrong in three
+    directions at once: the count started at "six" in
+    `V2__notification_tables.sql`'s header comment (which creates **seven**),
+    v1.3.0's entry called `tenants` "the seventh table" (it is the **eighth**),
+    and the docs inherited the error. `SchemaTest.the_tables_exist` has asserted
+    all eight throughout — the code was never wrong, only the prose about it.
+  - `testing.md` records the intake suite at its true size, 20 rather than 15.
+  - The service README's status block and memory map, which still advertised
+    v1.2/v1.1 and claimed `api.md` had "none built yet" while the paragraph
+    above it said every documented endpoint exists.
+- **Impact:** none. No schema, API, error code, invariant or guarantee moves;
+  this is the documentation catching up to a contract agreed in v1.3.0.
+- **Tests:** unchanged, and none needed to change — the drift was one-way, docs
+  behind code. `SchemaTest`'s display name is corrected from "seven" to "eight"
+  in the same breath, being a label rather than an assertion.
+
+**Not corrected:** `V2__notification_tables.sql`'s "The six tables" header
+comment. Flyway checksums the whole file, so editing an applied migration breaks
+validation on every database that has run it. The comment is wrong and stays
+wrong; this entry is where that is recorded.
+
+---
+
 ## [1.5.0] — 2026-08-08 · MINOR
 
 **The queue's documented alarms get measurements.**
