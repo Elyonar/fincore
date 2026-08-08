@@ -164,16 +164,21 @@ Verified by running the suites, not by reading the docs: **521 tests green** —
     and two cross-tenant probes
   - no performance, soak or disaster-recovery evidence exists
 
-- `services/core` — **design AGREED v1.14; implemented, merged, and running.**
-  One deployable holding four modules ([ADR 0006](docs/adr/0006-modular-core.md)):
-  `customer`, `product`, `orchestration` and `app`, with a schema and a database
-  role each. Transfers, cash in and out, business reversal with maker-checker
-  approval, customer contact and consent, product versioning with publish
-  control. It has its own image and compose service, and calls the ledger over
-  HTTP.
+- `services/core` — **design AGREED v1.17; implemented, merged, and running.**
+  One deployable holding six modules ([ADR 0006](docs/adr/0006-modular-core.md),
+  [ADR 0013](docs/adr/0013-lending-module-first.md)): `customer`, `product`,
+  `organization`, `orchestration`, `lending` and `app`, with a schema and a
+  database role each. Transfers, cash in and out, business reversal with
+  maker-checker approval, customer contact and consent, product versioning with
+  publish control, organizational units (ADR 0012), and lending — origination
+  through tiered approval to disbursement, schedules, repayment allocation,
+  daily accrual, the penalty engine, delinquency classification, and income
+  recognition on collection (v1.17). It has its own image and compose service,
+  and calls the ledger over HTTP.
 
-  `customer` and `product` carry no unit tests of their own; both are covered by
-  `app`'s integration suite, which is why Core's 193 sit in two modules.
+  The domain modules carry no unit tests of their own; all are covered by
+  `app`'s integration suite (plus `ScheduleEngineTest`'s seeded sweep), which
+  is why Core's 213 sit almost entirely in `app`.
 
   Read `services/core/docs/design.md` and then `outcome-protocol.md` before
   touching anything here. The rule that matters most: **an unknown outcome is

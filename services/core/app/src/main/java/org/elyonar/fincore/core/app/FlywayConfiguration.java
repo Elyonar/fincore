@@ -31,7 +31,7 @@ public class FlywayConfiguration {
      * ADR 0006 forbids outright. It migrates last because its backfill reads the three that
      * precede it.
      */
-    private static final String[] MODULES = {"customer", "product", "organization", "orchestration", "platform"};
+    private static final String[] MODULES = {"customer", "product", "organization", "orchestration", "lending", "platform"};
 
     @Bean
     public InitializingBean migrateEveryModule(DataSource ownerDataSource) {

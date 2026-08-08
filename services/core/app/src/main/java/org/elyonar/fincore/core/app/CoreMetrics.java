@@ -66,6 +66,17 @@ public class CoreMetrics {
                         self.scalar(
                                 self.workerJdbc,
                                 "SELECT count(*) FROM orchestration.ops_cases WHERE status = 'OPEN'"));
+
+        // Allocated repayments whose income recognition has not resolved (lending.md v1.17): the
+        // number a stalled recognition catch-up is caught by, the way outbox lag catches a relay.
+        registry.gauge(
+                "core.lending.recognition.pending",
+                this,
+                self ->
+                        self.scalar(
+                                self.workerJdbc,
+                                "SELECT count(*) FROM lending.repayments"
+                                        + " WHERE state = 'ALLOCATED' AND recognized_at IS NULL"));
     }
 
     /** One number, as {@code long} — the no-floating-point rule is service-wide, not money-only. */
