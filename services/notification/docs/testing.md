@@ -1,6 +1,6 @@
 # Notification — Invariants & Test Strategy
 
-**Status:** AGREED v1.5 (2026-08-08) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
+**Status:** AGREED v1.5.1 (2026-08-08) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
 
 Every suite below carries a status marker, and **only IMPLEMENTED suites gate
 merges**. Moving a marker requires the tests to exist. A design describing

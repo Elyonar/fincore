@@ -8,6 +8,82 @@ entry first.
 
 ---
 
+## [1.17.0] — 2026-08-08 · MINOR
+
+**Lending closes its own three gaps: income recognition, the penalty engine, and the
+configuration-first funding account.** The v1.16 "known gaps, honestly" list, closed.
+
+- **Docs:** `lending.md`, `data-model.md`, `api.md`, `architecture.md`, `testing.md`, `design.md`
+- **Income recognition, on collection, per repayment.** A `RECOGNITION` funding saga (V8 joins
+  the type vocabulary) moves each allocated repayment's interest portion from the loan funding
+  account to `loan_rules.interest_income_account_id` — and its penalty portion to
+  `penalty_income_account_id`, falling back to the interest account — under keys derived from
+  the repayment (`lending:recognize:{repaymentId}:interest` / `:penalty`). **Design deviation
+  from the v1.16 sketch, recorded:** not a month-end delta under a month key, because a
+  month-scoped key cannot be replay-stable once the delta moves between reruns — the fingerprint
+  guard would refuse the reuse, correctly — while a repayment's portions are fixed forever at
+  allocation. The daily job gains a `recognize()` catch-up pass over allocated-but-unresolved
+  repayments; recognition is attempted inline after allocation and the job converges whatever a
+  crash interrupted. Versions without an income account resolve as an explicit no-op (marked
+  `recognized_at`, so the gap is a recorded fact that ages out on republish).
+  `loans.recognized_interest_minor` advances only by amounts actually posted. Value-dated
+  month-end postings wait on a ledger value-dating amendment — out of scope here.
+- **The penalty engine.** Penalty rules join `loan_rules` (product V6): `penalty_flat_minor`
+  once per late installment (arbitrated by `penalty_applied_at` on the schedule row),
+  `penalty_rate_bp` per day on overdue principal (advanced through `penalty_through`, the
+  `accrual_through` pattern), `penalty_cap_minor` as a lifetime cap. Charges accumulate in
+  `loans.penalty_charged_minor`, collections in `penalty_paid_minor` (CHECK paid ≤ charged);
+  due is a subtraction, never a third counter. The allocation engine's `PENALTY` component is
+  live; payoff and `REPAYMENT_EXCEEDS_PAYOFF` include penalty due; each charge emits
+  `loan.penalty_applied`. Same-day reruns charge zero by construction.
+- **Funding account, configuration-first.** `loan_rules.funding_account_id` overrides the
+  caller-supplied account on disburse; the caller's value remains only a fallback for versions
+  predating the column — the `fee_rules.fee_account_id` pattern, ageing out the same way.
+- **Operations:** `core.lending.recognition.pending` gauge (allocated repayments with
+  recognition unresolved) — the number a stalled catch-up is caught by.
+- **No new endpoints, no new error codes, no realm changes.** The API and error catalogs are
+  unchanged; `GET /v1/loans/{id}` grows penalty/recognition fields in its body.
+
+---
+
+## [1.16.0] — 2026-08-08 · MINOR
+
+**Lending is built.** The v1.15 design implemented whole: the fifth module, its schema, its
+chain, its engine and its jobs — with the rows in `api.md` now true rather than staged.
+
+- **Docs:** `api.md`, `lending.md`, `data-model.md`, `architecture.md`, `testing.md`
+- **What exists now:**
+  - `lending` schema (role `core_lending`, full ADR 0007 pattern): applications, append-only
+    approvals, tiers (zero permitted), loans, generated schedules, repayments with append-only
+    allocations, delinquency events, and lending's own outbox — which the shared relay now polls
+    alongside orchestration's.
+  - Product carries loan pricing: `LOAN` joins the type vocabulary and `loan_rules` (rate bp,
+    schedule kind, bounds, grace, allocation order, prepayment fee, interest income account)
+    rides product versions, evaluated through the `LoanProducts` port and pinned by version on
+    the loan.
+  - Orchestration publishes its surface: `MoneyMovements` (transfer / fund / status) is the api
+    ADR 0013 promised, and funding sagas (`DISBURSEMENT`, `REPAYMENT`) are ordinary two-entry
+    sagas minus the customer-channel gates — no product evaluation, no limit reservation, and
+    V7 says why. A repayment still checks the customer holds the source account.
+  - The thirteen `api.md` lending rows are served: origination through the tiered chain
+    (zero-tier decisions attributed to `system:lending-policy`), offers with disclosure
+    economics, disbursement idempotent per application with three-valued convergence, schedules
+    as rows, repayment intake-then-allocate (exactly once, race-guarded by the repayment's own
+    state), PAR by bucket × product × officer × unit, and the tier admin surface — logic without
+    a route being a plan, not a feature.
+  - Jobs, worker-identity, lease-safe, idempotent by construction: daily ACT/365 accrual
+    (truncating — never a kobo nobody earned), delinquency classification into CBN buckets with
+    append-only transitions and `loan.delinquent`/`loan.recovered` events, and convergence for
+    DISBURSING applications and PENDING repayments whose sagas resolved while the caller was
+    gone.
+- **Known gaps, honestly:** interest **recognition postings** (accrued → income account) are not
+  yet wired — accrual facts are tracked and reduced at allocation, and the income-side saga
+  lands with the month-end job; the disbursement's `fundingAccountId` is caller-supplied
+  operational reference (the tills gap's shape) until account metadata rides the ledger read;
+  penalties price to zero pending the penalty engine.
+
+---
+
 ## [1.15.0] — 2026-08-08 · MINOR
 
 **Lending is designed (ADR 0013): Core's fifth domain module, above Orchestration. Docs only — no code in this amendment.**

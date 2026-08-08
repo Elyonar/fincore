@@ -59,7 +59,7 @@ Read the [ADRs](docs/adr/), then try to break the ledger —
 | Service | What it does | Status | Docs |
 |---|---|---|---|
 | **Ledger** | Double-entry posting engine — the single source of monetary truth. Accounts, entries, balances, holds. | ✅ Design AGREED v1.9 · implemented (pre-1.0) | [README](services/ledger/README.md) · [design](services/ledger/docs/design.md) · [data model](services/ledger/docs/data-model.md) · [architecture](services/ledger/docs/architecture.md) · [API](services/ledger/docs/api.md) · [posting algorithm](services/ledger/docs/posting-algorithm.md) · [testing](services/ledger/docs/testing.md) |
-| **Core** | One deployable, four domain modules — `core/customer`, `core/product`, `core/organization`, `core/orchestration`. Owns sagas, fee application, limits and the organizational tree (ADR 0012); the only caller of the Ledger's write API. Lending — the fifth module — is designed (ADR 0013) and not yet built. | ✅ Design AGREED v1.15 · implemented (pre-1.0) | [README](services/core/README.md) · [design](services/core/docs/design.md) · [outcome protocol](services/core/docs/outcome-protocol.md) · [saga protocol](services/core/docs/saga-protocol.md) · [data model](services/core/docs/data-model.md) · [API](services/core/docs/api.md) · [testing](services/core/docs/testing.md) |
+| **Core** | One deployable, five domain modules — `core/customer`, `core/product`, `core/organization`, `core/lending`, `core/orchestration`. Owns sagas, fee application, limits and the organizational tree (ADR 0012); the only caller of the Ledger's write API. Lending — the fifth module (ADR 0013) — is built: origination, schedules, accrual, delinquency, PAR. | ✅ Design AGREED v1.16 · implemented (pre-1.0) | [README](services/core/README.md) · [design](services/core/docs/design.md) · [outcome protocol](services/core/docs/outcome-protocol.md) · [saga protocol](services/core/docs/saga-protocol.md) · [data model](services/core/docs/data-model.md) · [API](services/core/docs/api.md) · [testing](services/core/docs/testing.md) |
 | Identity | Keycloak, self-hosted: auth, tenants, roles, maker-checker. **Configured, never built** — it is commodity software, and the platform's side of it is [`libs/auth`](libs/auth/README.md), which every service imports. Keycloak runs in compose behind the `identity` profile with a seeded development realm (six job-shaped users, permission and `units` claims); without it, services default to a development identity that announces itself at startup | Partial | [ADR 0010](docs/adr/0010-keycloak-realm-per-tenant.md) |
 | **Notification** | The platform's first event consumer. Turns Core's business events into messages over a registry of channels; writes no money and holds no gateway credentials. | ✅ Design AGREED v1.4 · implemented (pre-1.0) | [README](services/notification/README.md) · [design](services/notification/docs/design.md) · [architecture](services/notification/docs/architecture.md) · [data model](services/notification/docs/data-model.md) · [API](services/notification/docs/api.md) · [testing](services/notification/docs/testing.md) |
 | Lending · Compliance · Connectors | Further domains around the ledger. | Planned | — |
@@ -101,8 +101,8 @@ fincore/
 │   ├── ledger/        # the first deployable — double-entry posting engine
 │   │   ├── README.md  # the service's own map: purpose, boundaries, doc index
 │   │   └── docs/      # the service's design & deep-dive docs
-│   ├── core/          # one deployable, four domain modules + assembly:
-│   │                  #   customer · product · organization · orchestration · app
+│   ├── core/          # one deployable, five domain modules + assembly:
+│   │                  #   customer · product · organization · lending · orchestration · app
 │   └── notification/  # the first event consumer — messages, not money
 ├── libs/              # shared internal libraries (auth, events) — arrive when needed
 ├── docs/
