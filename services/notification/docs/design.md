@@ -1,6 +1,6 @@
 # Notification — Design & Decision Log
 
-**Status:** AGREED v1.5 (2026-08-08) — implemented from here; amendments via
+**Status:** AGREED v1.5.1 (2026-08-08) — implemented from here; amendments via
 [`CHANGELOG.md`](CHANGELOG.md) and the
 [design-change convention](../../../docs/conventions/design-changes.md). Code
 that contradicts this document is a bug even if it works.

@@ -30,6 +30,14 @@ public class OutboxRelay {
 
     private static final Logger log = LoggerFactory.getLogger(OutboxRelay.class);
 
+    /**
+     * The outbox tables this relay serves — one per emitting module (ADR 0013 brought the
+     * second). A module absent from this list is a module whose events never leave the building,
+     * so the list lives here, greppable, rather than discovered per table.
+     */
+    private static final List<String> OUTBOXES =
+            List.of("orchestration.outbox_events", "lending.outbox_events");
+
     private final JdbcTemplate jdbc;
     private final EventPublisher publisher;
 
@@ -48,17 +56,25 @@ public class OutboxRelay {
      */
     @Transactional(transactionManager = CoreProperties.Beans.RELAY_TX)
     public int publishBatch(int batchSize) {
+        int published = 0;
+        for (String outbox : OUTBOXES) {
+            published += publishBatch(outbox, batchSize);
+        }
+        return published;
+    }
+
+    private int publishBatch(String outbox, int batchSize) {
         List<DomainEvent> pending =
                 jdbc.query(
                         """
                         SELECT id, tenant_id, event_type, aggregate_id, created_at, epoch,
                                payload::text AS payload
-                          FROM orchestration.outbox_events
+                          FROM %s
                          WHERE published_at IS NULL
                          ORDER BY id
                            FOR UPDATE SKIP LOCKED
                          LIMIT ?
-                        """,
+                        """.formatted(outbox),
                         // Every envelope field comes from this row (ADR 0008), and the envelope
                         // itself is rendered by libs/events — one renderer for every publisher,
                         // because two services each assembling "the same" JSON is how this
@@ -80,7 +96,7 @@ public class OutboxRelay {
         // pending and is retried, and one failure never strands the rest of the batch behind it.
         List<Long> acknowledged = publisher.publish(pending);
         for (Long id : acknowledged) {
-            jdbc.update("UPDATE orchestration.outbox_events SET published_at = now() WHERE id = ?", id);
+            jdbc.update("UPDATE " + outbox + " SET published_at = now() WHERE id = ?", id);
         }
         return acknowledged.size();
     }
@@ -92,12 +108,18 @@ public class OutboxRelay {
      * someone notices a consumer has gone quiet, which is typically at month-end reconciliation.
      */
     public Optional<Long> oldestPendingAgeSeconds() {
-        Long age =
-                jdbc.queryForObject(
-                        "SELECT FLOOR(EXTRACT(EPOCH FROM (now() - MIN(created_at))))::bigint"
-                                + " FROM orchestration.outbox_events WHERE published_at IS NULL",
-                        Long.class);
-        return Optional.ofNullable(age);
+        Long oldest = null;
+        for (String outbox : OUTBOXES) {
+            Long age =
+                    jdbc.queryForObject(
+                            "SELECT FLOOR(EXTRACT(EPOCH FROM (now() - MIN(created_at))))::bigint FROM "
+                                    + outbox + " WHERE published_at IS NULL",
+                            Long.class);
+            if (age != null && (oldest == null || age > oldest)) {
+                oldest = age;
+            }
+        }
+        return Optional.ofNullable(oldest);
     }
 
     public void warnIfStale(long thresholdSeconds) {

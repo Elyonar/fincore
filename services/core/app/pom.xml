@@ -35,6 +35,10 @@
             <groupId>org.elyonar</groupId>
             <artifactId>orchestration</artifactId>
         </dependency>
+        <dependency>
+            <groupId>org.elyonar</groupId>
+            <artifactId>lending</artifactId>
+        </dependency>
 
         <dependency>
             <groupId>org.springframework.boot</groupId>

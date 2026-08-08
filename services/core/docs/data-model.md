@@ -1,6 +1,6 @@
 # Core — Data Model
 
-**Status:** AGREED v1.14 (2026-08-08) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
+**Status:** AGREED v1.16 (2026-08-08) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
 
 One database, three schemas, one database role per schema. Amounts are integer
 minor units (`BIGINT`), `tenant_id` on **every** row.
@@ -387,6 +387,13 @@ Also as of v1.14: `platform.tenants.business_timezone` (IANA id, default
 window rolls at that midnight; and `sagas.decision` is finally *written*, a
 JSONB snapshot of version, fee, fee account, both limits, channel and KYC tier
 at Phase A.
+
+### Lending arrivals (v1.16)
+
+Schema `lending` is documented in [`lending.md`](lending.md) §3 and implemented to it. In
+*neighbouring* schemas: `product.loan_rules` carries loan pricing on versions (`LOAN` joined the
+product type vocabulary); `orchestration.sagas.type` gained `DISBURSEMENT` and `REPAYMENT` —
+funding sagas with no reservation and no product decision, per V7's stated reasoning.
 
 ## Rules that apply to every schema
 

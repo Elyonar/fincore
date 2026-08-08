@@ -9,7 +9,7 @@
 One deployable, four domain modules, one database, four domain schemas, one
 database role per module. It is the **only** caller of the Ledger's write API.
 
-**Status: design AGREED v1.13 — implemented, pre-1.0.** Packaging is decided
+**Status: design AGREED v1.16 — implemented, pre-1.0.** Packaging is decided
 ([ADR 0006](../../docs/adr/0006-modular-core.md)), all documented endpoints are
 served, and every suite runs against real PostgreSQL. Changes to the design are
 amendments in [`docs/CHANGELOG.md`](docs/CHANGELOG.md), in their own PR ahead
@@ -21,14 +21,15 @@ of the code — never silent edits.
 
 | You want to know… | Read | Status |
 |---|---|---|
-| The design at a glance + the decision log | [`docs/design.md`](docs/design.md) | AGREED v1.13 |
-| **The three-valued outcome model** — the thing this service exists to get right | [`docs/outcome-protocol.md`](docs/outcome-protocol.md) | AGREED v1.13 |
-| How sagas execute, recover, and are claimed across instances | [`docs/saga-protocol.md`](docs/saga-protocol.md) | AGREED v1.13 |
-| Modules, boundaries, the ledger client, events, DR posture | [`docs/architecture.md`](docs/architecture.md) | AGREED v1.13 |
-| Tables per schema, ownership rules, decided edge cases | [`docs/data-model.md`](docs/data-model.md) | AGREED v1.13 |
-| Endpoint surface, error catalog, contract properties | [`docs/api.md`](docs/api.md) | AGREED v1.13 |
-| Core's eight invariants and every test suite | [`docs/testing.md`](docs/testing.md) | AGREED v1.13 |
-| Every amendment since the design was agreed | [`docs/CHANGELOG.md`](docs/CHANGELOG.md) | v1.13 |
+| The design at a glance + the decision log | [`docs/design.md`](docs/design.md) | AGREED v1.16 |
+| **The three-valued outcome model** — the thing this service exists to get right | [`docs/outcome-protocol.md`](docs/outcome-protocol.md) | AGREED v1.16 |
+| How sagas execute, recover, and are claimed across instances | [`docs/saga-protocol.md`](docs/saga-protocol.md) | AGREED v1.16 |
+| Modules, boundaries, the ledger client, events, DR posture | [`docs/architecture.md`](docs/architecture.md) | AGREED v1.16 |
+| Tables per schema, ownership rules, decided edge cases | [`docs/data-model.md`](docs/data-model.md) | AGREED v1.16 |
+| Endpoint surface, error catalog, contract properties | [`docs/api.md`](docs/api.md) | AGREED v1.16 |
+| Core's eight invariants and every test suite | [`docs/testing.md`](docs/testing.md) | AGREED v1.16 |
+| **Lending — the fifth module**: origination, schedules, accrual, delinquency | [`docs/lending.md`](docs/lending.md) | AGREED v1.16 |
+| Every amendment since the design was agreed | [`docs/CHANGELOG.md`](docs/CHANGELOG.md) | v1.16 |
 | Platform hard rules | [`AGENTS.md`](../../AGENTS.md) | Standing |
 | What every service must have before it ships | [`service-scaffold.md`](../../docs/conventions/service-scaffold.md) | Standing |
 
@@ -42,6 +43,7 @@ README stays the map, never the territory.
 | `customer` | `customer` | Profiles, KYC tier, lifecycle, mandates, customer↔account mapping. **The only schema holding PII.** |
 | `product` | `product` | Product catalog, fee rules, limit rules, versioned configuration. Returns *decisions*, never postings. |
 | `organization` | `organization` | The tenant's operational tree — branches, regions, business lines — and who is assigned where ([ADR 0012](../../docs/adr/0012-organizational-model.md)). Operational scope only: never a legal entity, booking unit or jurisdiction. |
+| `lending` | `lending` | Origination, schedules, repayment allocation, accrual, delinquency ([ADR 0013](../../docs/adr/0013-lending-module-first.md)). Sits **above** orchestration; every money movement is a saga. |
 | `orchestration` | `orchestration` | Sagas, limit reservations, fee application, tills, the ledger client. **The only module that may call the Ledger's write API.** |
 
 `app` assembles them: wiring, the outbox relay, the saga worker. No domain
@@ -196,4 +198,6 @@ discovered. Per-suite status lives in [`docs/testing.md`](docs/testing.md).
 | Reconciliation | Runs hourly against COMPLETED sagas (v1.14). The FAILED-saga half waits on a ledger read-by-key amendment; see `testing.md` |
 | Fee account fallback | Published versions predating `fee_rules.fee_account_id` cannot be edited to carry it (published versions are immutable), so for those the caller-supplied account still applies. Ages out as versions are republished |
 | Unit scope | Organizational units exist and are attributed (ADR 0012), but no endpoint yet *requires* one — unit-scoped authorization arrives with the teller application |
+| Interest recognition | Accrual facts are tracked and reduced at allocation; the income-side posting (accrued → income account) lands with the month-end job |
+| Loan funding account | Caller-supplied operational reference on disburse, like a till's — validated ownership arrives with account metadata on the ledger read |
 | Performance | Targets in `architecture.md` are intent. Nothing has been benchmarked |

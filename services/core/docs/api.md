@@ -1,6 +1,6 @@
 # Core — API Surface (v1)
 
-**Status:** AGREED v1.14 (2026-08-08) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
+**Status:** AGREED v1.16 (2026-08-08) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
 
 REST/JSON. Every request carries a validated identity token — **the tenant comes
 from the token, never from a header**
@@ -55,6 +55,18 @@ the first place.
 | `POST /v1/tills` | provision a till inside a validated branch | orchestration | `tills:manage` | admin |
 | `GET  /v1/tills` | the tenant's tills | orchestration | `tills:read` | admin, supervisor |
 | `POST /v1/tills/{id}/close` | close a till; cash cannot move through it afterwards | orchestration | `tills:manage` | admin |
+| `POST /v1/loan-applications` | apply against a loan product (ADR 0013) | lending | `loans:apply` | loan officer, API |
+| `GET  /v1/loan-applications/{id}` | state, chain progress, offer economics | lending | `loans:read` | loan officer, supervisor |
+| `POST /v1/loan-applications/{id}/approve` | one signature in the tiered chain — approver from the token | lending | `loans:approve` | supervisor |
+| `POST /v1/loan-applications/{id}/reject` | terminal, reason required | lending | `loans:approve` | supervisor |
+| `POST /v1/loan-applications/{id}/accept-offer` | customer acceptance, attributed | lending | `loans:offer` | loan officer, API |
+| `POST /v1/loan-applications/{id}/disburse` | opens the funding saga; idempotent per application | lending | `loans:disburse` | supervisor |
+| `GET  /v1/loans/{id}` | balances: outstanding, accrued, payoff | lending | `loans:read` | loan officer, API |
+| `GET  /v1/loans/{id}/schedule` | the installment rows | lending | `loans:read` | loan officer, API |
+| `POST /v1/loans/{id}/repayments` | intake: opens the repayment saga, allocates on completion | lending | `loans:repay` | loan officer, API |
+| `GET  /v1/portfolio/par` | PAR by bucket × product × officer × unit | lending | `loans:portfolio` | admin, ops |
+| `POST /v1/lending/approval-tiers` | set a tier: ceiling → approvals required, zero permitted | lending | `loans:tiers` | admin |
+| `GET  /v1/lending/approval-tiers` | the tenant's tiers | lending | `loans:tiers` | admin |
 
 **The channel is permission-gated, never free-asserted.** The channel a
 transfer names selects which limit rules apply, which makes it an authorization
@@ -200,6 +212,15 @@ tenant renders its own string from `code`, `reason` and `details`.
 | `PARENT_UNIT_NOT_FOUND` | the named parent unit does not exist, is another tenant's, or is closed → 422 | no |
 | `ASSIGNMENT_EXISTS` | the principal already holds a live assignment to this unit → 409 | no |
 | `ASSIGNMENT_NOT_FOUND` | no live assignment ties this principal to this unit → 404 | no |
+| `LOAN_NOT_FOUND` | unknown loan or application, or another tenant's → 404 | no |
+| `APPLICATION_STATE_INVALID` | the transition is not legal from the current state → 422 | no |
+| `PRODUCT_NOT_LENDABLE` | no published LOAN version in effect for that code → 422 | no |
+| `AMOUNT_OUT_OF_BOUNDS` | outside the product version's amount bounds → 422 | no |
+| `TERM_OUT_OF_BOUNDS` | outside the product version's term bounds → 422 | no |
+| `APPROVAL_SEQUENCE_INVALID` | duplicate approver, the applicant approving, or a tier already satisfied → 422 | no |
+| `OFFER_EXPIRED` | the acceptance window passed; the application is now EXPIRED → 422 | no |
+| `REPAYMENT_EXCEEDS_PAYOFF` | more than the loan's payoff; refused at intake, never parked → 422 | no |
+| `LOAN_NOT_ACTIVE` | the loan is closed or written off → 422 | no |
 | `INSUFFICIENT_FUNDS` | relayed from the Ledger; the account would go available < 0 | no — new key after funding |
 | `IDEMPOTENCY_KEY_REUSED` | same key, different payload fingerprint | no — caller bug |
 | `TRANSACTION_NOT_FOUND` | unknown saga, or another tenant's | no |

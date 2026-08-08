@@ -118,6 +118,38 @@
         "description": "Provision and close tills"
       },
       {
+        "name": "loans:apply",
+        "description": "Submit a loan application"
+      },
+      {
+        "name": "loans:read",
+        "description": "Read applications, loans and schedules"
+      },
+      {
+        "name": "loans:approve",
+        "description": "Sign (or reject) in the amount-tiered approval chain"
+      },
+      {
+        "name": "loans:offer",
+        "description": "Accept an offer on the customer's behalf"
+      },
+      {
+        "name": "loans:disburse",
+        "description": "Open the disbursement saga for an accepted offer"
+      },
+      {
+        "name": "loans:repay",
+        "description": "Take a repayment against an active loan"
+      },
+      {
+        "name": "loans:portfolio",
+        "description": "Portfolio-at-risk analytics"
+      },
+      {
+        "name": "loans:tiers",
+        "description": "Configure approval tiers (ceiling → approvals, zero permitted)"
+      },
+      {
         "name": "job:teller",
         "description": "Branch teller (PRD §2). Takes cash and moves money; reads customers and products to do it, and changes neither.",
         "composite": true,
@@ -143,7 +175,10 @@
             "approvals:check",
             "transfers:reverse",
             "org:read",
-            "tills:read"
+            "tills:read",
+            "loans:approve",
+            "loans:read",
+            "loans:disburse"
           ]
         }
       },
@@ -194,7 +229,10 @@
             "org:manage",
             "tills:read",
             "tills:manage",
-            "channel:api"
+            "channel:api",
+            "loans:read",
+            "loans:portfolio",
+            "loans:tiers"
           ]
         }
       },
@@ -218,6 +256,21 @@
         "composites": {
           "realm": [
             "customers:contact"
+          ]
+        }
+      },
+      {
+        "name": "job:loan-officer",
+        "description": "Originates and services loans; approvals belong to the chain above",
+        "composite": true,
+        "composites": {
+          "realm": [
+            "loans:apply",
+            "loans:read",
+            "loans:offer",
+            "loans:repay",
+            "customers:read",
+            "products:read"
           ]
         }
       }
