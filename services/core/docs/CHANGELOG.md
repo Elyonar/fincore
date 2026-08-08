@@ -8,6 +8,29 @@ entry first.
 
 ---
 
+## [1.18.0] — 2026-08-08 · MINOR
+
+**The UI runway is designed (ADR 0014). Docs only — no code in this amendment.**
+
+Every domain service the Phase 0 client apps need already exists; what stands between the APIs
+and a browser is identity, the edge, and screen-shaped reads. This amendment agrees that bridge
+before a line of it is built, per this platform's own rule.
+
+- **Docs:** `ui-runway.md` (new), and ADR 0014 at the platform level
+- **Decided:** the edge stays configuration (one reverse proxy, TLS, single origin — never a
+  gateway service without a new ADR); clients speak only to Core, which proxies the ledger reads
+  it chooses to expose (statements, balances) through the existing ledger client — hard rule 3's
+  read-side completion; the ledger's tenant header dies as ADR 0010 promised (jwt via
+  `libs/auth`, caller allowlist enforced, principal propagated into posting attribution); realm
+  provisioning is a versioned template + a script that creates realm and registry row as one
+  loud-failing operation; and the Phase 0 read audit is named screen-by-screen in
+  `ui-runway.md` §3 — seven planned endpoints, zero new permissions, rows entering `api.md`
+  only as they become true.
+- **Explicitly out:** partner APIs, API keys, rate limits, webhooks, the provisioning
+  dashboard, offline behavior, any new domain capability.
+
+---
+
 ## [1.17.0] — 2026-08-08 · MINOR
 
 **Lending closes its own three gaps: income recognition, the penalty engine, and the
