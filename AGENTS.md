@@ -164,7 +164,7 @@ Verified by running the suites, not by reading the docs: **521 tests green** —
     and two cross-tenant probes
   - no performance, soak or disaster-recovery evidence exists
 
-- `services/core` — **design AGREED v1.14; implemented, merged, and running.**
+- `services/core` — **design AGREED v1.15; implemented, merged, and running.**
   One deployable holding four modules ([ADR 0006](docs/adr/0006-modular-core.md)):
   `customer`, `product`, `orchestration` and `app`, with a schema and a database
   role each. Transfers, cash in and out, business reversal with maker-checker
