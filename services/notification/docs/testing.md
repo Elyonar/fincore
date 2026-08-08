@@ -1,6 +1,6 @@
 # Notification — Invariants & Test Strategy
 
-**Status:** AGREED v1.5 (2026-08-08) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
+**Status:** AGREED v1.5.1 (2026-08-08) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
 
 Every suite below carries a status marker, and **only IMPLEMENTED suites gate
 merges**. Moving a marker requires the tests to exist. A design describing
@@ -36,7 +36,7 @@ Checked per tenant, after every test scenario and on a schedule in production.
 | Suite | Proves | Status |
 |---|---|---|
 | **Schema** (`SchemaTest`, 12) | Every table, trigger, constraint and policy exists **and fires**: required parts, published immutability, attribution and measurement, complete quiet-hour windows, the dedupe key, one message per moment, terminal states, append-only attempts, tenant isolation | **IMPLEMENTED** |
-| **Intake** (`EventIntakeTest`, 15) | Both parties notified from one transfer; redelivery handled once; two events about one moment producing one message each; epoch fencing; the staleness guard; unmapped events recorded as `IGNORED`; address encrypted at rest with the template version recorded; and every suppression reason reachable on the intake path — `NO_ADDRESS`, `OPTED_OUT`, `NO_TEMPLATE`, `MISSING_VARIABLE`, `NO_POLICY`, `UNKNOWN_ACCOUNT` — plus the transactional quiet-hours exemption and channel fallback | **IMPLEMENTED** |
+| **Intake** (`EventIntakeTest`, 20) | Both parties notified from one transfer; redelivery handled once; two events about one moment producing one message each; epoch fencing; the staleness guard; unmapped events recorded as `IGNORED`; address encrypted at rest with the template version recorded; and every suppression reason reachable on the intake path — `NO_ADDRESS`, `OPTED_OUT`, `NO_TEMPLATE`, `MISSING_VARIABLE`, `NO_POLICY`, `UNKNOWN_ACCOUNT` — plus the transactional quiet-hours exemption and channel fallback | **IMPLEMENTED** |
 | **Send queue** (`SendWorkerTest`, 9) | Claimed once and attempted with history; the address decrypted only at the sender and the client reference derived, never random; a definite rejection terminal; an unknown retried with backoff; a sender that *throws* treated as unknown rather than failure; attempts counted at claim so a crash mid-send buys no free retry; a lease keeping a second instance off one message; exhaustion failing the message and recording `ATTEMPTS_EXHAUSTED` | **IMPLEMENTED** |
 | **API** (`ApiTest`, 10) | Draft → publish with attribution and measurement; a channel's required parts enforced at create; unknown channel refused; double publish a 409; policy round trip; half a quiet window refused; reads exposing no address; **every endpoint denying by default**; and the bidirectional document check | **IMPLEMENTED** |
 | Replay safety | A topic redriven from `earliest` produces zero sends — the offset half; the age half is covered by the intake suite | PARTIAL |

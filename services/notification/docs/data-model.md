@@ -1,13 +1,15 @@
 # Notification — Data Model
 
-**Status:** AGREED v1.5 (2026-08-08) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
+**Status:** AGREED v1.5.1 (2026-08-08) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
 
-One schema, `notification`, in its own database. Seven tables: six the design
+One schema, `notification`, in its own database. Nine tables: eight the design
 names, plus Flyway's own history.
 
 Migrations: `V1__schema.sql` (schema, roles, tenant and worker functions),
-`V2__notification_tables.sql` (everything below), `V3__tenant_default_locale.sql`
-(the language a tenant writes in when the customer never said).
+`V2__notification_tables.sql` (the seven that carry messages),
+`V3__tenant_default_locale.sql` (the language a tenant writes in when the
+customer never said), `V4__tenant_registry.sql` (`tenants` — the gate both
+entrances consult).
 
 ## The tables
 
@@ -20,12 +22,16 @@ Migrations: `V1__schema.sql` (schema, roles, tenant and worker functions),
 | `notifications` | tenant, business moment, category, channel, template version, recipient, address, rendered, units, state | One message per `(tenant, moment, category, channel, recipient)`; terminal states are terminal |
 | `delivery_attempts` | notification, attempt_no, outcome, client_reference, gateway_ref | Append-only. History is how a delivery dispute is answered |
 | `suppressions` | the event or moment, reason_code, detail | Why a message was **not** sent. The service's defining invariant lives here |
+| `tenants` | id, name, status, created_by, created_at | A tenant is provisioned, never implied. Both entrances consult it: a request for an unknown or suspended tenant is refused before any handler, and an event naming one is suppressed with `UNKNOWN_TENANT` rather than thrown — an exception would stall the consumer for tenants that are perfectly real (CHANGELOG v1.3) |
 
 ## Rules that apply to every table
 
 - **`tenant_id` on every row**, and row-level security **enabled and `FORCE`d**.
-  `channels` is the one exception and deliberately so: which channels the
-  platform can speak is a deployment fact, not a tenant's.
+  Two tables are exceptions, both deliberately. `channels`: which channels the
+  platform can speak is a deployment fact, not a tenant's. `tenants`: it is what
+  a caller consults *before* it has a tenant context to be scoped by, so a
+  policy on it would be a lock whose key is inside the box. `SchemaTest` asserts
+  both absences by name, so neither can become an accident.
 - **Tenant context via `SET LOCAL` inside the transaction**, never a session
   `SET`. Connections are pooled across tenants, and a session variable hands the
   next borrower the previous tenant's identity — the failure row-level security

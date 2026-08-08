@@ -44,7 +44,7 @@ class SchemaTest {
     }
 
     @Test
-    @DisplayName("all seven tables exist")
+    @DisplayName("all eight tables exist")
     void the_tables_exist() {
         List<String> tables = app.queryForList(
                 // flyway_schema_history is Flyway's bookkeeping, not this design's. Excluded by

@@ -1,6 +1,6 @@
 # Notification — Design & Decision Log
 
-**Status:** AGREED v1.5 (2026-08-08) — implemented from here; amendments via
+**Status:** AGREED v1.5.1 (2026-08-08) — implemented from here; amendments via
 [`CHANGELOG.md`](CHANGELOG.md) and the
 [design-change convention](../../../docs/conventions/design-changes.md). Code
 that contradicts this document is a bug even if it works.
@@ -21,7 +21,7 @@ that contradicts this document is a bug even if it works.
 | Topic | Doc |
 |---|---|
 | Boundaries, traffic, the intake pipeline, concurrency, DR posture | [`architecture.md`](architecture.md) |
-| The seven tables, ownership rules, decided edge cases | [`data-model.md`](data-model.md) |
+| The eight tables, ownership rules, decided edge cases | [`data-model.md`](data-model.md) |
 | Endpoint surface, error catalog, suppression reasons | [`api.md`](api.md) |
 | The nine invariants and every test suite, with status markers | [`testing.md`](testing.md) |
 | Amendments since this design was agreed | [`CHANGELOG.md`](CHANGELOG.md) |
