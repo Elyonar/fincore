@@ -29,7 +29,7 @@ public class AuthEvents {
     public void record(UUID tenantId, UUID userId, String event, String source, Map<String, Object> details) {
         tx.jdbc()
                 .update(
-                        "INSERT INTO identity.auth_events (tenant_id, user_id, event, actor_principal,"
+                        "INSERT INTO auth.auth_events (tenant_id, user_id, event, actor_principal,"
                                 + " actor_service, source, details) VALUES (?,?,?,?,?,?,?::jsonb)",
                         tenantId,
                         userId,
@@ -61,7 +61,7 @@ public class AuthEvents {
         tx.plain(() -> {
             tx.jdbc()
                     .update(
-                            "INSERT INTO identity.auth_events (event, actor_service, source, details)"
+                            "INSERT INTO auth.auth_events (event, actor_service, source, details)"
                                     + " VALUES (?,?,?,?::jsonb)",
                             event,
                             "service:identity",

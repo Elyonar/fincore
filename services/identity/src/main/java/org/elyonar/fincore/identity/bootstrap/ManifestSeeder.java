@@ -157,7 +157,7 @@ public class ManifestSeeder implements ApplicationRunner {
             for (String permission : PermissionCatalog.ADMIN_TEMPLATE) {
                 tx.jdbc()
                         .update(
-                                "INSERT INTO identity.role_permissions (tenant_id, role_name, permission)"
+                                "INSERT INTO auth.role_permissions (tenant_id, role_name, permission)"
                                         + " VALUES (?,?,?) ON CONFLICT DO NOTHING",
                                 tenantId,
                                 PermissionCatalog.ADMIN_ROLE,
@@ -165,7 +165,7 @@ public class ManifestSeeder implements ApplicationRunner {
             }
             int rows = tx.jdbc()
                     .update(
-                            "INSERT INTO identity.users (tenant_id, id, username, email, first_name,"
+                            "INSERT INTO auth.users (tenant_id, id, username, email, first_name,"
                                     + " last_name, created_by, created_via)"
                                     + " VALUES (?,?,?,?,?,?,?,?) ON CONFLICT DO NOTHING",
                             tenantId,
@@ -181,14 +181,14 @@ public class ManifestSeeder implements ApplicationRunner {
             }
             tx.jdbc()
                     .update(
-                            "INSERT INTO identity.user_roles (tenant_id, user_id, role_name) VALUES (?,?,?)"
+                            "INSERT INTO auth.user_roles (tenant_id, user_id, role_name) VALUES (?,?,?)"
                                     + " ON CONFLICT DO NOTHING",
                             tenantId,
                             userId,
                             PermissionCatalog.ADMIN_ROLE);
             tx.jdbc()
                     .update(
-                            "INSERT INTO identity.credentials (tenant_id, user_id, password_hash)"
+                            "INSERT INTO auth.credentials (tenant_id, user_id, password_hash)"
                                     + " VALUES (?,?,?)",
                             tenantId,
                             userId,

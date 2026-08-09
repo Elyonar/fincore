@@ -55,20 +55,20 @@ class LoginFlowTest {
         UUID userId = UUID.randomUUID();
         tx.inTenant(TENANT, () -> {
             tx.jdbc().update(
-                    "INSERT INTO identity.role_permissions (tenant_id, role_name, permission)"
+                    "INSERT INTO auth.role_permissions (tenant_id, role_name, permission)"
                             + " VALUES (?, 'job:admin', 'customers:read') ON CONFLICT DO NOTHING",
                     TENANT);
             tx.jdbc().update(
-                    "INSERT INTO identity.users (tenant_id, id, username, email, first_name, last_name,"
+                    "INSERT INTO auth.users (tenant_id, id, username, email, first_name, last_name,"
                             + " credential_temporary, created_by, created_via)"
                             + " VALUES (?,?,?,?,?,?,TRUE,'test','test')",
                     TENANT, userId, username, username + "@acme.test", "Ada", "Okonkwo");
             tx.jdbc().update(
-                    "INSERT INTO identity.user_roles (tenant_id, user_id, role_name)"
+                    "INSERT INTO auth.user_roles (tenant_id, user_id, role_name)"
                             + " VALUES (?,?, 'job:admin')",
                     TENANT, userId);
             tx.jdbc().update(
-                    "INSERT INTO identity.credentials (tenant_id, user_id, password_hash) VALUES (?,?,?)",
+                    "INSERT INTO auth.credentials (tenant_id, user_id, password_hash) VALUES (?,?,?)",
                     TENANT, userId, passwords.hash(TEMP));
             return null;
         });

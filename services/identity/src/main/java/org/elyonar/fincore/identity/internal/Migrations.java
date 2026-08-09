@@ -15,12 +15,21 @@ import org.springframework.context.annotation.Configuration;
 @Configuration
 public class Migrations {
 
+    /**
+     * The schema this deployable owns: {@code auth}, inside the {@code identity} database.
+     *
+     * <p>Named for what it holds rather than for the service that holds it. {@code identity.identity}
+     * says the same word twice and neither time usefully; {@code auth.credentials} reads as what it
+     * is. The deployable is identity, the database is identity, the schema is its subject.
+     */
+    public static final String SCHEMA = "auth";
+
     @Bean(initMethod = "migrate")
     public Flyway flyway(@Qualifier("dataSource") DataSource ownerDataSource) {
         return Flyway.configure()
                 .dataSource(ownerDataSource)
-                .schemas("identity")
-                .defaultSchema("identity")
+                .schemas(SCHEMA)
+                .defaultSchema(SCHEMA)
                 .locations("classpath:db/migration")
                 .validateOnMigrate(true)
                 .cleanDisabled(true)

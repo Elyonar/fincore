@@ -34,7 +34,7 @@ public class Throttle {
     public boolean sourceFlooded(UUID tenantId, String source) {
         Integer count = tx.jdbc()
                 .query(
-                        "SELECT failure_count FROM identity.login_throttle"
+                        "SELECT failure_count FROM auth.login_throttle"
                                 + " WHERE tenant_id = ? AND scope = ? AND window_start > ?",
                         rs -> rs.next() ? rs.getInt(1) : null,
                         tenantId,
@@ -62,7 +62,7 @@ public class Throttle {
     public void clear(UUID tenantId, String username) {
         tx.jdbc()
                 .update(
-                        "DELETE FROM identity.login_throttle WHERE tenant_id = ? AND scope = ?",
+                        "DELETE FROM auth.login_throttle WHERE tenant_id = ? AND scope = ?",
                         tenantId,
                         accountScope(username));
     }
@@ -77,13 +77,13 @@ public class Throttle {
         // on the primary key rather than racing in application code.
         tx.jdbc()
                 .update(
-                        "INSERT INTO identity.login_throttle (tenant_id, scope, failure_count, window_start)"
+                        "INSERT INTO auth.login_throttle (tenant_id, scope, failure_count, window_start)"
                             + " VALUES (?,?,1,?)"
                             + " ON CONFLICT (tenant_id, scope) DO UPDATE SET"
-                            + "   failure_count = CASE WHEN identity.login_throttle.window_start < ?"
-                            + "     THEN 1 ELSE identity.login_throttle.failure_count + 1 END,"
-                            + "   window_start = CASE WHEN identity.login_throttle.window_start < ?"
-                            + "     THEN ? ELSE identity.login_throttle.window_start END",
+                            + "   failure_count = CASE WHEN auth.login_throttle.window_start < ?"
+                            + "     THEN 1 ELSE auth.login_throttle.failure_count + 1 END,"
+                            + "   window_start = CASE WHEN auth.login_throttle.window_start < ?"
+                            + "     THEN ? ELSE auth.login_throttle.window_start END",
                         tenantId,
                         scope,
                         java.sql.Timestamp.from(now),
@@ -93,7 +93,7 @@ public class Throttle {
         if (lockable) {
             tx.jdbc()
                     .update(
-                            "UPDATE identity.login_throttle SET locked_until = ?"
+                            "UPDATE auth.login_throttle SET locked_until = ?"
                                     + " WHERE tenant_id = ? AND scope = ? AND failure_count >= ?",
                             java.sql.Timestamp.from(now.plus(config.getLockMinutes(), ChronoUnit.MINUTES)),
                             tenantId,
@@ -105,7 +105,7 @@ public class Throttle {
     private Instant lockedUntil(UUID tenantId, String scope) {
         java.sql.Timestamp ts = tx.jdbc()
                 .query(
-                        "SELECT locked_until FROM identity.login_throttle"
+                        "SELECT locked_until FROM auth.login_throttle"
                                 + " WHERE tenant_id = ? AND scope = ?",
                         rs -> rs.next() ? rs.getTimestamp(1) : null,
                         tenantId,

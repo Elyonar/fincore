@@ -66,7 +66,7 @@ public class ServiceClients implements ApplicationRunner {
                                 + " nothing — refusing to register a client nobody can be");
             }
             owner.update(
-                    "INSERT INTO identity.service_clients (client_id, secret_digest) VALUES (?,?)"
+                    "INSERT INTO auth.service_clients (client_id, secret_digest) VALUES (?,?)"
                             + " ON CONFLICT (client_id) DO UPDATE SET secret_digest = EXCLUDED.secret_digest",
                     parts[0].trim(),
                     digest(secret));
@@ -80,7 +80,7 @@ public class ServiceClients implements ApplicationRunner {
         }
         String stored = tx.plain(() -> tx.jdbc()
                 .query(
-                        "SELECT secret_digest FROM identity.service_clients"
+                        "SELECT secret_digest FROM auth.service_clients"
                                 + " WHERE client_id = ? AND enabled",
                         rs -> rs.next() ? rs.getString(1) : null,
                         clientId));
