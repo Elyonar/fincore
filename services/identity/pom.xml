@@ -1,0 +1,121 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.elyonar</groupId>
+        <artifactId>fincore</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
+        <relativePath>../../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>identity</artifactId>
+    <name>fincore :: identity</name>
+    <description>
+        The platform's identity provider (ADR 0018). Verifies staff and service credentials and
+        mints the tokens every other service verifies via libs/auth. Client-driven by product
+        decision: every flow is a first-party API; there is no hosted login page. States what a
+        caller holds; never decides what a holding permits.
+    </description>
+
+    <dependencies>
+        <!--
+            This POM is an architectural control (service-scaffold §2). The absences a reviewer
+            should see here:
+
+            * no ledger client, no Core client, no client of any kind. This service is called;
+              it calls nobody. A dependency on another deployable appearing here is a boundary
+              violation, not a convenience.
+            * no Kafka and no libs/events. Nothing consumes identity events yet, and an outbox
+              without a consumer is anticipatory machinery (design.md D12).
+            * libs/auth appears in TEST scope only. At runtime this service cannot verify tokens
+              against "the issuer" — it IS the issuer, and verifies its own signatures locally.
+              In tests, libs/auth is the acceptance boundary: a token minted here must resolve
+              through the unchanged resolver (the parity suite, ADR 0018).
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-jdbc</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-database-postgresql</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
+        <!--
+            Token signing and JWKS rendering — the same JOSE stack libs/auth already verifies
+            with, used here from the minting side. Composition over invention (design.md D6):
+            no bespoke crypto anywhere in this service.
+        -->
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-oauth2-jose</artifactId>
+        </dependency>
+        <!-- Argon2id password hashing (design.md D6). spring-security-crypto delegates the
+             primitive to Bouncy Castle; the encoder refuses to load without it. -->
+        <dependency>
+            <groupId>org.bouncycastle</groupId>
+            <artifactId>bcprov-jdk18on</artifactId>
+            <version>1.79</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springdoc</groupId>
+            <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+            <version>2.8.13</version>
+        </dependency>
+
+        <!-- TEST ONLY — the parity suite's other half. See the boundary note above. -->
+        <dependency>
+            <groupId>org.elyonar</groupId>
+            <artifactId>auth</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.tngtech.archunit</groupId>
+            <artifactId>archunit-junit5</artifactId>
+            <!-- 1.4.x or newer: earlier ASM cannot read Java 25 bytecode and silently imports
+                 zero classes. The empty-import canary exists because this has happened twice. -->
+            <version>1.4.1</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+</project>

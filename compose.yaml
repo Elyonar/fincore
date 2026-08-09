@@ -96,49 +96,63 @@ services:
       retries: 10
       start_period: 20s
 
-  # Identity provider (ADR 0010). Opt-in, because nothing consumes it yet:
-  #   docker compose --profile identity up -d keycloak
-  # then point a service at fincore.auth.issuer-uri.
+  # Identity provider (ADR 0018): first-party, client-driven, minting the token every other
+  # service already verifies. Replaces Keycloak — the realm-per-tenant model, the realm template,
+  # render-realms.sh and the keycloak/ tree are retired with this service (the removed files sit
+  # in _to_delete/ until the branch is reviewed).
   #
-  # Development mode only — no persistence, throwaway credentials, HTTP. Real
-  # deployments configure this properly and those details live with the
-  # deployment, not in this repository (AGENTS.md hard rule 8).
-  keycloak:
-    image: quay.io/keycloak/keycloak:26.0
+  # Opt-in via the `identity` profile while the swap lands, matching how the other services flip
+  # to jwt mode. Bring it up, then run the stack with FINCORE_AUTH_MODE=jwt and the issuer/JWKS
+  # pair below so the whole platform verifies real tokens end to end:
+  #   docker compose --profile identity up -d identity
+  #
+  # One deployed instance serves one institution (ADR 0018). The manifest (bootstrap/tenants.json)
+  # is seeded by this service's own TenantSeeder at startup — there is no realm rendering step and
+  # no separate registry script.
+  identity:
+    build:
+      context: .
+      dockerfile: services/identity/Dockerfile
     profiles: ["identity"]
-    # --import-realm seeds keycloak/fincore-dev-realm.json on every start. Deliberate: start-dev
-    # keeps its database in memory, so the realm is rebuilt from the file each time and cannot
-    # drift from what the repository says it is. Changes made in the admin console are lost on
-    # restart — edit the file instead, which is also what makes them reviewable.
-    command: ["start-dev", "--import-realm"]
-    volumes:
-      # Two mounts, because they are two different things: what the realm *is*, and what it looks
-      # like. Keeping the theme out of the import directory also keeps the import scanner from
-      # walking it.
-      - ./keycloak/import:/opt/keycloak/data/import:ro
-      - ./keycloak/themes:/opt/keycloak/themes:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
     environment:
-      KC_BOOTSTRAP_ADMIN_USERNAME: admin
-      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
-      KC_HEALTH_ENABLED: "true"
-      # The front-channel address: what a browser uses, and what every token says it was issued
-      # by. It must be reachable from a laptop, because Keycloak renders the login form's action
-      # with it — pinning this to the compose name instead produced a login page that displayed
-      # perfectly and could not be submitted.
-      #
-      # Services then verify that issuer while fetching the signing keys over the compose network
-      # (FINCORE_AUTH_JWKS_URI, below). The issuer is a public fact; where keys come from is the
-      # service's own business, and behind a gateway those genuinely differ too.
-      KC_HOSTNAME: http://localhost:8180
-      KC_HOSTNAME_STRICT: "false"
-      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
+      # Owner runs Flyway; traffic connects as identity_app (service-scaffold §4).
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/identity
+      SPRING_DATASOURCE_USERNAME: fincore
+      SPRING_DATASOURCE_PASSWORD: fincore
+      FINCORE_IDENTITY_DB_USER: identity_app
+      FINCORE_IDENTITY_DB_PASSWORD: identity_app
+
+      # The public fact baked into every token — a stable string verifiers match exactly. The
+      # other services set FINCORE_AUTH_ISSUER_URI to this value and FINCORE_AUTH_JWKS_URI to the
+      # in-network JWKS (http://identity:8083/.well-known/jwks.json), because the issuer is a
+      # public fact while where keys are fetched is a network detail only the compose net resolves.
+      FINCORE_IDENTITY_ISSUER: http://localhost:58183
+
+      # The manifest, mounted read-only. Seeded idempotently on every boot (ADR 0016 / 0018).
+      FINCORE_IDENTITY_MANIFEST: /bootstrap/tenants.json
+      # The one super-administrator's temporary credential is written here, once, mode 600. This
+      # bind-mounts back to the repo's bootstrap/ so a developer can read it after first boot; it
+      # is gitignored. Never committed (AGENTS.md hard rule 8).
+      FINCORE_IDENTITY_CREDENTIALS_OUT: /bootstrap/.seeded-credentials.txt
+
+      # No signing key configured => an ephemeral dev key, and the startup banner says so loudly.
+      # A deployment supplies fincore.identity.signing.private-key-pem by reference and tokens
+      # then survive a restart. Never run a deployment on the ephemeral key.
+      SPRING_PROFILES_ACTIVE: ${FINCORE_IDENTITY_PROFILE:-dev}
+    volumes:
+      - ./bootstrap:/bootstrap
     ports:
-      - "${FINCORE_KEYCLOAK_PORT:-8180}:8080"
+      # 58183 on the host for the same reason every other service avoids its own test port: the
+      # service binds 8083 in its own suite. 8183 is the in-container port a browser reaches.
+      - "${FINCORE_IDENTITY_PORT:-58183}:8083"
     healthcheck:
-      test: ["CMD-SHELL", "exec 3<>/dev/tcp/localhost/9000 && echo -e 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && cat <&3 | grep -q '\"status\": \"UP\"'"]
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8083/actuator/health/readiness | grep -q '\"status\":\"UP\"'"]
       interval: 10s
       timeout: 5s
-      retries: 20
+      retries: 12
       start_period: 30s
 
   # The edge (ADR 0014): one origin for client apps, TLS termination in deployments, path
@@ -183,7 +197,6 @@ services:
       FINCORE_EVENTS_BROKER: ${FINCORE_EVENTS_BROKER:-kafka}
       # Seeds the development tenant at startup, loudly. Local stacks only —
       # a deployment must never set this (tenant/DevTenantSeeder).
-      LEDGER_DEV_TENANT_ID: 00000000-0000-4000-8000-000000000001
       # Ledger identity (ADR 0014): header mode is the dev stand-in, double-locked to a
       # sanctioned profile exactly like libs/auth's dev mode. Set FINCORE_LEDGER_AUTH_MODE=jwt
       # (with the issuer/JWKS pair below) to verify service credentials for real.
@@ -245,7 +258,6 @@ services:
       # network. No other module may hold a ledger client.
       FINCORE_LEDGER_URL: http://ledger:8080
       # Seeds the development tenant at startup, loudly. Local stacks only.
-      FINCORE_CORE_DEV_TENANT_ID: 00000000-0000-4000-8000-000000000001
       # The same backbone key both services read (libs/events). One key, so an
       # operator cannot half-migrate by changing it in one place.
       FINCORE_EVENTS_BROKER: ${FINCORE_EVENTS_BROKER:-kafka}
@@ -255,7 +267,7 @@ services:
       # sanctioned profile is also active, so the profile is set here too and the
       # startup banner says loudly that this is not authentication (ADR 0010).
       # Run `docker compose --profile identity up` and set FINCORE_AUTH_MODE=jwt
-      # with an issuer URI to exercise the real path against Keycloak.
+      # with an issuer URI to exercise the real path against the identity service.
       FINCORE_AUTH_MODE: ${FINCORE_AUTH_MODE:-dev}
       FINCORE_AUTH_ISSUER_URI: ${FINCORE_AUTH_ISSUER_URI:-}
       # Where this service fetches the signing keys. The issuer above is what a browser and a
@@ -330,7 +342,6 @@ services:
       # here and no gateway SDK.
       FINCORE_NOTIFICATION_CORE_BASE_URL: http://core:8081
       # Seeds the development tenant at startup, loudly. Local stacks only.
-      FINCORE_NOTIFICATION_DEV_TENANT_ID: 00000000-0000-4000-8000-000000000001
 
       # Dev identity, as elsewhere in this file: headers rather than tokens, and
       # libs/auth refuses that unless a sanctioned profile is also active

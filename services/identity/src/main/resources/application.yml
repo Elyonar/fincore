@@ -1,0 +1,84 @@
+spring:
+  application:
+    name: identity
+
+  # Migrations run as the owner; traffic connects as identity_app. The owner connection never
+  # serves a request, so it holds one connection rather than a pool's worth.
+  datasource:
+    hikari:
+      maximum-pool-size: 1
+      minimum-idle: 0
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:55432/identity}
+    username: ${SPRING_DATASOURCE_USERNAME:fincore}
+    password: ${SPRING_DATASOURCE_PASSWORD:fincore}
+
+  flyway:
+    enabled: false # wired in Migrations — only the owner may run DDL
+
+fincore:
+  identity:
+    # The public fact baked into every token this instance mints. Verifiers check it exactly
+    # (libs/auth), so it must equal what the other services' FINCORE_AUTH_ISSUER_URI says.
+    issuer: ${FINCORE_IDENTITY_ISSUER:http://localhost:8083}
+
+    # One deployed instance serves one institution (ADR 0018). When the manifest carries exactly
+    # one tenant this may stay unset; with several, deployment names which one this instance
+    # authenticates, and startup refuses the ambiguity otherwise.
+    tenant-id: ${FINCORE_IDENTITY_TENANT_ID:}
+
+    access-token-ttl-seconds: ${FINCORE_IDENTITY_ACCESS_TTL:600}
+    action-token-ttl-seconds: 300
+    refresh:
+      absolute-hours: ${FINCORE_IDENTITY_REFRESH_ABSOLUTE_HOURS:12}
+    throttle:
+      account-failures-before-lock: 5
+      source-failures-before-delay: 20
+      lock-minutes: 15
+      window-minutes: 15
+
+    signing:
+      # PKCS#8 PEM, by reference: an env var name or file: path — never a literal in
+      # configuration and never a row in the database (design.md D13). Absent, a sanctioned dev
+      # profile generates an ephemeral pair and the startup summary warns loudly; any other
+      # profile refuses to start.
+      private-key-pem: ${FINCORE_IDENTITY_SIGNING_KEY_PEM:}
+      # The outgoing key during rotation: published for verification, never used to sign.
+      retiring-public-key-pem: ${FINCORE_IDENTITY_RETIRING_KEY_PEM:}
+
+    bootstrap:
+      # The ADR 0016 manifest. Absent, nothing seeds — an empty instance that can authenticate
+      # nobody, loudly announced.
+      manifest: ${FINCORE_IDENTITY_MANIFEST:}
+      # Where generated temporary credentials are surfaced, once, mode 600. Never committed.
+      credentials-out: ${FINCORE_IDENTITY_CREDENTIALS_OUT:bootstrap/.seeded-credentials.txt}
+
+    # The service-client registry (client-credentials flow). Comma-separated client=secretRef
+    # pairs where secretRef names an env var holding the plaintext — same *Ref posture as the
+    # manifest (tenant-bootstrap.md). Digested on seed; plaintext never stored.
+    service-clients: ${FINCORE_IDENTITY_SERVICE_CLIENTS:}
+
+    datasource:
+      app:
+        maximum-pool-size: ${FINCORE_IDENTITY_POOL:10}
+        minimum-idle: 2
+        connection-timeout: 3000
+        jdbc-url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:55432/identity}
+        username: ${FINCORE_IDENTITY_DB_USER:identity_app}
+        password: ${FINCORE_IDENTITY_DB_PASSWORD:identity_app}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+springdoc:
+  swagger-ui:
+    path: /docs
+
+server:
+  port: ${SERVER_PORT:8083}
