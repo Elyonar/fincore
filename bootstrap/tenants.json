@@ -9,7 +9,7 @@
       "countryCode": "NG",
       "segment": "MFB",
       "businessTimezone": "Africa/Lagos",
-      "webOrigin": "http://localhost:3000",
+      "webOrigin": "https://app.stardevs.xyz",
       "superAdmin": {
         "username": "ada.admin",
         "email": "ada.admin@acme.example",
