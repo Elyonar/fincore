@@ -42,6 +42,7 @@ COPY services/core/lending/pom.xml services/core/lending/pom.xml
 COPY services/core/orchestration/pom.xml services/core/orchestration/pom.xml
 COPY services/core/app/pom.xml services/core/app/pom.xml
 COPY services/notification/pom.xml services/notification/pom.xml
+COPY services/identity/pom.xml services/identity/pom.xml
 RUN chmod +x mvnw && ./mvnw -B -pl services/ledger -am dependency:go-offline
 
 # The libraries' sources too. A copied POM is enough for dependency *resolution*; building a

@@ -1,0 +1,1030 @@
+openapi: 3.1.0
+info:
+  title: FinCore Identity — Authentication & Access API
+  version: "1.0-draft"
+  description: >
+    The platform's first-party, client-driven identity service (ADR 0018). Every flow is a JSON
+    API call; there is no hosted login page. This document is the **authoritative surface** for a
+    banking core's authentication needs. Each operation is tagged with `x-status`:
+
+      * **built**   — implemented in this service today (the ADR 0018 swap slice).
+      * **planned** — designed and specified here; implementation staged. Where an operation needs
+        to deliver a code to a person (email, SMS), it is additionally **delivery-gated**: the
+        platform's messaging connector does not exist yet (notification senders are log adapters by
+        decision), so the flow's logic is built but the actual send waits on that connector.
+
+    Two surfaces, different callers:
+      * **Authentication** (`/v1/auth/**`, `/.well-known/**`) — pre-identity, reached by clients
+        through the edge. These are the service's open paths.
+      * **Administration** (`/v1/directory/**`, `/v1/roles`, `/v1/permissions`, `/v1/policy`,
+        `/v1/audit/**`) — service-facing, driven by Core's admin surface; deny-by-default via a
+        bearer token; never routed by the edge; tenants never call it directly.
+  contact:
+    name: FinCore
+  license:
+    name: AGPL-3.0-only
+
+servers:
+  - url: /
+    description: This identity instance (one deployed instance serves one institution — ADR 0018)
+
+tags:
+  - name: Authentication
+    description: Login, tokens, and session lifecycle. Open paths, reached through the edge.
+  - name: Multi-factor
+    description: TOTP 2FA enrolment and verification, recovery codes, step-up authentication.
+  - name: Verification
+    description: Email and phone verification (delivery-gated on the messaging connector).
+  - name: Password
+    description: Change and reset. Reset is delivery-gated.
+  - name: Sessions & devices
+    description: A user's own active sessions.
+  - name: Directory (admin)
+    description: Staff user administration. Service-facing; driven by Core's admin surface.
+  - name: Roles & permissions
+    description: The platform permission catalog and the tenant's role composition over it.
+  - name: Policy
+    description: Per-tenant password, MFA, session and admin-IP policy (PRD §4.10).
+  - name: Audit
+    description: The authentication audit trail.
+  - name: Discovery
+    description: JWKS and issuer metadata.
+
+paths:
+
+  # ============================ Authentication (built) ============================
+  /v1/auth/login:
+    post:
+      tags: [Authentication]
+      summary: Authenticate a staff credential
+      description: >
+        Verifies username and password for this instance's institution (the tenant is the
+        instance, never body-supplied). Returns tokens, or a 202 obligation the client must
+        satisfy first — a forced password change, or an MFA challenge when 2FA is active.
+      operationId: login
+      x-status: built
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginRequest' }
+      responses:
+        '200':
+          description: Authenticated — access and refresh tokens.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TokenPair' }
+        '202':
+          description: >
+            An obligation stands between the credential and tokens. `reason` is
+            `PASSWORD_CHANGE_REQUIRED` (a temporary credential) or `MFA_REQUIRED` (2FA active).
+            The `actionToken` is single-purpose and short-lived.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ActionRequired' }
+        '401': { $ref: '#/components/responses/AuthFailed' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/auth/refresh:
+    post:
+      tags: [Authentication]
+      summary: Rotate a refresh token
+      description: >
+        Exchanges a refresh token for a fresh access token and a rotated refresh token. Reuse of an
+        already-rotated token is treated as theft: the entire family is revoked and the attempt is
+        audited. Every refusal is the same opaque `TOKEN_INVALID`.
+      operationId: refresh
+      x-status: built
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RefreshRequest' }
+      responses:
+        '200':
+          description: A fresh access token and a rotated refresh token.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TokenPair' }
+        '401': { $ref: '#/components/responses/TokenInvalid' }
+
+  /v1/auth/logout:
+    post:
+      tags: [Authentication]
+      summary: Revoke the presented refresh token's family
+      operationId: logout
+      x-status: built
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LogoutRequest' }
+      responses:
+        '204': { description: The family is revoked (revoking nothing is not an error). }
+
+  /v1/auth/sessions/revoke-all:
+    post:
+      tags: [Authentication, Sessions & devices]
+      summary: Revoke every session for the authenticated user
+      operationId: revokeAllSessions
+      x-status: built
+      security: [{ bearerAuth: [] }]
+      responses:
+        '204': { description: Every refresh family for the bearer is revoked. }
+        '401': { $ref: '#/components/responses/TokenInvalid' }
+
+  /v1/auth/token:
+    post:
+      tags: [Authentication]
+      summary: Mint a service token (client-credentials)
+      description: >
+        A trusted service exchanges its client id and secret for a short-lived service token —
+        `azp` set, no tenant claim — exactly what the ledger's caller rules expect.
+      operationId: serviceToken
+      x-status: built
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ServiceTokenRequest' }
+      responses:
+        '200':
+          description: A service access token.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ServiceToken' }
+        '401': { $ref: '#/components/responses/AuthFailed' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  # ============================ Password ============================
+  /v1/auth/password:
+    post:
+      tags: [Password]
+      summary: Change a password
+      description: >
+        Sets a new password — either with the single-purpose action grant from a
+        temporary-credential login (forced change), or with the current credential (voluntary
+        change). A successful change revokes every session the user holds.
+      operationId: changePassword
+      x-status: built
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PasswordChangeRequest' }
+      responses:
+        '204': { description: Password changed; all sessions revoked. }
+        '400': { $ref: '#/components/responses/PasswordPolicy' }
+        '401': { $ref: '#/components/responses/AuthFailed' }
+
+  /v1/auth/password/reset/request:
+    post:
+      tags: [Password]
+      summary: Request a password reset (delivery-gated)
+      description: >
+        Sends a single-use, short-lived reset link/code to the account's verified email or phone.
+        The response is identical whether or not the account exists — no enumeration. **Planned,
+        delivery-gated**: requires the messaging connector. Until then, an administrator-initiated
+        reset (`/v1/directory/users/{id}/reset-password`) is the supported path.
+      operationId: requestPasswordReset
+      x-status: planned
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PasswordResetRequest' }
+      responses:
+        '202': { description: If the account exists, a reset was dispatched. Always this, by design. }
+
+  /v1/auth/password/reset/confirm:
+    post:
+      tags: [Password]
+      summary: Confirm a password reset with the emailed/texted token (delivery-gated)
+      operationId: confirmPasswordReset
+      x-status: planned
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PasswordResetConfirm' }
+      responses:
+        '204': { description: Password reset; all sessions revoked. }
+        '400': { $ref: '#/components/responses/PasswordPolicy' }
+        '401': { $ref: '#/components/responses/TokenInvalid' }
+
+  # ============================ Multi-factor (TOTP built; SMS OTP planned) ============================
+  /v1/auth/mfa:
+    get:
+      tags: [Multi-factor]
+      summary: The caller's enrolled MFA methods and status
+      operationId: mfaStatus
+      x-status: built
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Enrolled methods and whether MFA is active.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MfaStatus' }
+        '401': { $ref: '#/components/responses/TokenInvalid' }
+
+  /v1/auth/mfa/totp/enroll:
+    post:
+      tags: [Multi-factor]
+      summary: Begin TOTP enrolment
+      description: >
+        Generates a TOTP secret and a set of one-time recovery codes. Returns the secret, an
+        `otpauth://` provisioning URI (for an authenticator app QR), and the recovery codes **once**.
+        Enrolment is not active until confirmed by `activate`.
+      operationId: totpEnroll
+      x-status: built
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: The secret, provisioning URI, and recovery codes (shown once).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TotpEnrolment' }
+        '401': { $ref: '#/components/responses/TokenInvalid' }
+        '409': { description: TOTP is already active for this user. }
+
+  /v1/auth/mfa/totp/activate:
+    post:
+      tags: [Multi-factor]
+      summary: Activate TOTP by proving a first code
+      operationId: totpActivate
+      x-status: built
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TotpCode' }
+      responses:
+        '204': { description: TOTP is now active; subsequent logins require it. }
+        '401': { $ref: '#/components/responses/AuthFailed' }
+
+  /v1/auth/mfa/verify:
+    post:
+      tags: [Multi-factor]
+      summary: Complete a login by answering the MFA challenge
+      description: >
+        Presents the `MFA_REQUIRED` action token from `login` together with a current TOTP code (or
+        a recovery code), and receives the token pair. Wrong codes refuse with the uniform voice and
+        count toward lockout.
+      operationId: mfaVerify
+      x-status: built
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MfaVerifyRequest' }
+      responses:
+        '200':
+          description: Authenticated — access and refresh tokens.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TokenPair' }
+        '401': { $ref: '#/components/responses/AuthFailed' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/auth/mfa/step-up:
+    post:
+      tags: [Multi-factor]
+      summary: Re-assert MFA for a sensitive action (step-up)
+      description: >
+        A currently-authenticated user re-proves a factor and receives a short-lived elevated token
+        carrying `acr` and a fresh `auth_time`. Approval endpoints above a tier threshold can demand
+        recent step-up. A flow Keycloak-over-ROPC could never provide (ADR 0018).
+      operationId: stepUp
+      x-status: built
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TotpCode' }
+      responses:
+        '200':
+          description: A short-lived elevated access token.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ElevatedToken' }
+        '401': { $ref: '#/components/responses/AuthFailed' }
+
+  /v1/auth/mfa/disable:
+    post:
+      tags: [Multi-factor]
+      summary: Disable a user's MFA (requires step-up)
+      operationId: mfaDisable
+      x-status: built
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TotpCode' }
+      responses:
+        '204': { description: MFA disabled; recovery codes invalidated. }
+        '401': { $ref: '#/components/responses/AuthFailed' }
+
+  /v1/auth/mfa/sms/send:
+    post:
+      tags: [Multi-factor, Verification]
+      summary: Send an SMS OTP challenge (delivery-gated)
+      description: >
+        Sends a one-time code to the user's verified phone as a second factor. **Planned,
+        delivery-gated** on the messaging connector. TOTP is the built 2FA method.
+      operationId: smsOtpSend
+      x-status: planned
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ActionTokenOnly' }
+      responses:
+        '202': { description: If a phone is on file, an OTP was dispatched. }
+
+  # ============================ Verification (delivery-gated) ============================
+  /v1/auth/email/verify/send:
+    post:
+      tags: [Verification]
+      summary: Send an email verification link/code (delivery-gated)
+      operationId: emailVerifySend
+      x-status: planned
+      security: [{ bearerAuth: [] }]
+      responses:
+        '202': { description: A verification message was dispatched to the account's email. }
+        '401': { $ref: '#/components/responses/TokenInvalid' }
+
+  /v1/auth/email/verify/confirm:
+    post:
+      tags: [Verification]
+      summary: Confirm an email with the sent token
+      operationId: emailVerifyConfirm
+      x-status: planned
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/VerifyToken' }
+      responses:
+        '204': { description: Email verified. }
+        '401': { $ref: '#/components/responses/TokenInvalid' }
+
+  /v1/auth/phone/verify/send:
+    post:
+      tags: [Verification]
+      summary: Send a phone verification OTP (delivery-gated)
+      operationId: phoneVerifySend
+      x-status: planned
+      security: [{ bearerAuth: [] }]
+      responses:
+        '202': { description: An OTP was dispatched to the account's phone. }
+        '401': { $ref: '#/components/responses/TokenInvalid' }
+
+  /v1/auth/phone/verify/confirm:
+    post:
+      tags: [Verification]
+      summary: Confirm a phone number with the sent OTP
+      operationId: phoneVerifyConfirm
+      x-status: planned
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/VerifyToken' }
+      responses:
+        '204': { description: Phone verified. }
+        '401': { $ref: '#/components/responses/AuthFailed' }
+
+  # ============================ Sessions & devices (self-service) ============================
+  /v1/auth/sessions:
+    get:
+      tags: [Sessions & devices]
+      summary: List the caller's own active sessions/devices
+      operationId: listOwnSessions
+      x-status: planned
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Active refresh families, with client and last-seen.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/SessionSummary' }
+        '401': { $ref: '#/components/responses/TokenInvalid' }
+  /v1/auth/sessions/{familyId}:
+    delete:
+      tags: [Sessions & devices]
+      summary: Revoke one of the caller's own sessions
+      operationId: revokeOwnSession
+      x-status: planned
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: familyId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204': { description: That session is revoked. }
+        '401': { $ref: '#/components/responses/TokenInvalid' }
+
+  # ============================ Directory (admin) ============================
+  /v1/directory/users:
+    post:
+      tags: [Directory (admin)]
+      summary: Create a staff member
+      description: >
+        Creates a user with roles and units and a temporary credential (forced change on first
+        use). Idempotent by `Idempotency-Key`; `(tenant, username)` is the arbiter. Grants are
+        restricted to catalog permissions the initiating administrator holds. Maker-checked in Core.
+      operationId: createUser
+      x-status: planned
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateUserRequest' }
+      responses:
+        '201':
+          description: The created user; the temporary credential is returned once.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CreatedUser' }
+        '401': { $ref: '#/components/responses/TokenInvalid' }
+        '403': { description: The grantor lacks a permission they tried to grant. }
+        '409': { description: A user with that username already exists in this tenant. }
+    get:
+      tags: [Directory (admin)]
+      summary: List staff (keyset-paged, filterable by role and unit)
+      operationId: listUsers
+      x-status: planned
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: role, in: query, schema: { type: string } }
+        - { name: unit, in: query, schema: { type: string } }
+        - { name: cursor, in: query, schema: { type: string } }
+      responses:
+        '200':
+          description: A page of staff.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserPage' }
+        '401': { $ref: '#/components/responses/TokenInvalid' }
+
+  /v1/directory/users/{id}:
+    get:
+      tags: [Directory (admin)]
+      summary: One staff member with roles, units and status
+      operationId: getUser
+      x-status: planned
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses:
+        '200':
+          description: The user.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '401': { $ref: '#/components/responses/TokenInvalid' }
+        '404': { description: Not found — indistinguishable from another tenant's user. }
+
+  /v1/directory/users/{id}/roles:
+    put:
+      tags: [Directory (admin)]
+      summary: Replace a user's role grants (maker-checked)
+      operationId: setUserRoles
+      x-status: planned
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/RoleNames' } } }
+      responses:
+        '202': { description: Change accepted; takes effect on the user's next token. }
+        '401': { $ref: '#/components/responses/TokenInvalid' }
+        '403': { description: The grantor lacks a permission implied by a role. }
+
+  /v1/directory/users/{id}/units:
+    put:
+      tags: [Directory (admin)]
+      summary: Replace a user's unit assignments (Core record and claim together)
+      operationId: setUserUnits
+      x-status: planned
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/UnitCodes' } } }
+      responses:
+        '204': { description: Units replaced. }
+        '401': { $ref: '#/components/responses/TokenInvalid' }
+
+  /v1/directory/users/{id}/deactivate:
+    post:
+      tags: [Directory (admin)]
+      summary: Deactivate a user (maker-checked; refuses the last administrator)
+      operationId: deactivateUser
+      x-status: planned
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses:
+        '202': { description: Deactivation accepted. }
+        '401': { $ref: '#/components/responses/TokenInvalid' }
+        '409': { description: Refused — the last administrator cannot be removed. }
+
+  /v1/directory/users/{id}/reactivate:
+    post:
+      tags: [Directory (admin)]
+      summary: Reactivate a user (maker-checked)
+      operationId: reactivateUser
+      x-status: planned
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses:
+        '202': { description: Reactivation accepted. }
+        '401': { $ref: '#/components/responses/TokenInvalid' }
+
+  /v1/directory/users/{id}/reset-password:
+    post:
+      tags: [Directory (admin)]
+      summary: Administrator-initiated password reset
+      description: Issues a fresh temporary credential, forces a change, and revokes all sessions.
+      operationId: adminResetPassword
+      x-status: planned
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses:
+        '200':
+          description: The new temporary credential, returned once.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TemporaryCredential' }
+        '401': { $ref: '#/components/responses/TokenInvalid' }
+
+  /v1/directory/users/{id}/unlock:
+    post:
+      tags: [Directory (admin)]
+      summary: Clear a throttling lock early
+      operationId: unlockUser
+      x-status: planned
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses:
+        '204': { description: Lock cleared. }
+        '401': { $ref: '#/components/responses/TokenInvalid' }
+
+  /v1/directory/users/{id}/sessions:
+    get:
+      tags: [Directory (admin)]
+      summary: List a user's sessions
+      operationId: adminListSessions
+      x-status: planned
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses:
+        '200':
+          description: The user's active refresh families.
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/SessionSummary' } }
+        '401': { $ref: '#/components/responses/TokenInvalid' }
+    delete:
+      tags: [Directory (admin)]
+      summary: Revoke all of a user's sessions
+      operationId: adminRevokeSessions
+      x-status: planned
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses:
+        '204': { description: All the user's sessions revoked. }
+        '401': { $ref: '#/components/responses/TokenInvalid' }
+
+  # ============================ Roles & permissions ============================
+  /v1/permissions:
+    get:
+      tags: [Roles & permissions]
+      summary: The platform permission catalog
+      description: The closed vocabulary of strings the code enforces (ADR 0017). Read-only, forever.
+      operationId: listPermissions
+      x-status: planned
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Every permission and what it grants.
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/Permission' } }
+        '401': { $ref: '#/components/responses/TokenInvalid' }
+
+  /v1/roles:
+    get:
+      tags: [Roles & permissions]
+      summary: The tenant's roles (template and custom) with their permissions
+      operationId: listRoles
+      x-status: planned
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Roles and their permission sets.
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/Role' } }
+        '401': { $ref: '#/components/responses/TokenInvalid' }
+    post:
+      tags: [Roles & permissions]
+      summary: Create a role over a subset of the catalog (maker-checked)
+      operationId: createRole
+      x-status: planned
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/Role' } } }
+      responses:
+        '202': { description: Role creation accepted. }
+        '401': { $ref: '#/components/responses/TokenInvalid' }
+
+  /v1/roles/{role}/permissions:
+    put:
+      tags: [Roles & permissions]
+      summary: Replace a role's permission set (maker-checked)
+      operationId: setRolePermissions
+      x-status: planned
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: role, in: path, required: true, schema: { type: string } }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/PermissionNames' } } }
+      responses:
+        '202': { description: Change accepted. }
+        '401': { $ref: '#/components/responses/TokenInvalid' }
+
+  /v1/roles/{role}:
+    delete:
+      tags: [Roles & permissions]
+      summary: Remove a custom role (refused while held; templates are not deletable)
+      operationId: deleteRole
+      x-status: planned
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: role, in: path, required: true, schema: { type: string } }]
+      responses:
+        '204': { description: Role removed. }
+        '401': { $ref: '#/components/responses/TokenInvalid' }
+        '409': { description: In use, or a non-deletable template role. }
+
+  # ============================ Policy ============================
+  /v1/policy:
+    get:
+      tags: [Policy]
+      summary: The tenant's authentication policy
+      description: Password rules, MFA requirement per role, session TTLs, and admin IP allowlist.
+      operationId: getPolicy
+      x-status: planned
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: The current policy.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthPolicy' }
+        '401': { $ref: '#/components/responses/TokenInvalid' }
+    put:
+      tags: [Policy]
+      summary: Update the tenant's authentication policy (maker-checked)
+      operationId: setPolicy
+      x-status: planned
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/AuthPolicy' } } }
+      responses:
+        '202': { description: Policy change accepted. }
+        '401': { $ref: '#/components/responses/TokenInvalid' }
+
+  # ============================ Audit ============================
+  /v1/audit/events:
+    get:
+      tags: [Audit]
+      summary: Query the authentication audit trail
+      description: >
+        The append-only record of logins, failures, lockouts, rotations, reuse-revocations, MFA and
+        directory changes — the trail PRD §4.10 requires. Keyset-paged.
+      operationId: queryAuditEvents
+      x-status: planned
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: user, in: query, schema: { type: string, format: uuid } }
+        - { name: event, in: query, schema: { type: string } }
+        - { name: from, in: query, schema: { type: string, format: date-time } }
+        - { name: to, in: query, schema: { type: string, format: date-time } }
+        - { name: cursor, in: query, schema: { type: string } }
+      responses:
+        '200':
+          description: A page of audit events.
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/AuditEvent' } }
+        '401': { $ref: '#/components/responses/TokenInvalid' }
+
+  # ============================ Discovery ============================
+  /.well-known/jwks.json:
+    get:
+      tags: [Discovery]
+      summary: Published verification keys
+      description: The active signing key and, mid-rotation, the outgoing one. Public and cacheable.
+      operationId: jwks
+      x-status: built
+      security: []
+      responses:
+        '200':
+          description: A JWK Set.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/JwkSet' }
+
+  /.well-known/openid-configuration:
+    get:
+      tags: [Discovery]
+      summary: Issuer metadata
+      description: >
+        Issuer, JWKS URI and supported algorithms — enough for a standard JWT verifier to configure
+        itself. Not a full OIDC provider (no authorization endpoint; the platform is client-driven).
+      operationId: openidConfiguration
+      x-status: planned
+      security: []
+      responses:
+        '200':
+          description: Issuer metadata.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/IssuerMetadata' }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: A staff access token minted by this service (RS256, verifiable via JWKS).
+
+  responses:
+    AuthFailed:
+      description: >
+        Credential refused. One code, no reason, uniform shape and timing for unknown user, wrong
+        password, disabled, locked, wrong MFA code, unknown client — distinguishing them is an
+        oracle. The true cause is in the audit trail, never on the wire.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { code: AUTH_FAILED, message: "credential refused", details: {} }
+    TokenInvalid:
+      description: Token refused — expired, unknown, rotated or revoked, all indistinguishable.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { code: TOKEN_INVALID, message: "token refused", details: {} }
+    RateLimited:
+      description: Too many attempts. `Retry-After` in seconds. Applied per source and per account.
+      headers:
+        Retry-After: { schema: { type: integer }, description: Seconds to wait. }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { code: RATE_LIMITED, message: "slow down", details: {} }
+    PasswordPolicy:
+      description: The new password was refused by policy.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example:
+            code: PASSWORD_POLICY
+            reason: TOO_SHORT
+            message: "password refused by policy"
+            details: { violations: [TOO_SHORT] }
+
+  schemas:
+    LoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username: { type: string, example: ada.admin }
+        password: { type: string, format: password }
+        clientId: { type: string, example: fincore-web, description: Defaults to fincore-web. }
+    TokenPair:
+      type: object
+      properties:
+        accessToken: { type: string, description: RS256 JWT, 5–10 min. }
+        refreshToken: { type: string, description: Opaque, rotating, single-use. }
+        expiresIn: { type: integer, description: Access token lifetime in seconds. }
+    ActionRequired:
+      type: object
+      properties:
+        code: { type: string, enum: [ACTION_REQUIRED] }
+        reason: { type: string, enum: [PASSWORD_CHANGE_REQUIRED, MFA_REQUIRED] }
+        actionToken: { type: string, description: Single-purpose, short-lived; inert at any other service. }
+    RefreshRequest:
+      type: object
+      required: [refreshToken]
+      properties:
+        refreshToken: { type: string }
+        clientId: { type: string }
+    LogoutRequest:
+      type: object
+      required: [refreshToken]
+      properties:
+        refreshToken: { type: string }
+    ServiceTokenRequest:
+      type: object
+      required: [clientId, clientSecret]
+      properties:
+        clientId: { type: string, example: core }
+        clientSecret: { type: string, format: password }
+    ServiceToken:
+      type: object
+      properties:
+        accessToken: { type: string }
+        expiresIn: { type: integer }
+    PasswordChangeRequest:
+      type: object
+      properties:
+        actionToken: { type: string, description: From a forced-change login. Omit for a voluntary change. }
+        username: { type: string, description: Required for a voluntary change. }
+        currentPassword: { type: string, format: password }
+        newPassword: { type: string, format: password }
+    PasswordResetRequest:
+      type: object
+      required: [username]
+      properties:
+        username: { type: string }
+    PasswordResetConfirm:
+      type: object
+      required: [resetToken, newPassword]
+      properties:
+        resetToken: { type: string }
+        newPassword: { type: string, format: password }
+    MfaStatus:
+      type: object
+      properties:
+        active: { type: boolean }
+        methods: { type: array, items: { type: string, enum: [TOTP, SMS] } }
+        recoveryCodesRemaining: { type: integer }
+    TotpEnrolment:
+      type: object
+      properties:
+        secret: { type: string, description: Base32 TOTP secret. }
+        otpauthUri: { type: string, example: "otpauth://totp/FinCore:ada.admin?secret=...&issuer=FinCore" }
+        recoveryCodes: { type: array, items: { type: string }, description: Shown once; store securely. }
+    TotpCode:
+      type: object
+      required: [code]
+      properties:
+        code: { type: string, example: "492817" }
+    MfaVerifyRequest:
+      type: object
+      required: [actionToken]
+      properties:
+        actionToken: { type: string, description: The MFA_REQUIRED action token from login. }
+        code: { type: string, description: A TOTP code. }
+        recoveryCode: { type: string, description: A recovery code, as an alternative to `code`. }
+        clientId: { type: string }
+    ActionTokenOnly:
+      type: object
+      required: [actionToken]
+      properties:
+        actionToken: { type: string }
+    ElevatedToken:
+      type: object
+      properties:
+        accessToken: { type: string, description: Short-lived, carries acr and a fresh auth_time. }
+        expiresIn: { type: integer }
+    VerifyToken:
+      type: object
+      required: [token]
+      properties:
+        token: { type: string }
+    SessionSummary:
+      type: object
+      properties:
+        familyId: { type: string, format: uuid }
+        clientId: { type: string }
+        createdAt: { type: string, format: date-time }
+        absoluteExpiry: { type: string, format: date-time }
+    CreateUserRequest:
+      type: object
+      required: [username, email, firstName, lastName]
+      properties:
+        username: { type: string }
+        email: { type: string, format: email }
+        firstName: { type: string }
+        lastName: { type: string }
+        roles: { type: array, items: { type: string } }
+        units: { type: array, items: { type: string } }
+    CreatedUser:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        username: { type: string }
+        temporaryCredential: { type: string, description: Returned once. }
+    TemporaryCredential:
+      type: object
+      properties:
+        temporaryCredential: { type: string }
+    User:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        username: { type: string }
+        email: { type: string }
+        firstName: { type: string }
+        lastName: { type: string }
+        status: { type: string, enum: [ACTIVE, DISABLED] }
+        roles: { type: array, items: { type: string } }
+        units: { type: array, items: { type: string } }
+        mfaActive: { type: boolean }
+    UserPage:
+      type: object
+      properties:
+        users: { type: array, items: { $ref: '#/components/schemas/User' } }
+        nextCursor: { type: string, nullable: true }
+    RoleNames:
+      type: object
+      properties:
+        roles: { type: array, items: { type: string } }
+    UnitCodes:
+      type: object
+      properties:
+        units: { type: array, items: { type: string } }
+    PermissionNames:
+      type: object
+      properties:
+        permissions: { type: array, items: { type: string } }
+    Permission:
+      type: object
+      properties:
+        name: { type: string, example: customers:read }
+        grants: { type: string, description: What the permission allows. }
+    Role:
+      type: object
+      properties:
+        name: { type: string, example: "role:branch-treasurer" }
+        template: { type: boolean }
+        permissions: { type: array, items: { type: string } }
+    AuthPolicy:
+      type: object
+      properties:
+        password:
+          type: object
+          properties:
+            minLength: { type: integer, example: 12 }
+            breachCheck: { type: boolean }
+            historyDepth: { type: integer }
+        mfa:
+          type: object
+          properties:
+            requiredForRoles: { type: array, items: { type: string }, example: [job:admin] }
+        session:
+          type: object
+          properties:
+            accessTtlSeconds: { type: integer, example: 600 }
+            refreshAbsoluteHours: { type: integer, example: 12 }
+        adminIpAllowlist: { type: array, items: { type: string }, description: CIDRs permitted for admin surfaces. }
+    AuditEvent:
+      type: object
+      properties:
+        event: { type: string, example: LOGIN_OK }
+        userId: { type: string, format: uuid, nullable: true }
+        actorPrincipal: { type: string, nullable: true }
+        actorService: { type: string, nullable: true }
+        source: { type: string, nullable: true }
+        details: { type: object, additionalProperties: true }
+        at: { type: string, format: date-time }
+    JwkSet:
+      type: object
+      properties:
+        keys: { type: array, items: { type: object, additionalProperties: true } }
+    IssuerMetadata:
+      type: object
+      properties:
+        issuer: { type: string }
+        jwks_uri: { type: string }
+        id_token_signing_alg_values_supported: { type: array, items: { type: string }, example: [RS256] }
+    Error:
+      type: object
+      properties:
+        code: { type: string }
+        reason: { type: string, nullable: true }
+        message: { type: string, description: Developer English; never shown to an end user. }
+        details: { type: object, additionalProperties: true }

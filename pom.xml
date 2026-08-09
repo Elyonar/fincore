@@ -54,6 +54,12 @@
             a consumer is what turns the event contract from prose into something a test can fail.
         -->
         <module>services/notification</module>
+        <!--
+            The platform's identity provider (ADR 0018): first-party, client-driven, minting the
+            token every other service already verifies. Built after the consumers it serves so the
+            token contract was a proven fact before anything re-implemented its issuer.
+        -->
+        <module>services/identity</module>
     </modules>
 
     <properties>

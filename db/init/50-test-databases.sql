@@ -34,3 +34,4 @@
 CREATE DATABASE ledger_test       OWNER fincore;
 CREATE DATABASE core_test         OWNER fincore;
 CREATE DATABASE notification_test OWNER fincore;
+CREATE DATABASE identity_test     OWNER fincore;

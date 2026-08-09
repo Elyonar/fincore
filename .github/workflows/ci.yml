@@ -64,14 +64,14 @@ jobs:
           set -euo pipefail
 
           # Databases beyond POSTGRES_DB, which already created "ledger".
-          DATABASES="core notification"
+          DATABASES="core notification identity identity_test"
 
           # Restricted roles. One per service, and one per module where a deployable holds
           # several (ADR 0006) — a cross-module query then fails at runtime rather than
           # surviving until someone tries to extract a module. The password matches the role
           # name in CI only; deployments provision real secrets.
           ROLES="ledger_app core_customer core_product core_organization core_lending core_orchestration core_relay core_worker \
-                 notification_app notification_worker"
+                 notification_app notification_worker identity_app"
 
           for db in $DATABASES; do
             echo "creating database $db"
@@ -138,6 +138,19 @@ jobs:
           SPRING_DATASOURCE_PASSWORD: fincore
           SPRING_FLYWAY_USER: fincore
           SPRING_FLYWAY_PASSWORD: fincore
+
+      # Identity (ADR 0018): traffic as identity_app, migrations as the owner — the same split as
+      # every other deployable. Its own database, and identity_test exists for the suite though
+      # the schema suite drives the primary here like the others.
+      - name: Test — the Identity deployable
+        run: ./mvnw --batch-mode verify -pl services/identity
+        env:
+          SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/identity
+          SPRING_DATASOURCE_USERNAME: fincore
+          SPRING_DATASOURCE_PASSWORD: fincore
+          FINCORE_IDENTITY_DB_USER: identity_app
+          FINCORE_IDENTITY_DB_PASSWORD: identity_app
+          SPRING_PROFILES_ACTIVE: test
 
   # An AGREED design is a contract. If a PR edits one without recording the
   # amendment, the convention in docs/conventions/design-changes.md is being

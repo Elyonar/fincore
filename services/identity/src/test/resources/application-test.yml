@@ -1,0 +1,45 @@
+# Test profile. Three things it must establish that production reads from deployment config:
+#
+#  * the test database, `identity_test`, and never the development one. `db/init/50-test-databases.sql`
+#    creates one per deployable and argues the case at length: a running deployable is a concurrent
+#    writer, and no amount of draining inside a test makes it not one. Ledger, Core and Notification
+#    all point their suites at `<name>_test`; identity named no URL at all, so it inherited
+#    `application.yml`'s development default and would have shared a database with the running stack
+#    the moment one existed.
+#  * a sanctioned dev profile so KeyRing mints an ephemeral key instead of refusing to start;
+#  * a fixed instance tenant, so instanceTenant() takes the configured path and never throws the
+#    "several tenants registered" ambiguity — a shared PostgreSQL instance accumulates tenants
+#    across suites, and StartupSummary calls instanceTenant() at boot. With an id named here the
+#    answer is unambiguous whether or not that tenant happens to be registered yet.
+spring:
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:55432/identity_test}
+
+  # libs/auth is a *test*-scoped dependency here (see the POM and BoundaryTest): it exists for
+  # TokenParityTest, which builds a JwtIdentityResolver by hand to prove this service's tokens
+  # verify with the platform's own verifier. Its auto-configuration must not boot inside the
+  # identity context, though — it defaults to `mode=jwt` and then refuses to start without
+  # `fincore.auth.issuer-uri`, which is a sensible refusal for a service that *verifies* tokens
+  # and a contradiction for the one that *mints* them. Identity has no issuer to point at but
+  # itself. Excluded rather than defused with a dev mode, because a verifier filter in front of
+  # the login endpoints would be a second, wrong answer to who may call them.
+  autoconfigure:
+    exclude: org.elyonar.fincore.auth.spring.AuthAutoConfiguration
+
+fincore:
+  identity:
+    tenant-id: 11111111-1111-1111-1111-111111111111
+    datasource:
+      app:
+        jdbc-url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:55432/identity_test}
+        # Two, and it may not be one. A refused login records its failure and its audit row in a
+        # REQUIRES_NEW transaction (Tx.independently) so the record survives the refusal that
+        # follows; that inner transaction needs a connection while the outer one still holds its
+        # own. Sized to one, the two wait on each other until the pool times out.
+        #
+        # The schema suite still needs `SET app.tenant_id` and the query that reads it on the same
+        # physical connection — it sets tenant context outside a transaction to inspect the schema.
+        # `minimum-idle: 1` keeps one connection pinned and warm for it, so the second is only ever
+        # borrowed by the nested write.
+        maximum-pool-size: 2
+        minimum-idle: 1

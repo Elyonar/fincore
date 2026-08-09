@@ -15,5 +15,12 @@ Numbered, never deleted; superseded ADRs are marked as such.
 | 0007 | Tenant isolation is a platform pattern, not a per-service invention | Accepted |
 | 0008 | One event envelope for the whole platform | Accepted |
 | 0009 | Authenticated service callers; the ledger enforces its own allowlist | Accepted |
-| 0010 | One Keycloak realm per tenant, and identity lands before Core | Accepted |
+| 0010 | One Keycloak realm per tenant, and identity lands before Core | Accepted — superseded by 0018 when it is |
 | 0011 | The platform's first event consumer is built before Phase 3 | Accepted |
+| 0012 | Organizational model: unit is operational scope, tenant is the legal entity | Accepted |
+| 0013 | Lending is the first module built after the money path | Accepted |
+| 0014 | The edge is configuration, reads come through Core, identity gets real first | Accepted |
+| 0015 | The control plane is a deployable of its own, and provisioning is a saga | Deferred |
+| 0016 | Tenants are declared in a manifest and seeded at startup | Proposed |
+| 0017 | Permissions are platform vocabulary; roles are tenant-composed | Proposed |
+| 0018 | Identity is a first-party service; Keycloak is retired | Proposed |
