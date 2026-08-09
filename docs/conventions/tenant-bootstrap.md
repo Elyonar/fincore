@@ -129,11 +129,18 @@ notification registries have no such concept and must not grow one.
 Two phases, because the two halves become ready at different times.
 
 ```bash
-bootstrap/render-realms.sh                          # 1. before the stack starts
-docker compose --profile identity up -d             # 2. Keycloak imports them
-docker compose up -d                                # 3. services run Flyway
-bootstrap/seed-registries.sh                        # 4. once the tables exist
+docker compose up -d                                # 1. identity seeds the manifest; services run Flyway
+bootstrap/seed-registries.sh                        # 2. once the tables exist
 ```
+
+> **ADR 0018 amendment.** The realm half of this procedure is retired with
+> Keycloak. `render-realms.sh` and `keycloak/realm-template.json` no longer
+> exist; the identity service's own `ManifestSeeder` reads the same manifest at
+> every startup, registers the tenant, and seeds the super-administrator with a
+> temporary credential (written once, mode 600, to
+> `bootstrap/.seeded-credentials.txt`). The paragraphs below describing realm
+> rendering and import-only-on-absence are kept for the record of *why* the
+> control plane (ADR 0016) exists, but they describe the retired mechanism.
 
 **Why the split.** `db/init/` cannot register tenants: its scripts run when the
 PostgreSQL volume is first created, before any service has started, so the tables

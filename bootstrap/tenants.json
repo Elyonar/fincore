@@ -16,38 +16,6 @@
         "firstName": "Ada",
         "lastName": "Okonkwo"
       }
-    },
-    {
-      "id": "3b90d7e4-6c21-4f88-a5d3-9e04b71c62af",
-      "realm": "harambee-mfb",
-      "legalName": "Harambee Microfinance Bank Limited",
-      "displayName": "Harambee MFB",
-      "countryCode": "KE",
-      "segment": "MFB",
-      "businessTimezone": "Africa/Nairobi",
-      "webOrigin": "http://localhost:3000",
-      "superAdmin": {
-        "username": "john.admin",
-        "email": "john.admin@harambee.example",
-        "firstName": "John",
-        "lastName": "Mwangi"
-      }
-    },
-    {
-      "id": "c47a1f38-05be-4d62-8a9c-1f6e83d4b207",
-      "realm": "kobo-fintech",
-      "legalName": "Kobo Digital Financial Services Limited",
-      "displayName": "Kobo",
-      "countryCode": "NG",
-      "segment": "FINTECH",
-      "businessTimezone": "Africa/Lagos",
-      "webOrigin": "http://localhost:3000",
-      "superAdmin": {
-        "username": "ifeoma.admin",
-        "email": "ifeoma.admin@kobo.example",
-        "firstName": "Ifeoma",
-        "lastName": "Nwosu"
-      }
     }
   ]
 }

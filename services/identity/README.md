@@ -1,11 +1,13 @@
 # Identity Service
 
-**Status: DRAFT design, no code.** Recorded by
-[ADR 0018](../../docs/adr/0018-first-party-identity-service.md) — identity
-becomes a first-party deployable and Keycloak is retired. No domain code lands
-while the design is DRAFT, and Keycloak remains the sanctioned development
-path until the swap slice in [`docs/design.md`](docs/design.md) §7 is
-implemented and green.
+**Status: implemented and merged (design DRAFT pending AGREED).** Recorded by
+[ADR 0018](../../docs/adr/0018-first-party-identity-service.md) — identity is
+a first-party deployable and Keycloak is retired. The swap slice in
+[`docs/design.md`](docs/design.md) §7 is built: login, forced credential
+change, refresh rotation with family revocation, logout, service tokens,
+JWKS with kid rotation, and TOTP MFA. The staff directory (`/v1/directory/**`)
+remains planned; `docs/testing.md` carries the honest suite-by-suite status.
+Independent security review still gates any non-dev deployment.
 
 ## Purpose
 
