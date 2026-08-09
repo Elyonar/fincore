@@ -1,9 +1,8 @@
-package org.elyonar.fincore.identity;
+package org.elyonar.fincore.identity.token;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.nio.charset.StandardCharsets;
-import org.elyonar.fincore.identity.token.Totp;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -11,6 +10,10 @@ import org.junit.jupiter.api.Test;
  * TOTP against the RFC 6238 published test vectors. Because the algorithm is standard, its
  * correctness is checkable against the spec's own numbers rather than against a running clock —
  * which is exactly why a banking factor uses a standard algorithm and not an invented one.
+ *
+ * <p>In the same package as {@link Totp} on purpose: {@code generate}, {@code base32Encode} and
+ * {@code base32Decode} are package-visible so the vectors can reach them without widening the
+ * component's public surface.
  */
 @DisplayName("totp — RFC 6238 test vectors, and a live round-trip")
 class TotpTest {
