@@ -74,7 +74,7 @@ public class Directory {
 
     public record Permission(String name, String grants) {}
 
-    public record Role(String name, boolean template, List<String> permissions) {}
+    public record Role(String name, boolean template, List<String> permissions, int holders) {}
 
     /**
      * A member of staff. The record splits along who may write it: the administered half is set by
@@ -140,18 +140,25 @@ public class Directory {
                 .queryForList(
                         "SELECT r.name, r.template,"
                                 + " COALESCE(array_agg(rp.permission ORDER BY rp.permission)"
-                                + "   FILTER (WHERE rp.permission IS NOT NULL), '{}'::text[]) AS permissions"
+                                + "   FILTER (WHERE rp.permission IS NOT NULL), '{}'::text[]) AS permissions,"
+                                // Counted here rather than by the caller: a client that derived this
+                                // from a page of staff would be wrong the moment staff paginate.
+                                + " (SELECT count(*)::int FROM auth.user_roles ur"
+                                + "   WHERE ur.tenant_id = r.tenant_id AND ur.role_name = r.name) AS holders"
                                 + " FROM auth.roles r"
                                 + " LEFT JOIN auth.role_permissions rp"
                                 + "   ON rp.tenant_id = r.tenant_id AND rp.role_name = r.name"
                                 + " WHERE r.tenant_id = ?"
-                                + " GROUP BY r.name, r.template ORDER BY r.name",
+                                // r.tenant_id is grouped because the holders subquery correlates
+                                // on it; without it Postgres refuses the whole statement.
+                                + " GROUP BY r.tenant_id, r.name, r.template ORDER BY r.name",
                         tenantId);
         return rows.stream()
                 .map(row -> new Role(
                         (String) row.get("name"),
                         Boolean.TRUE.equals(row.get("template")),
-                        array(row.get("permissions"))))
+                        array(row.get("permissions")),
+                        row.get("holders") instanceof Number count ? count.intValue() : 0))
                 .toList();
     }
 
@@ -420,7 +427,7 @@ public class Directory {
         }
         audit.recordAs(tenantId, null, AuthEvent.ROLE_CREATED, admin.attribution(), admin.service(), source,
                 Map.of("role", name, "permissions", wanted));
-        return new Role(name, false, wanted);
+        return new Role(name, false, wanted, 0);
     }
 
     /** Replaces what a role grants, as a set. Guardrail 1 applies to the incoming permissions. */
@@ -441,7 +448,7 @@ public class Directory {
         requireAnAdministratorRemains(tenantId);
         audit.recordAs(tenantId, null, AuthEvent.ROLE_CHANGED, admin.attribution(), admin.service(), source,
                 Map.of("role", role, "permissions", wanted));
-        return new Role(role, template, wanted);
+        return new Role(role, template, wanted, holdersOf(tenantId, role));
     }
 
     /** Removes a role. Refused while held, and template roles are the platform's starting position. */
@@ -595,6 +602,14 @@ public class Directory {
         if (!exceeded.isEmpty()) {
             throw refuse(DirectoryErrors.PERMISSION_NOT_HELD_BY_GRANTOR, null, Map.of("permissions", exceeded));
         }
+    }
+
+    private int holdersOf(UUID tenantId, String role) {
+        Integer count = tx.jdbc()
+                .queryForObject(
+                        "SELECT count(*)::int FROM auth.user_roles WHERE tenant_id = ? AND role_name = ?",
+                        Integer.class, tenantId, role);
+        return count == null ? 0 : count;
     }
 
     /** True when the role is a platform template. Refuses when it does not exist. */
