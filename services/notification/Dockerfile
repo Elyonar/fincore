@@ -41,6 +41,7 @@ COPY services/core/lending/pom.xml services/core/lending/pom.xml
 COPY services/core/orchestration/pom.xml services/core/orchestration/pom.xml
 COPY services/core/app/pom.xml services/core/app/pom.xml
 COPY services/notification/pom.xml services/notification/pom.xml
+COPY services/identity/pom.xml services/identity/pom.xml
 RUN chmod +x mvnw && ./mvnw -B -pl services/notification -am dependency:go-offline
 
 # Only what this image builds. libs/events is here because the consumer shares

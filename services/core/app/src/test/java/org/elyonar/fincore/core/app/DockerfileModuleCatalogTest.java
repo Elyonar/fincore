@@ -176,7 +176,10 @@ class DockerfileModuleCatalogTest {
                 root.resolve("services/core/app/Dockerfile"),
                 // Notification was absent from this list while its image had the same shape and the
                 // same failure mode. A guardrail that skips a deployable is not guarding it.
-                root.resolve("services/notification/Dockerfile"));
+                root.resolve("services/notification/Dockerfile"),
+                // Identity (ADR 0018), added with the service for the same reason — its image
+                // builds from the root through the reactor and shares the failure mode exactly.
+                root.resolve("services/identity/Dockerfile"));
     }
 
     /** A module and every in-reactor module it depends on, transitively — what {@code -am} builds. */
