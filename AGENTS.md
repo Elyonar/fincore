@@ -164,7 +164,7 @@ Verified by running the suites, not by reading the docs: **521 tests green** —
     and two cross-tenant probes
   - no performance, soak or disaster-recovery evidence exists
 
-- `services/core` — **design AGREED v1.19; implemented, merged, and running.**
+- `services/core` — **design AGREED v1.20; implemented, merged, and running.**
   One deployable holding six modules ([ADR 0006](docs/adr/0006-modular-core.md),
   [ADR 0013](docs/adr/0013-lending-module-first.md)): `customer`, `product`,
   `organization`, `orchestration`, `lending` and `app`, with a schema and a

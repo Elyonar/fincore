@@ -32,6 +32,13 @@ public class LocalVerifier {
     public Optional<JWTClaimsSet> verify(String token) {
         try {
             SignedJWT jwt = SignedJWT.parse(token);
+            // Pin the algorithm to RS256 before touching a key. RSASSAVerifier already refuses a
+            // non-RSA algorithm, but an explicit allowlist is the defense that does not depend on a
+            // library's internals: it closes alg-substitution (alg=none, or HS256 signed with the
+            // public key as an HMAC secret) at the door rather than trusting the verifier to.
+            if (!com.nimbusds.jose.JWSAlgorithm.RS256.equals(jwt.getHeader().getAlgorithm())) {
+                return Optional.empty();
+            }
             boolean signed = false;
             for (JWK jwk : keys.published().getKeys()) {
                 if (jwt.getHeader().getKeyID() != null
