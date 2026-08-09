@@ -36,7 +36,7 @@ public class Tenants {
     /** Provisioning only (manifest seeding). */
     public void register(UUID tenantId, String name, String createdBy) {
         provision.update(
-                "INSERT INTO identity.tenants (id, name, created_by) VALUES (?,?,?)"
+                "INSERT INTO auth.tenants (id, name, created_by) VALUES (?,?,?)"
                         + " ON CONFLICT (id) DO NOTHING",
                 tenantId,
                 name,
@@ -45,7 +45,7 @@ public class Tenants {
 
     public List<UUID> activeTenants() {
         return read.query(
-                "SELECT id FROM identity.tenants WHERE status = 'ACTIVE' ORDER BY id",
+                "SELECT id FROM auth.tenants WHERE status = 'ACTIVE' ORDER BY id",
                 (rs, i) -> rs.getObject(1, UUID.class));
     }
 

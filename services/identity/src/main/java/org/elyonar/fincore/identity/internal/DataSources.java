@@ -24,6 +24,25 @@ import org.springframework.transaction.support.TransactionTemplate;
 @EnableConfigurationProperties(IdentityProperties.class)
 public class DataSources {
 
+    /**
+     * The owner pool's size, and it may not be one.
+     *
+     * <p>The owner connection never serves a request, so a pool of one reads like the honest
+     * minimum — and it deadlocks. Flyway holds <em>two</em> connections at once while migrating:
+     * one pins the schema-history lock for the duration, the other applies the migrations. Given a
+     * single connection it takes the first, waits thirty seconds for the second, and the context
+     * dies with {@code Connection is not available}.
+     *
+     * <p>It only bites where there are migrations to apply, which is why it survived review and
+     * every run against an already-migrated database: it fails on exactly the first start of every
+     * fresh deployment — CI, {@code docker compose up} on a new volume, production day one — and
+     * nowhere else.
+     */
+    private static final int OWNER_POOL_SIZE = 2;
+
+    /** Nothing holds an owner connection once migrations and seeding are done; let the pool drain. */
+    private static final int OWNER_POOL_MINIMUM_IDLE = 0;
+
     /** Migrations only. Owns the schema; never serves a request. */
     @Bean
     @Primary
@@ -37,8 +56,8 @@ public class DataSources {
                 .username(username)
                 .password(password)
                 .build();
-        ds.setMaximumPoolSize(1);
-        ds.setMinimumIdle(0);
+        ds.setMaximumPoolSize(OWNER_POOL_SIZE);
+        ds.setMinimumIdle(OWNER_POOL_MINIMUM_IDLE);
         return ds;
     }
 

@@ -21,11 +21,15 @@ public class AuthEvents {
         this.tx = tx;
     }
 
-    /** Records inside the caller's already-open tenant transaction. */
+    /**
+     * Records inside the caller's already-open tenant transaction — for events that describe
+     * something that also committed. A successful login's row belongs with the session it created:
+     * if that rolls back, an audit row claiming it happened is worse than none.
+     */
     public void record(UUID tenantId, UUID userId, String event, String source, Map<String, Object> details) {
         tx.jdbc()
                 .update(
-                        "INSERT INTO identity.auth_events (tenant_id, user_id, event, actor_principal,"
+                        "INSERT INTO auth.auth_events (tenant_id, user_id, event, actor_principal,"
                                 + " actor_service, source, details) VALUES (?,?,?,?,?,?,?::jsonb)",
                         tenantId,
                         userId,
@@ -36,12 +40,28 @@ public class AuthEvents {
                         write(details));
     }
 
+    /**
+     * Records a refusal, in its own transaction, so it survives the throw that follows it.
+     *
+     * <p>Every failing path audits and then throws. Inside the caller's transaction the throw took
+     * the audit row with it, so {@code LOGIN_FAILED} — unknown user, bad credential, locked,
+     * disabled — was never written at all: the trail recorded successes and nothing else, which is
+     * precisely inverted for a service whose reason to keep a trail is the attempts that failed.
+     */
+    public void recordRefusal(
+            UUID tenantId, UUID userId, String event, String source, Map<String, Object> details) {
+        tx.independently(tenantId, () -> {
+            record(tenantId, userId, event, source, details);
+            return null;
+        });
+    }
+
     /** Tenantless events — service-token issuance has no tenant to be scoped by. */
     public void recordTenantless(String event, String source, Map<String, Object> details) {
         tx.plain(() -> {
             tx.jdbc()
                     .update(
-                            "INSERT INTO identity.auth_events (event, actor_service, source, details)"
+                            "INSERT INTO auth.auth_events (event, actor_service, source, details)"
                                     + " VALUES (?,?,?,?::jsonb)",
                             event,
                             "service:identity",

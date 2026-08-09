@@ -61,7 +61,7 @@ public class Mfa {
     public boolean isActive(UUID tenantId, UUID userId) {
         Integer n = tx.jdbc()
                 .query(
-                        "SELECT 1 FROM identity.mfa_enrollments"
+                        "SELECT 1 FROM auth.mfa_enrollments"
                                 + " WHERE tenant_id = ? AND user_id = ? AND status = 'ACTIVE'",
                         rs -> rs.next() ? 1 : null,
                         tenantId,
@@ -74,7 +74,7 @@ public class Mfa {
         if (recoveryCode != null && !recoveryCode.isBlank()) {
             int used = tx.jdbc()
                     .update(
-                            "UPDATE identity.mfa_recovery_codes SET used_at = now()"
+                            "UPDATE auth.mfa_recovery_codes SET used_at = now()"
                                     + " WHERE tenant_id = ? AND user_id = ? AND code_digest = ? AND used_at IS NULL",
                             tenantId,
                             userId,
@@ -95,7 +95,7 @@ public class Mfa {
             String secret = totp.newSecret();
             tx.jdbc()
                     .update(
-                            "INSERT INTO identity.mfa_enrollments (tenant_id, user_id, method, secret_encrypted,"
+                            "INSERT INTO auth.mfa_enrollments (tenant_id, user_id, method, secret_encrypted,"
                                     + " status) VALUES (?,?, 'TOTP', ?, 'PENDING')"
                                     + " ON CONFLICT (tenant_id, user_id, method)"
                                     + " DO UPDATE SET secret_encrypted = EXCLUDED.secret_encrypted, status = 'PENDING'",
@@ -104,7 +104,7 @@ public class Mfa {
                             cipher.encrypt(secret));
 
             // Fresh recovery codes replace any prior set.
-            tx.jdbc().update("DELETE FROM identity.mfa_recovery_codes WHERE tenant_id = ? AND user_id = ?", tenantId, userId);
+            tx.jdbc().update("DELETE FROM auth.mfa_recovery_codes WHERE tenant_id = ? AND user_id = ?", tenantId, userId);
             List<String> codes = new ArrayList<>();
             for (int i = 0; i < RECOVERY_CODES; i++) {
                 byte[] raw = new byte[8];
@@ -113,7 +113,7 @@ public class Mfa {
                 codes.add(code);
                 tx.jdbc()
                         .update(
-                                "INSERT INTO identity.mfa_recovery_codes (tenant_id, user_id, code_digest)"
+                                "INSERT INTO auth.mfa_recovery_codes (tenant_id, user_id, code_digest)"
                                         + " VALUES (?,?,?)",
                                 tenantId,
                                 userId,
@@ -132,7 +132,7 @@ public class Mfa {
             }
             tx.jdbc()
                     .update(
-                            "UPDATE identity.mfa_enrollments SET status = 'ACTIVE', activated_at = now()"
+                            "UPDATE auth.mfa_enrollments SET status = 'ACTIVE', activated_at = now()"
                                     + " WHERE tenant_id = ? AND user_id = ? AND method = 'TOTP'",
                             tenantId,
                             userId);
@@ -157,8 +157,8 @@ public class Mfa {
             if (!verifyFactor(tenantId, userId, code, null)) {
                 throw new AuthFailed();
             }
-            tx.jdbc().update("DELETE FROM identity.mfa_enrollments WHERE tenant_id = ? AND user_id = ?", tenantId, userId);
-            tx.jdbc().update("DELETE FROM identity.mfa_recovery_codes WHERE tenant_id = ? AND user_id = ?", tenantId, userId);
+            tx.jdbc().update("DELETE FROM auth.mfa_enrollments WHERE tenant_id = ? AND user_id = ?", tenantId, userId);
+            tx.jdbc().update("DELETE FROM auth.mfa_recovery_codes WHERE tenant_id = ? AND user_id = ?", tenantId, userId);
             audit.record(tenantId, userId, "MFA_DISABLED", null, Map.of());
             return null;
         });
@@ -169,7 +169,7 @@ public class Mfa {
             boolean active = isActive(tenantId, userId);
             Integer remaining = tx.jdbc()
                     .queryForObject(
-                            "SELECT count(*)::int FROM identity.mfa_recovery_codes"
+                            "SELECT count(*)::int FROM auth.mfa_recovery_codes"
                                     + " WHERE tenant_id = ? AND user_id = ? AND used_at IS NULL",
                             Integer.class,
                             tenantId,
@@ -189,7 +189,7 @@ public class Mfa {
     private String secret(UUID tenantId, UUID userId, String status) {
         String enc = tx.jdbc()
                 .query(
-                        "SELECT secret_encrypted FROM identity.mfa_enrollments"
+                        "SELECT secret_encrypted FROM auth.mfa_enrollments"
                                 + " WHERE tenant_id = ? AND user_id = ? AND method = 'TOTP' AND status = ?",
                         rs -> rs.next() ? rs.getString(1) : null,
                         tenantId,

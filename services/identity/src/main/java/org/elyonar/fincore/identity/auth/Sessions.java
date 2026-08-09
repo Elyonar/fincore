@@ -43,7 +43,7 @@ public class Sessions {
         UUID familyId = UUID.randomUUID();
         tx.jdbc()
                 .update(
-                        "INSERT INTO identity.refresh_families"
+                        "INSERT INTO auth.refresh_families"
                                 + " (tenant_id, id, user_id, client_id, absolute_expiry) VALUES (?,?,?,?,?)",
                         tenantId,
                         familyId,
@@ -63,8 +63,8 @@ public class Sessions {
         var row = tx.jdbc()
                 .query(
                         "SELECT t.family_id, t.rotated_at, f.user_id, f.absolute_expiry, f.revoked_at"
-                                + " FROM identity.refresh_tokens t"
-                                + " JOIN identity.refresh_families f"
+                                + " FROM auth.refresh_tokens t"
+                                + " JOIN auth.refresh_families f"
                                 + "   ON f.tenant_id = t.tenant_id AND f.id = t.family_id"
                                 + " WHERE t.tenant_id = ? AND t.token_digest = ?"
                                 + " FOR UPDATE OF t, f",
@@ -91,8 +91,13 @@ public class Sessions {
         if (rotatedAt != null) {
             // The theft signal: this exact value was already spent. Whoever presents it second —
             // thief or victim — the family is no longer trustworthy, and the wire must not say so.
+            //
+            // Written in the caller's transaction, which commits: LoginService.refresh raises the
+            // refusal *after* the transaction returns, precisely so this revocation survives it.
+            // It used to throw from inside, and the throw discarded the revocation — theft was
+            // detected, decided correctly, and then forgotten, leaving the stolen family live.
             revokeFamily(tenantId, familyId, "ROTATION_REUSE");
-            audit.record(tenantId, userId, "REUSE_REVOKED", source, Map.of("family", familyId.toString()));
+            audit.record(tenantId, userId, AuthEvent.REUSE_REVOKED, source, Map.of("family", familyId.toString()));
             return java.util.Optional.empty();
         }
         if (revokedAt != null || absoluteExpiry.toInstant().isBefore(Instant.now())) {
@@ -101,12 +106,12 @@ public class Sessions {
 
         tx.jdbc()
                 .update(
-                        "UPDATE identity.refresh_tokens SET rotated_at = now()"
+                        "UPDATE auth.refresh_tokens SET rotated_at = now()"
                                 + " WHERE tenant_id = ? AND token_digest = ?",
                         tenantId,
                         digest);
         String next = issue(tenantId, familyId);
-        audit.record(tenantId, userId, "ROTATED", source, Map.of("family", familyId.toString()));
+        audit.record(tenantId, userId, AuthEvent.ROTATED, source, Map.of("family", familyId.toString()));
         return java.util.Optional.of(new Rotation(userId, next));
     }
 
@@ -114,8 +119,8 @@ public class Sessions {
     public void logout(UUID tenantId, String presented, String source) {
         var row = tx.jdbc()
                 .query(
-                        "SELECT t.family_id, f.user_id FROM identity.refresh_tokens t"
-                                + " JOIN identity.refresh_families f"
+                        "SELECT t.family_id, f.user_id FROM auth.refresh_tokens t"
+                                + " JOIN auth.refresh_families f"
                                 + "   ON f.tenant_id = t.tenant_id AND f.id = t.family_id"
                                 + " WHERE t.tenant_id = ? AND t.token_digest = ?",
                         rs -> rs.next()
@@ -133,19 +138,19 @@ public class Sessions {
     public int revokeAllFor(UUID tenantId, UUID userId, String reason, String source) {
         int families = tx.jdbc()
                 .update(
-                        "UPDATE identity.refresh_families SET revoked_at = now(), revoked_reason = ?"
+                        "UPDATE auth.refresh_families SET revoked_at = now(), revoked_reason = ?"
                                 + " WHERE tenant_id = ? AND user_id = ? AND revoked_at IS NULL",
                         reason,
                         tenantId,
                         userId);
-        audit.record(tenantId, userId, "SESSIONS_REVOKED", source, Map.of("families", families, "reason", reason));
+        audit.record(tenantId, userId, AuthEvent.SESSIONS_REVOKED, source, Map.of("families", families, "reason", reason));
         return families;
     }
 
     private void revokeFamily(UUID tenantId, UUID familyId, String reason) {
         tx.jdbc()
                 .update(
-                        "UPDATE identity.refresh_families SET revoked_at = now(), revoked_reason = ?"
+                        "UPDATE auth.refresh_families SET revoked_at = now(), revoked_reason = ?"
                                 + " WHERE tenant_id = ? AND id = ? AND revoked_at IS NULL",
                         reason,
                         tenantId,
@@ -158,7 +163,7 @@ public class Sessions {
         String token = "rt_" + Base64.getUrlEncoder().withoutPadding().encodeToString(raw);
         tx.jdbc()
                 .update(
-                        "INSERT INTO identity.refresh_tokens (tenant_id, token_digest, family_id)"
+                        "INSERT INTO auth.refresh_tokens (tenant_id, token_digest, family_id)"
                                 + " VALUES (?,?,?)",
                         tenantId,
                         digest(token),

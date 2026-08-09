@@ -89,28 +89,28 @@ public class LoginService {
             if (user == null) {
                 passwords.verifyDecoy(password);
                 throttle.recordFailure(tenantId, username, source);
-                audit.record(tenantId, null, "LOGIN_FAILED", source, Map.of("cause", "UNKNOWN_USER"));
+                audit.recordRefusal(tenantId, null, AuthEvent.LOGIN_FAILED, source, Map.of(AuthEvent.CAUSE, AuthEvent.CAUSE_UNKNOWN_USER));
                 throw new AuthFailed();
             }
             boolean verified = passwords.verify(password, user.hash());
             if (!verified) {
                 throttle.recordFailure(tenantId, username, source);
-                audit.record(tenantId, user.id(), "LOGIN_FAILED", source, Map.of("cause", "BAD_CREDENTIAL"));
+                audit.recordRefusal(tenantId, user.id(), AuthEvent.LOGIN_FAILED, source, Map.of(AuthEvent.CAUSE, AuthEvent.CAUSE_BAD_CREDENTIAL));
                 throw new AuthFailed();
             }
             if (throttle.accountLocked(tenantId, username)) {
                 // The credential was right and the answer is still no — and still the same no. A
                 // correct guess during a lock must not read differently from a wrong one.
-                audit.record(tenantId, user.id(), "LOGIN_FAILED", source, Map.of("cause", "LOCKED"));
+                audit.recordRefusal(tenantId, user.id(), AuthEvent.LOGIN_FAILED, source, Map.of(AuthEvent.CAUSE, AuthEvent.CAUSE_LOCKED));
                 throw new AuthFailed();
             }
-            if (!"ACTIVE".equals(user.status())) {
-                audit.record(tenantId, user.id(), "LOGIN_FAILED", source, Map.of("cause", "DISABLED"));
+            if (!AuthEvent.STATUS_ACTIVE.equals(user.status())) {
+                audit.recordRefusal(tenantId, user.id(), AuthEvent.LOGIN_FAILED, source, Map.of(AuthEvent.CAUSE, AuthEvent.CAUSE_DISABLED));
                 throw new AuthFailed();
             }
             throttle.clear(tenantId, username);
             if (user.temporary()) {
-                audit.record(tenantId, user.id(), "ACTION_REQUIRED", source, Map.of("action", "PASSWORD_CHANGE"));
+                audit.record(tenantId, user.id(), AuthEvent.ACTION_REQUIRED, source, Map.of("action", "PASSWORD_CHANGE"));
                 return new Obliged(new ActionRequired(
                         "PASSWORD_CHANGE_REQUIRED",
                         minter.actionToken(tenantId, user.id(), TokenMinter.ACTION_PASSWORD_CHANGE)));
@@ -118,11 +118,11 @@ public class LoginService {
             if (mfa.isActive(tenantId, user.id())) {
                 // The password was right; a second factor still stands between it and tokens. The
                 // MFA action token is the only thing /mfa/verify accepts, and it is inert elsewhere.
-                audit.record(tenantId, user.id(), "ACTION_REQUIRED", source, Map.of("action", "MFA"));
+                audit.record(tenantId, user.id(), AuthEvent.ACTION_REQUIRED, source, Map.of("action", "MFA"));
                 return new Obliged(new ActionRequired(
                         "MFA_REQUIRED", minter.actionToken(tenantId, user.id(), TokenMinter.ACTION_MFA)));
             }
-            audit.record(tenantId, user.id(), "LOGIN_OK", source, Map.of("client", clientId));
+            audit.record(tenantId, user.id(), AuthEvent.LOGIN_OK, source, Map.of("client", clientId));
             return new Granted(staffTokens.grant(tenantId, user.id(), user.username(), clientId, true));
         });
     }
@@ -155,11 +155,11 @@ public class LoginService {
             boolean ok = mfa.verifyFactor(tenantId, userId, code, recoveryCode);
             if (!ok) {
                 throttle.recordFailure(tenantId, username, source);
-                audit.record(tenantId, userId, "MFA_FAILED", source, Map.of());
+                audit.recordRefusal(tenantId, userId, AuthEvent.MFA_FAILED, source, Map.of());
                 throw new AuthFailed();
             }
             throttle.clear(tenantId, username);
-            audit.record(tenantId, userId, "LOGIN_OK", source, Map.of("client", clientId, "mfa", true));
+            audit.record(tenantId, userId, AuthEvent.LOGIN_OK, source, Map.of("client", clientId, "mfa", true));
             return staffTokens.grant(tenantId, userId, username, clientId, true);
         });
     }
@@ -212,9 +212,9 @@ public class LoginService {
             }
             if (!passwords.verify(currentPassword, user.hash())
                     || throttle.accountLocked(tenantId, username)
-                    || !"ACTIVE".equals(user.status())) {
+                    || !AuthEvent.STATUS_ACTIVE.equals(user.status())) {
                 throttle.recordFailure(tenantId, username, source);
-                audit.record(tenantId, user.id(), "LOGIN_FAILED", source, Map.of("cause", "BAD_CREDENTIAL"));
+                audit.recordRefusal(tenantId, user.id(), AuthEvent.LOGIN_FAILED, source, Map.of(AuthEvent.CAUSE, AuthEvent.CAUSE_BAD_CREDENTIAL));
                 throw new AuthFailed();
             }
             throttle.clear(tenantId, username);
@@ -228,18 +228,35 @@ public class LoginService {
         if (tenantId == null || refreshToken == null || refreshToken.isBlank()) {
             throw new TokenInvalid();
         }
-        return tx.inTenant(tenantId, () -> {
-            Sessions.Rotation rotation =
-                    sessions.rotate(tenantId, refreshToken, source).orElseThrow(TokenInvalid::new);
+        // The transaction commits and *then* the refusal is raised, rather than the refusal
+        // unwinding the transaction. Both refusing branches here write something that must outlive
+        // the refusal — a revoked family on reuse, revoked sessions for a disabled user — and
+        // throwing from inside took those writes with it: theft was detected, the family revoked,
+        // and the revocation rolled straight back, so the stolen token kept working.
+        //
+        // Nesting the writes in their own transaction is the wrong repair. Rotation holds row locks
+        // on exactly the rows the revocation updates, so an inner transaction blocks on the outer
+        // one that is waiting for it — a self-deadlock that only shows up under a lock timeout.
+        // Committing first and refusing after needs neither a second transaction nor a second
+        // connection.
+        TokenPair granted = tx.inTenant(tenantId, () -> {
+            Sessions.Rotation rotation = sessions.rotate(tenantId, refreshToken, source).orElse(null);
+            if (rotation == null) {
+                return null;
+            }
             UserRow user = findById(tenantId, rotation.userId());
-            if (user == null || !"ACTIVE".equals(user.status()) || user.temporary()) {
+            if (user == null || !AuthEvent.STATUS_ACTIVE.equals(user.status()) || user.temporary()) {
                 // A disabled user's outstanding sessions die at the next rotation, quietly.
                 sessions.revokeAllFor(tenantId, rotation.userId(), "ADMIN", source);
-                throw new TokenInvalid();
+                return null;
             }
             TokenPair minted = staffTokens.grant(tenantId, user.id(), user.username(), clientId, false);
             return new TokenPair(minted.accessToken(), rotation.newRefreshToken(), minted.expiresIn());
         });
+        if (granted == null) {
+            throw new TokenInvalid();
+        }
+        return granted;
     }
 
     public void logout(String refreshToken, String source) {
@@ -279,7 +296,7 @@ public class LoginService {
     private void apply(UUID tenantId, UUID userId, String newPassword, String source) {
         var current = tx.jdbc()
                 .query(
-                        "SELECT password_hash, history FROM identity.credentials"
+                        "SELECT password_hash, history FROM auth.credentials"
                                 + " WHERE tenant_id = ? AND user_id = ? FOR UPDATE",
                         rs -> rs.next()
                                 ? Map.entry(
@@ -302,7 +319,7 @@ public class LoginService {
         }
         tx.jdbc()
                 .update(
-                        "UPDATE identity.credentials SET password_hash = ?, history = ?, updated_at = now()"
+                        "UPDATE auth.credentials SET password_hash = ?, history = ?, updated_at = now()"
                                 + " WHERE tenant_id = ? AND user_id = ?",
                         passwords.hash(newPassword),
                         history.toArray(new String[0]),
@@ -310,19 +327,19 @@ public class LoginService {
                         userId);
         tx.jdbc()
                 .update(
-                        "UPDATE identity.users SET credential_temporary = FALSE"
+                        "UPDATE auth.users SET credential_temporary = FALSE"
                                 + " WHERE tenant_id = ? AND id = ?",
                         tenantId,
                         userId);
         sessions.revokeAllFor(tenantId, userId, "PASSWORD_CHANGE", source);
-        audit.record(tenantId, userId, "PASSWORD_CHANGED", source, Map.of());
+        audit.record(tenantId, userId, AuthEvent.PASSWORD_CHANGED, source, Map.of());
     }
 
     /** The username of a user in the current tenant, or null. Used to complete an MFA login. */
     private String usernameOf(UUID tenantId, UUID userId) {
         return tx.jdbc()
                 .query(
-                        "SELECT username FROM identity.users WHERE tenant_id = ? AND id = ? AND status = 'ACTIVE'",
+                        "SELECT username FROM auth.users WHERE tenant_id = ? AND id = ? AND status = 'ACTIVE'",
                         rs -> rs.next() ? rs.getString(1) : null,
                         tenantId,
                         userId);
@@ -332,8 +349,8 @@ public class LoginService {
         return tx.jdbc()
                 .query(
                         "SELECT u.id, u.username, u.status, u.credential_temporary, c.password_hash"
-                                + " FROM identity.users u"
-                                + " JOIN identity.credentials c"
+                                + " FROM auth.users u"
+                                + " JOIN auth.credentials c"
                                 + "   ON c.tenant_id = u.tenant_id AND c.user_id = u.id"
                                 + " WHERE u.tenant_id = ? AND lower(u.username) = lower(?)",
                         rs -> rs.next()
@@ -352,8 +369,8 @@ public class LoginService {
         return tx.jdbc()
                 .query(
                         "SELECT u.id, u.username, u.status, u.credential_temporary, c.password_hash"
-                                + " FROM identity.users u"
-                                + " JOIN identity.credentials c"
+                                + " FROM auth.users u"
+                                + " JOIN auth.credentials c"
                                 + "   ON c.tenant_id = u.tenant_id AND c.user_id = u.id"
                                 + " WHERE u.tenant_id = ? AND u.id = ?",
                         rs -> rs.next()

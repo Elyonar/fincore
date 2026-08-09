@@ -42,7 +42,7 @@ class SchemaTest {
     void scopeToATenant() {
         owner = new JdbcTemplate(ownerDataSource);
         tenant = UUID.randomUUID();
-        owner.update("INSERT INTO identity.tenants (id, name, created_by) VALUES (?, 't', 'test')", tenant);
+        owner.update("INSERT INTO auth.tenants (id, name, created_by) VALUES (?, 't', 'test')", tenant);
         app.execute("SET app.tenant_id = '" + tenant + "'");
     }
 
@@ -50,7 +50,7 @@ class SchemaTest {
     @DisplayName("every designed table exists")
     void tablesExist() {
         List<String> tables = app.queryForList(
-                "SELECT table_name FROM information_schema.tables WHERE table_schema = 'identity'"
+                "SELECT table_name FROM information_schema.tables WHERE table_schema = 'auth'"
                         + " AND table_name <> 'flyway_schema_history' ORDER BY table_name",
                 String.class);
         assertThat(tables)
@@ -58,6 +58,8 @@ class SchemaTest {
                         "auth_events",
                         "credentials",
                         "login_throttle",
+                        "mfa_enrollments",
+                        "mfa_recovery_codes",
                         "refresh_families",
                         "refresh_tokens",
                         "role_permissions",
@@ -73,7 +75,7 @@ class SchemaTest {
     void rlsForced() {
         List<String> unforced = app.queryForList(
                 "SELECT relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace"
-                        + " WHERE n.nspname = 'identity' AND c.relkind = 'r'"
+                        + " WHERE n.nspname = 'auth' AND c.relkind = 'r'"
                         + " AND relname IN ('users','credentials','role_permissions','user_roles',"
                         + "   'user_units','refresh_families','refresh_tokens','login_throttle','auth_events')"
                         + " AND NOT (relrowsecurity AND relforcerowsecurity)",
@@ -86,7 +88,7 @@ class SchemaTest {
     void noSigningKeysTable() {
         Integer count = app.queryForObject(
                 "SELECT count(*) FROM information_schema.tables"
-                        + " WHERE table_schema = 'identity' AND table_name = 'signing_keys'",
+                        + " WHERE table_schema = 'auth' AND table_name = 'signing_keys'",
                 Integer.class);
         assertThat(count).isZero();
     }
@@ -99,11 +101,11 @@ class SchemaTest {
         // set_config returns a row, and executeUpdate on a statement that returns one throws.
         owner.queryForObject("SELECT set_config('app.tenant_id', ?, false)", String.class, tenant.toString());
         owner.update(
-                "INSERT INTO identity.auth_events (tenant_id, event, source) VALUES (?, 'TEST', 'test')",
+                "INSERT INTO auth.auth_events (tenant_id, event, source) VALUES (?, 'TEST', 'test')",
                 tenant);
-        assertThatThrownBy(() -> owner.update("UPDATE identity.auth_events SET event = 'TAMPERED'"))
+        assertThatThrownBy(() -> owner.update("UPDATE auth.auth_events SET event = 'TAMPERED'"))
                 .hasMessageContaining("append-only");
-        assertThatThrownBy(() -> owner.update("DELETE FROM identity.auth_events"))
+        assertThatThrownBy(() -> owner.update("DELETE FROM auth.auth_events"))
                 .hasMessageContaining("append-only");
     }
 
@@ -111,11 +113,11 @@ class SchemaTest {
     @DisplayName("a username is unique per tenant, case-insensitively")
     void usernameUniquePerTenant() {
         app.update(
-                "INSERT INTO identity.users (tenant_id, id, username, email, first_name, last_name,"
+                "INSERT INTO auth.users (tenant_id, id, username, email, first_name, last_name,"
                         + " created_by, created_via) VALUES (?,?,?,?,?,?,?,?)",
                 tenant, UUID.randomUUID(), "Ada", "a@x", "A", "O", "test", "test");
         assertThatThrownBy(() -> app.update(
-                        "INSERT INTO identity.users (tenant_id, id, username, email, first_name,"
+                        "INSERT INTO auth.users (tenant_id, id, username, email, first_name,"
                                 + " last_name, created_by, created_via) VALUES (?,?,?,?,?,?,?,?)",
                         tenant, UUID.randomUUID(), "ADA", "b@x", "B", "O", "test", "test"))
                 .hasMessageContaining("users_username_per_tenant");

@@ -33,8 +33,8 @@ public class StaffTokens {
     public List<String> permissions(UUID tenantId, UUID userId) {
         return tx.jdbc()
                 .query(
-                        "SELECT DISTINCT rp.permission FROM identity.user_roles ur"
-                                + " JOIN identity.role_permissions rp"
+                        "SELECT DISTINCT rp.permission FROM auth.user_roles ur"
+                                + " JOIN auth.role_permissions rp"
                                 + "   ON rp.tenant_id = ur.tenant_id AND rp.role_name = ur.role_name"
                                 + " WHERE ur.tenant_id = ? AND ur.user_id = ? ORDER BY rp.permission",
                         (rs, i) -> rs.getString(1),
@@ -45,7 +45,7 @@ public class StaffTokens {
     public List<String> units(UUID tenantId, UUID userId) {
         return tx.jdbc()
                 .query(
-                        "SELECT unit_code FROM identity.user_units"
+                        "SELECT unit_code FROM auth.user_units"
                                 + " WHERE tenant_id = ? AND user_id = ? ORDER BY unit_code",
                         (rs, i) -> rs.getString(1),
                         tenantId,
