@@ -8,6 +8,45 @@ entry first.
 
 ---
 
+## [1.20.0] — 2026-08-08 · MINOR
+
+**The administration surface is designed.** What a tenant's own administrator needs to turn a
+provisioned tenant into an institution that can transact — designed as one batch, implemented
+next.
+
+- **Docs:** new [`admin-surface.md`](admin-surface.md); no change to `api.md`, deliberately —
+  `ApiSurfaceCatalogTest` fails a documented-but-unbuilt route in both directions, so planned rows
+  live in the design doc and move into `api.md` as they are built, exactly as `ui-runway.md` §3
+  works.
+- **Why:** a tenant seeded by [ADR 0016](../../../docs/adr/0016-tenant-bootstrap-manifest.md) has
+  a realm, three registry rows and one super-administrator who can sign in — and cannot make the
+  institution take a single deposit. Three capabilities the schema already models are reachable by
+  no endpoint: product pricing (`fee_rules`, `limit_rules`, `loan_rules` are written by nothing
+  outside the test suite, so every published version prices nothing), opening a ledger account
+  (Core's ledger client has no open operation and clients never address the ledger), and creating
+  a second member of staff or composing a role.
+- **Decisions:** a version is the unit of change and rules are replaced as a set per draft
+  version, never patched row by row; `effective_from` becomes settable on a draft, closing PRD
+  §4.3's effective-dated requirement against a column present and unreachable since V2; Core opens
+  and links an account in one operation under a derived idempotency key, or does neither; the
+  caller names a *purpose* rather than a ledger type, because opening a fee-income account and
+  opening a customer account are different authorities; roles are namespaced server-side so a role
+  can never be named after a permission
+  ([ADR 0017](../../../docs/adr/0017-tenant-defined-roles.md) guardrail 0); no administrator may
+  grant a permission they do not hold; user and role changes join the maker-checker set PRD §4.10
+  has always required.
+- **Impact:** backward compatible. No existing endpoint changes shape, no error code shifts
+  meaning, no guarantee weakens. Four new permissions (`accounts:read`, `accounts:manage`,
+  `users:read`, `users:manage`) join the catalog and `job:admin`.
+- **Also closed:** the `units` derivation gap. `OrgUnitController` documents that the `units`
+  claim is derived from `unit_assignments`; nothing derives it, so assigning a teller to a branch
+  has had no effect on authorization. Assignment becomes one operation over both records.
+- **Tests:** all PLANNED — `testing.md` markers move when the suites exist. The security core is
+  role-name collision, grant-only-what-you-hold, last-administrator, and maker ≠ checker.
+- **Migration:** none. Every table this surface writes already exists.
+
+---
+
 ## [1.19.0] — 2026-08-08 · MINOR
 
 **The UI runway is built.** The v1.18 design implemented whole; the platform is ready for client

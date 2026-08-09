@@ -68,7 +68,7 @@ public class OpenApiConfig {
                                                 .description(
                                                         "Paste an access token. Get one with:\n\n"
                                                             + "```\ncurl -s -X POST http://localhost:8180/realms/"
-                                                            + "fincore-dev/protocol/openid-connect/token \\\n"
+                                                            + "acme-mfb/protocol/openid-connect/token \\\n"
                                                             + "  -d grant_type=password -d client_id=fincore-cli"
                                                             + " \\\n  -d username=ada -d password=password\n```\n\n"
                                                             + "Users and what each may do: keycloak/README.md."))

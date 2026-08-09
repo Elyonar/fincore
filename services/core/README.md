@@ -9,7 +9,7 @@
 One deployable, four domain modules, one database, four domain schemas, one
 database role per module. It is the **only** caller of the Ledger's write API.
 
-**Status: design AGREED v1.19 — implemented, pre-1.0.** Packaging is decided
+**Status: design AGREED v1.20 — implemented, pre-1.0.** Packaging is decided
 ([ADR 0006](../../docs/adr/0006-modular-core.md)), all documented endpoints are
 served, and every suite runs against real PostgreSQL. Changes to the design are
 amendments in [`docs/CHANGELOG.md`](docs/CHANGELOG.md), in their own PR ahead
@@ -21,16 +21,17 @@ of the code — never silent edits.
 
 | You want to know… | Read | Status |
 |---|---|---|
-| The design at a glance + the decision log | [`docs/design.md`](docs/design.md) | AGREED v1.19 |
-| **The three-valued outcome model** — the thing this service exists to get right | [`docs/outcome-protocol.md`](docs/outcome-protocol.md) | AGREED v1.19 |
-| How sagas execute, recover, and are claimed across instances | [`docs/saga-protocol.md`](docs/saga-protocol.md) | AGREED v1.19 |
-| Modules, boundaries, the ledger client, events, DR posture | [`docs/architecture.md`](docs/architecture.md) | AGREED v1.19 |
-| Tables per schema, ownership rules, decided edge cases | [`docs/data-model.md`](docs/data-model.md) | AGREED v1.19 |
-| Endpoint surface, error catalog, contract properties | [`docs/api.md`](docs/api.md) | AGREED v1.19 |
-| Core's eight invariants and every test suite | [`docs/testing.md`](docs/testing.md) | AGREED v1.19 |
-| **Lending — the fifth module**: origination, schedules, accrual, delinquency | [`docs/lending.md`](docs/lending.md) | AGREED v1.19 |
-| **The UI runway** — identity end-to-end, the edge, ledger-read proxying, the Phase 0 read audit | [`docs/ui-runway.md`](docs/ui-runway.md) | AGREED v1.19 |
-| Every amendment since the design was agreed | [`docs/CHANGELOG.md`](docs/CHANGELOG.md) | v1.19 |
+| The design at a glance + the decision log | [`docs/design.md`](docs/design.md) | AGREED v1.20 |
+| **The three-valued outcome model** — the thing this service exists to get right | [`docs/outcome-protocol.md`](docs/outcome-protocol.md) | AGREED v1.20 |
+| How sagas execute, recover, and are claimed across instances | [`docs/saga-protocol.md`](docs/saga-protocol.md) | AGREED v1.20 |
+| Modules, boundaries, the ledger client, events, DR posture | [`docs/architecture.md`](docs/architecture.md) | AGREED v1.20 |
+| Tables per schema, ownership rules, decided edge cases | [`docs/data-model.md`](docs/data-model.md) | AGREED v1.20 |
+| Endpoint surface, error catalog, contract properties | [`docs/api.md`](docs/api.md) | AGREED v1.20 |
+| Core's eight invariants and every test suite | [`docs/testing.md`](docs/testing.md) | AGREED v1.20 |
+| **Lending — the fifth module**: origination, schedules, accrual, delinquency | [`docs/lending.md`](docs/lending.md) | AGREED v1.20 |
+| **The UI runway** — identity end-to-end, the edge, ledger-read proxying, the Phase 0 read audit | [`docs/ui-runway.md`](docs/ui-runway.md) | AGREED v1.20 |
+| **The administration surface** — product authoring, account opening, users and roles | [`docs/admin-surface.md`](docs/admin-surface.md) | AGREED v1.20 |
+| Every amendment since the design was agreed | [`docs/CHANGELOG.md`](docs/CHANGELOG.md) | v1.20 |
 | Platform hard rules | [`AGENTS.md`](../../AGENTS.md) | Standing |
 | What every service must have before it ships | [`service-scaffold.md`](../../docs/conventions/service-scaffold.md) | Standing |
 
@@ -201,4 +202,8 @@ discovered. Per-suite status lives in [`docs/testing.md`](docs/testing.md).
 | Unit scope | Organizational units exist and are attributed (ADR 0012), but no endpoint yet *requires* one — unit-scoped authorization arrives with the teller application |
 | Income recognition coverage | Recognition (v1.17) posts collected interest and penalties per repayment; versions without an income account resolve as a recorded no-op. Ages out as versions are republished with the account configured. Value-dated month-end postings wait on a ledger value-dating amendment |
 | Loan funding account | `loan_rules.funding_account_id` (v1.17) is configuration-first; the caller-supplied account remains only a fallback for versions predating the column — the fee-account pattern, ageing out the same way |
+| Product authoring | **Designed (v1.20, `admin-surface.md`), not built.** `POST /v1/products` still accepts a code, a name and a type; `fee_rules`, `limit_rules` and `loan_rules` are written by nothing outside the test suite, so a published version prices nothing, and `create()` hardcodes `version = 1` — a product can only ever have one version through the API |
+| Account opening | **Designed (v1.20), not built.** `POST /v1/customers/{id}/accounts` links an id the caller must already hold; the ledger client has no open operation and clients never address the ledger. Customer accounts, the institution's fee-income, funding and penalty-income accounts, and the account a till *is* are all unreachable through Core |
+| User and role administration | **Designed (v1.20, ADR 0017), not built.** No endpoint creates a member of staff or composes a role; the eight `job:*` composites are identical for every tenant. A seeded administrator cannot add a second user |
+| Units claim derivation | `OrgUnitController` documents that the `units` claim is derived from `unit_assignments`. **Nothing derives it** — assignment writes Core's record and stops, so assigning a teller to a branch has no effect on authorization. Closed by the v1.20 surface |
 | Performance | Targets in `architecture.md` are intent. Nothing has been benchmarked |
