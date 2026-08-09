@@ -50,8 +50,21 @@ services:
   # Event backbone (ADR 0005). KRaft mode, so no ZooKeeper: one container.
   # Single broker with replication factor 1 — a development topology, not a
   # production one.
+  # ── Event backbone: pick exactly one ────────────────────────────────────────────────────────
+  # The backbone is a runtime choice, not a code dependency (ADR 0005): libs/events selects an
+  # adapter from FINCORE_EVENTS_BROKER, and both Kafka and RabbitMQ are first-class, supported
+  # options — this is open source and an operator is free to run either. What this file will NOT do
+  # is provision both at once: each broker sits behind its own compose profile, so exactly the one
+  # you choose starts, and the services depend on neither by name.
+  #
+  #   Kafka  (default): docker compose up                              # .env sets COMPOSE_PROFILES=kafka
+  #   Rabbit          : COMPOSE_PROFILES=rabbit FINCORE_EVENTS_BROKER=rabbit docker compose up
+  #
+  # Kafka is the *recommended* default (ADR 0005): a durable log, so Compliance and Reporting can
+  # replay history. RabbitMQ is fully supported for operators whose consumers only react to now.
   kafka:
     image: apache/kafka:3.9.0
+    profiles: ["kafka"]
     environment:
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: broker,controller
@@ -77,12 +90,24 @@ services:
       retries: 12
       start_period: 30s
 
-  # The backbone is Kafka (ADR 0005): a durable log, so Compliance and Reporting can replay
-  # history and a consumer added next year still gets this year's events — the requirement a
-  # queue drained on acknowledgement cannot meet. RabbitMQ stays *supported in code*
-  # (libs/events selects an adapter at runtime via fincore.events.broker), but it is no longer
-  # run here — one backbone in the dev stack, matching the one the platform recommends. To
-  # exercise the rabbit adapter, add a rabbitmq service back and set FINCORE_EVENTS_BROKER=rabbit.
+  # The other supported backbone. Behind the `rabbit` profile, so it starts only when chosen and
+  # never alongside Kafka. Choose it with:
+  #   COMPOSE_PROFILES=rabbit FINCORE_EVENTS_BROKER=rabbit docker compose up
+  rabbitmq:
+    image: rabbitmq:4-management
+    profiles: ["rabbit"]
+    environment:
+      RABBITMQ_DEFAULT_USER: fincore
+      RABBITMQ_DEFAULT_PASS: fincore
+    ports:
+      - "${FINCORE_RABBIT_PORT:-5672}:5672"
+      - "${FINCORE_RABBIT_UI_PORT:-15672}:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 20s
 
   # Identity provider (ADR 0018): first-party, client-driven, minting the token every other
   # service already verifies. Replaces Keycloak — the realm-per-tenant model, the realm template,
@@ -172,8 +197,10 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      kafka:
-        condition: service_healthy
+      # No hard dependency on a broker by name — the backbone is a choice (kafka | rabbit), and
+      # naming one here would drag it up even when the other was chosen. The relay is broker-
+      # agnostic and reconnects; the outbox holds events until the chosen broker is reachable, so
+      # nothing is lost by starting first.
     environment:
       # The service connects as the restricted role; Flyway migrates as the
       # owner. Separation of duties: DDL and traffic are different jobs.
@@ -201,9 +228,16 @@ services:
       FINCORE_LEDGER_AUTH_JWKS_URI: ${FINCORE_AUTH_JWKS_URI:-http://identity:8083/.well-known/jwks.json}
       SPRING_PROFILES_ACTIVE: ${FINCORE_LEDGER_PROFILE:-dev}
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
-      # RabbitMQ settings intentionally removed with the rabbitmq service (ADR 0005: Kafka is the
-      # recommended backbone). The rabbit adapter remains in libs/events; to use it, re-add a
-      # rabbitmq service, set FINCORE_EVENTS_BROKER=rabbit, and restore SPRING_RABBITMQ_* here.
+      # Present so the rabbit backbone works the moment it is chosen; ignored under the kafka
+      # broker. Only the selected adapter connects (ADR 0005), so carrying both sets of settings
+      # costs nothing and means switching backbone is one variable, not a config edit.
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_USERNAME: fincore
+      SPRING_RABBITMQ_PASSWORD: fincore
+      # Without confirms, a discarded message still reports success and the relay
+      # marks it published. Correlated confirms make acknowledgement mean delivery.
+      SPRING_RABBITMQ_PUBLISHER_CONFIRM_TYPE: correlated
+      SPRING_RABBITMQ_PUBLISHER_RETURNS: "true"
     ports:
       # Published on 58080, not 8080 — the same reasoning as the database's 55432. The service's
       # own test suite starts a server on 8080, so a container holding that port meant
@@ -291,11 +325,10 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      # A broker outage delays consumption; it does not make this service
-      # unhealthy. Waiting for Kafka anyway means the first events after
-      # `up` are not missed while the consumer is still connecting.
-      kafka:
-        condition: service_healthy
+      # No hard dependency on a broker by name — the backbone is a choice (kafka | rabbit), and
+      # naming one here would start it even when the other was chosen. A broker outage only delays
+      # consumption; the consumer reconnects, and Kafka's retention (or the publisher's redelivery)
+      # means events waiting during startup are not missed.
       # Every send asks Core two questions — which accounts a transaction moved
       # between, and who holds them. Waiting for readiness rather than start
       # means the first alert does not race Core's migrations. An unreachable
