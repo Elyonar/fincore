@@ -46,6 +46,8 @@ public class LoginService {
     private final AuthEvents audit;
     private final TokenMinter minter;
     private final LocalVerifier verifier;
+    private final StaffTokens staffTokens;
+    private final Mfa mfa;
     private final IdentityProperties properties;
 
     public LoginService(
@@ -57,6 +59,8 @@ public class LoginService {
             AuthEvents audit,
             TokenMinter minter,
             LocalVerifier verifier,
+            StaffTokens staffTokens,
+            Mfa mfa,
             IdentityProperties properties) {
         this.tx = tx;
         this.tenants = tenants;
@@ -66,6 +70,8 @@ public class LoginService {
         this.audit = audit;
         this.minter = minter;
         this.verifier = verifier;
+        this.staffTokens = staffTokens;
+        this.mfa = mfa;
         this.properties = properties;
     }
 
@@ -109,8 +115,52 @@ public class LoginService {
                         "PASSWORD_CHANGE_REQUIRED",
                         minter.actionToken(tenantId, user.id(), TokenMinter.ACTION_PASSWORD_CHANGE)));
             }
+            if (mfa.isActive(tenantId, user.id())) {
+                // The password was right; a second factor still stands between it and tokens. The
+                // MFA action token is the only thing /mfa/verify accepts, and it is inert elsewhere.
+                audit.record(tenantId, user.id(), "ACTION_REQUIRED", source, Map.of("action", "MFA"));
+                return new Obliged(new ActionRequired(
+                        "MFA_REQUIRED", minter.actionToken(tenantId, user.id(), TokenMinter.ACTION_MFA)));
+            }
             audit.record(tenantId, user.id(), "LOGIN_OK", source, Map.of("client", clientId));
-            return new Granted(mint(tenantId, user.id(), user.username(), clientId, true));
+            return new Granted(staffTokens.grant(tenantId, user.id(), user.username(), clientId, true));
+        });
+    }
+
+    /**
+     * Completes a login that stopped at {@code MFA_REQUIRED}: verifies the action token and a
+     * current second factor, then grants. A wrong factor refuses in the one voice and counts toward
+     * lockout, exactly like a wrong password.
+     */
+    public TokenPair completeMfa(String actionToken, String code, String recoveryCode, String source, String clientId) {
+        JWTClaimsSet claims = verifier.verify(actionToken).orElseThrow(AuthFailed::new);
+        String act;
+        String tid;
+        try {
+            act = claims.getStringClaim(TokenMinter.CLAIM_ACTION);
+            tid = claims.getStringClaim(TokenMinter.CLAIM_ACTION_TENANT);
+        } catch (java.text.ParseException e) {
+            throw new AuthFailed();
+        }
+        if (!TokenMinter.ACTION_MFA.equals(act) || tid == null) {
+            throw new AuthFailed();
+        }
+        UUID tenantId = UUID.fromString(tid);
+        UUID userId = UUID.fromString(claims.getSubject());
+        return tx.inTenant(tenantId, () -> {
+            String username = usernameOf(tenantId, userId);
+            if (username == null) {
+                throw new AuthFailed();
+            }
+            boolean ok = mfa.verifyFactor(tenantId, userId, code, recoveryCode);
+            if (!ok) {
+                throttle.recordFailure(tenantId, username, source);
+                audit.record(tenantId, userId, "MFA_FAILED", source, Map.of());
+                throw new AuthFailed();
+            }
+            throttle.clear(tenantId, username);
+            audit.record(tenantId, userId, "LOGIN_OK", source, Map.of("client", clientId, "mfa", true));
+            return staffTokens.grant(tenantId, userId, username, clientId, true);
         });
     }
 
@@ -187,7 +237,7 @@ public class LoginService {
                 sessions.revokeAllFor(tenantId, rotation.userId(), "ADMIN", source);
                 throw new TokenInvalid();
             }
-            TokenPair minted = mint(tenantId, user.id(), user.username(), clientId, false);
+            TokenPair minted = staffTokens.grant(tenantId, user.id(), user.username(), clientId, false);
             return new TokenPair(minted.accessToken(), rotation.newRefreshToken(), minted.expiresIn());
         });
     }
@@ -268,27 +318,14 @@ public class LoginService {
         audit.record(tenantId, userId, "PASSWORD_CHANGED", source, Map.of());
     }
 
-    /** Inside an open tenant transaction: fresh access token, optionally a fresh family. */
-    private TokenPair mint(UUID tenantId, UUID userId, String username, String clientId, boolean newFamily) {
-        List<String> permissions = tx.jdbc()
+    /** The username of a user in the current tenant, or null. Used to complete an MFA login. */
+    private String usernameOf(UUID tenantId, UUID userId) {
+        return tx.jdbc()
                 .query(
-                        "SELECT DISTINCT rp.permission FROM identity.user_roles ur"
-                                + " JOIN identity.role_permissions rp"
-                                + "   ON rp.tenant_id = ur.tenant_id AND rp.role_name = ur.role_name"
-                                + " WHERE ur.tenant_id = ? AND ur.user_id = ? ORDER BY rp.permission",
-                        (rs, i) -> rs.getString(1),
+                        "SELECT username FROM identity.users WHERE tenant_id = ? AND id = ? AND status = 'ACTIVE'",
+                        rs -> rs.next() ? rs.getString(1) : null,
                         tenantId,
                         userId);
-        List<String> units = tx.jdbc()
-                .query(
-                        "SELECT unit_code FROM identity.user_units"
-                                + " WHERE tenant_id = ? AND user_id = ? ORDER BY unit_code",
-                        (rs, i) -> rs.getString(1),
-                        tenantId,
-                        userId);
-        String access = minter.staffToken(tenantId, userId, username, permissions, units, clientId);
-        String refresh = newFamily ? sessions.open(tenantId, userId, clientId) : null;
-        return new TokenPair(access, refresh, properties.getAccessTokenTtlSeconds());
     }
 
     private UserRow find(UUID tenantId, String username) {

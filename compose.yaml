@@ -101,19 +101,25 @@ services:
   # render-realms.sh and the keycloak/ tree are retired with this service (the removed files sit
   # in _to_delete/ until the branch is reviewed).
   #
-  # Opt-in via the `identity` profile while the swap lands, matching how the other services flip
-  # to jwt mode. Bring it up, then run the stack with FINCORE_AUTH_MODE=jwt and the issuer/JWKS
-  # pair below so the whole platform verifies real tokens end to end:
-  #   docker compose --profile identity up -d identity
+  # Part of the default stack, so `docker compose up` spins up the whole platform — identity
+  # included — in one command. It replaces Keycloak, which was opt-in only because nothing consumed
+  # it; identity is consumed by everything, so it comes up with everything.
+  #
+  # `docker compose up` runs the stack in dev-header mode (the services' default), with identity
+  # live and seeding. To run the whole platform on REAL tokens end to end, one command:
+  #   FINCORE_AUTH_MODE=jwt FINCORE_LEDGER_AUTH_MODE=jwt docker compose up
+  # The issuer/JWKS defaults below already point every verifier at this service, so nothing else
+  # needs setting.
   #
   # One deployed instance serves one institution (ADR 0018). The manifest (bootstrap/tenants.json)
-  # is seeded by this service's own TenantSeeder at startup — there is no realm rendering step and
-  # no separate registry script.
+  # is seeded by this service's own seeder at startup — no realm rendering, no separate registry
+  # script. NOTE: the ledger/core/notification registries still seed their own dev tenant; for a
+  # real-token run, that tenant must match the manifest (run bootstrap/seed-registries.sh, or align
+  # the dev tenant UUID) until those services grow their ADR 0016 manifest seeders.
   identity:
     build:
       context: .
       dockerfile: services/identity/Dockerfile
-    profiles: ["identity"]
     depends_on:
       postgres:
         condition: service_healthy
@@ -201,8 +207,10 @@ services:
       # sanctioned profile exactly like libs/auth's dev mode. Set FINCORE_LEDGER_AUTH_MODE=jwt
       # (with the issuer/JWKS pair below) to verify service credentials for real.
       FINCORE_LEDGER_AUTH_MODE: ${FINCORE_LEDGER_AUTH_MODE:-header}
-      FINCORE_LEDGER_AUTH_ISSUER_URI: ${FINCORE_AUTH_ISSUER_URI:-}
-      FINCORE_LEDGER_AUTH_JWKS_URI: ${FINCORE_AUTH_JWKS_URI:-}
+      # Default to the identity service, so flipping FINCORE_LEDGER_AUTH_MODE=jwt needs no other
+      # config. Issuer is the public string identity mints; JWKS is fetched in-network.
+      FINCORE_LEDGER_AUTH_ISSUER_URI: ${FINCORE_AUTH_ISSUER_URI:-http://localhost:58183}
+      FINCORE_LEDGER_AUTH_JWKS_URI: ${FINCORE_AUTH_JWKS_URI:-http://identity:8083/.well-known/jwks.json}
       SPRING_PROFILES_ACTIVE: ${FINCORE_LEDGER_PROFILE:-dev}
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       SPRING_RABBITMQ_HOST: rabbitmq
@@ -266,14 +274,13 @@ services:
       # Dev identity: headers rather than tokens. libs/auth refuses this unless a
       # sanctioned profile is also active, so the profile is set here too and the
       # startup banner says loudly that this is not authentication (ADR 0010).
-      # Run `docker compose --profile identity up` and set FINCORE_AUTH_MODE=jwt
-      # with an issuer URI to exercise the real path against the identity service.
+      # Flip the whole stack with FINCORE_AUTH_MODE=jwt — the issuer/JWKS defaults below already
+      # point at the identity service (ADR 0018), so no other config is needed.
       FINCORE_AUTH_MODE: ${FINCORE_AUTH_MODE:-dev}
-      FINCORE_AUTH_ISSUER_URI: ${FINCORE_AUTH_ISSUER_URI:-}
-      # Where this service fetches the signing keys. The issuer above is what a browser and a
-      # token both say; this is a name only the compose network resolves. Set together, or
-      # neither.
-      FINCORE_AUTH_JWKS_URI: ${FINCORE_AUTH_JWKS_URI:-}
+      FINCORE_AUTH_ISSUER_URI: ${FINCORE_AUTH_ISSUER_URI:-http://localhost:58183}
+      # Where this service fetches the signing keys — a name only the compose network resolves,
+      # while the issuer above is the public string in every token.
+      FINCORE_AUTH_JWKS_URI: ${FINCORE_AUTH_JWKS_URI:-http://identity:8083/.well-known/jwks.json}
       # Core's own credential for addressing the ledger in jwt mode (ADR 0014): a service token
       # minted for the `core` client. Unset in dev — header mode needs none.
       FINCORE_CORE_LEDGER_SERVICE_TOKEN: ${FINCORE_CORE_LEDGER_SERVICE_TOKEN:-}
@@ -349,10 +356,9 @@ services:
       # authentication — and a second banner says the senders deliver nothing,
       # because the messaging connector does not exist yet.
       FINCORE_AUTH_MODE: ${FINCORE_AUTH_MODE:-dev}
-      FINCORE_AUTH_ISSUER_URI: ${FINCORE_AUTH_ISSUER_URI:-}
-      # Where this service fetches the signing keys. The issuer above is what a browser and a
-      # token both say; this is a name only the compose network resolves. Set together, or neither.
-      FINCORE_AUTH_JWKS_URI: ${FINCORE_AUTH_JWKS_URI:-}
+      # Defaults point at the identity service, so FINCORE_AUTH_MODE=jwt needs nothing more.
+      FINCORE_AUTH_ISSUER_URI: ${FINCORE_AUTH_ISSUER_URI:-http://localhost:58183}
+      FINCORE_AUTH_JWKS_URI: ${FINCORE_AUTH_JWKS_URI:-http://identity:8083/.well-known/jwks.json}
       SPRING_PROFILES_ACTIVE: ${FINCORE_NOTIFICATION_PROFILE:-dev}
     ports:
       # 58082 for the same reason the ledger uses 58080 and Core 58081: the

@@ -143,6 +143,16 @@ public class ManifestSeeder implements ApplicationRunner {
         String username = admin.get("username").asText();
         UUID userId = UUID.randomUUID();
 
+        // Generated before the transaction so the row and the surfaced credential are the same
+        // secret. It exists only past a successful insert: hashed in the row, plaintext in the
+        // mode-600 file, and nowhere else — not in a log line, never in the manifest.
+        byte[] raw = new byte[18];
+        RANDOM.nextBytes(raw);
+        String temporary = "tmp_" + Base64.getUrlEncoder().withoutPadding().encodeToString(raw);
+
+        // User, role grant and credential in ONE transaction: a half-seeded administrator — a user
+        // row with no credential — is invisible to login (which JOINs the two) and, because the
+        // user insert then converges, never repaired on a re-run. All three commit together or none.
         Boolean inserted = tx.inTenant(tenantId, () -> {
             for (String permission : PermissionCatalog.ADMIN_TEMPLATE) {
                 tx.jdbc()
@@ -176,26 +186,18 @@ public class ManifestSeeder implements ApplicationRunner {
                             tenantId,
                             userId,
                             PermissionCatalog.ADMIN_ROLE);
+            tx.jdbc()
+                    .update(
+                            "INSERT INTO identity.credentials (tenant_id, user_id, password_hash)"
+                                    + " VALUES (?,?,?)",
+                            tenantId,
+                            userId,
+                            passwords.hash(temporary));
+            audit.record(tenantId, userId, "USER_CREATED", "bootstrap", Map.of("username", username));
             return true;
         });
 
         if (Boolean.TRUE.equals(inserted)) {
-            // The credential exists only past this block: hashed in the row, plaintext in the
-            // mode-600 surface file, and nowhere else — not in a log line, not in the manifest.
-            byte[] raw = new byte[18];
-            RANDOM.nextBytes(raw);
-            String temporary = "tmp_" + Base64.getUrlEncoder().withoutPadding().encodeToString(raw);
-            tx.inTenant(tenantId, () -> {
-                tx.jdbc()
-                        .update(
-                                "INSERT INTO identity.credentials (tenant_id, user_id, password_hash)"
-                                        + " VALUES (?,?,?) ON CONFLICT DO NOTHING",
-                                tenantId,
-                                userId,
-                                passwords.hash(temporary));
-                audit.record(tenantId, userId, "USER_CREATED", "bootstrap", Map.of("username", username));
-                return null;
-            });
             surface(entry.get("realm").asText(), username, temporary);
             log.warn("  │  Bootstrap  seeded super-administrator '{}' for {} — temporary credential"
                             + " written to {}, forced change on first use",

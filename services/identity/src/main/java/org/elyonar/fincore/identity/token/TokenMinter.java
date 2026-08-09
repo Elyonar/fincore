@@ -36,7 +36,13 @@ public class TokenMinter {
     public static final String CLAIM_AZP = "azp";
     public static final String CLAIM_ACTION = "act";
     public static final String CLAIM_ACTION_TENANT = "tid";
+    public static final String CLAIM_ACTION_USER = "sub";
+    public static final String CLAIM_ACR = "acr";
+    public static final String CLAIM_AUTH_TIME = "auth_time";
     public static final String ACTION_PASSWORD_CHANGE = "password_change";
+    public static final String ACTION_MFA = "mfa";
+    /** Assurance level stamped on a token minted after a fresh second-factor proof (step-up). */
+    public static final String ACR_MFA = "mfa";
 
     private final KeyRing keys;
     private final IdentityProperties properties;
@@ -92,6 +98,31 @@ public class TokenMinter {
                 .expirationTime(Date.from(now.plusSeconds(properties.getActionTokenTtlSeconds())))
                 .claim(CLAIM_ACTION, action)
                 .claim(CLAIM_ACTION_TENANT, tenantId.toString())
+                .build());
+    }
+
+    /** A short-lived elevated token carrying acr=mfa and a fresh auth_time, for step-up. */
+    public String elevatedToken(
+            UUID tenantId,
+            UUID userId,
+            String username,
+            List<String> permissions,
+            List<String> units,
+            String clientId) {
+        Instant now = Instant.now();
+        return sign(new JWTClaimsSet.Builder()
+                .issuer(properties.getIssuer())
+                .subject(userId.toString())
+                .jwtID(UUID.randomUUID().toString())
+                .issueTime(Date.from(now))
+                .expirationTime(Date.from(now.plusSeconds(Math.min(properties.getAccessTokenTtlSeconds(), 300))))
+                .claim(CLAIM_TENANT, tenantId.toString())
+                .claim(CLAIM_USERNAME, username)
+                .claim(CLAIM_PERMISSIONS, permissions)
+                .claim(CLAIM_UNITS, units)
+                .claim(CLAIM_AZP, clientId)
+                .claim(CLAIM_ACR, ACR_MFA)
+                .claim(CLAIM_AUTH_TIME, now.getEpochSecond())
                 .build());
     }
 

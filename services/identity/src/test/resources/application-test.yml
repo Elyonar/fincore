@@ -1,0 +1,10 @@
+# Test profile. Two things it must establish that production reads from deployment config:
+#
+#  * a sanctioned dev profile so KeyRing mints an ephemeral key instead of refusing to start;
+#  * a fixed instance tenant, so instanceTenant() takes the configured path and never throws the
+#    "several tenants registered" ambiguity — a shared PostgreSQL instance accumulates tenants
+#    across suites, and StartupSummary calls instanceTenant() at boot. With an id named here the
+#    answer is unambiguous whether or not that tenant happens to be registered yet.
+fincore:
+  identity:
+    tenant-id: 11111111-1111-1111-1111-111111111111

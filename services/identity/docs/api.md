@@ -1,9 +1,26 @@
 # Identity — API Surface
 
-**Status:** DRAFT v0.1 (2026-08-09) — rows below are *planned*; none exists.
-When implementation lands, this document falls under the same set-comparison
-rule as every other service (`ApiSurfaceCatalogTest` in both directions), and
-planned rows enter only as they are built.
+**Status:** DRAFT v0.2 (2026-08-09).
+
+> **The authoritative, comprehensive surface is
+> [`../src/main/resources/static/openapi.yaml`](../src/main/resources/static/openapi.yaml)** —
+> an OpenAPI 3.1 contract covering the full banking-core auth API (authentication, MFA/2FA,
+> email & phone verification, step-up, password reset, sessions & devices, directory admin,
+> roles & permissions, policy, and the audit trail). Every operation is tagged `x-status:
+> built | planned`. The running service renders it at `/docs` (Swagger UI) and serves it at
+> `/openapi.yaml`. This markdown is the human-readable digest; the YAML is the spec.
+
+**Built today (the ADR 0018 swap slice + TOTP 2FA):** login, forced/voluntary
+password change, refresh rotation, logout, revoke-all, service tokens, JWKS; and
+TOTP MFA — enrol, activate, `/mfa/verify` login completion, step-up, disable,
+status. **Delivery-gated (planned):** email/phone verification, SMS OTP, and
+self-service password reset — the flows that send a code to a person, blocked on
+the messaging connector (notification delivers nowhere yet). **Planned:** the
+directory admin surface (built alongside Core's admin-surface §5), roles/policy/
+audit query.
+
+The rows below are the digest of the authentication surface; the YAML is the
+full set-comparison source once `ApiSurfaceCatalogTest` lands.
 
 REST/JSON at `/v1`. Two surfaces with different callers and different rules:
 

@@ -36,6 +36,12 @@ fincore:
       lock-minutes: 15
       window-minutes: 15
 
+    mfa:
+      # AES-GCM key for TOTP secrets at rest, by reference (env var name, file: path, or literal).
+      # Absent, a development key is used and the startup log warns loudly. Set before any real
+      # second factor is enrolled.
+      secret-key: ${FINCORE_IDENTITY_MFA_SECRET_KEY:}
+
     signing:
       # PKCS#8 PEM, by reference: an env var name or file: path — never a literal in
       # configuration and never a row in the database (design.md D13). Absent, a sanctioned dev
@@ -79,6 +85,12 @@ management:
 springdoc:
   swagger-ui:
     path: /docs
+    # The comprehensive surface is authored as a contract in static/openapi.yaml (built vs planned
+    # marked per operation), not generated from the built controllers alone — a banking core's auth
+    # API is a design to review whole, and springdoc's generated doc can only show what already has
+    # a controller. Swagger UI at /docs renders the full spec; the generated /v3/api-docs still
+    # reflects the live controllers, so the two together show intent and reality side by side.
+    url: /openapi.yaml
 
 server:
   port: ${SERVER_PORT:8083}

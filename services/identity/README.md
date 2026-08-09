@@ -33,10 +33,26 @@ ADR 0017). No customer credentials in v1. No money. Full list:
 | [`docs/threat-model.md`](docs/threat-model.md) | Threats → controls → the suite that proves each |
 | [`docs/testing.md`](docs/testing.md) | Every suite, all PLANNED, none gating |
 
+## The full API (Swagger)
+
+The comprehensive surface is authored as an OpenAPI 3.1 contract at
+[`src/main/resources/static/openapi.yaml`](src/main/resources/static/openapi.yaml)
+— authentication, MFA/2FA, email & phone verification, step-up, password reset,
+sessions & devices, directory admin, roles, policy and audit, each tagged
+`x-status: built | planned`. The running service renders it at `/docs`.
+
 ## Known limitations
 
-All of them, honestly: **nothing is built.** When built to the swap slice:
-no MFA (phase 2), no message-delivered password reset (notification delivers
-nowhere yet; admin reset covers it), no customer identity, no federation —
-each a stated decision in the design, not an oversight. Independent security
-review gates any non-development deployment.
+Honest edges. **Built:** the ADR 0018 swap slice (login, forced change, refresh
+rotation with theft detection, logout/revoke-all, service tokens, JWKS) and
+**TOTP 2FA** (enrol, activate, verify, step-up, recovery codes, disable).
+**Delivery-gated (not yet functional):** email/phone verification, SMS OTP and
+self-service password reset — they send a code to a person, and the platform's
+messaging connector does not exist yet (notification senders are log adapters by
+decision); administrator-initiated reset covers the gap. **Planned:** the
+directory admin API (lands with Core's admin-surface §5), roles/policy/audit
+query, customer identity, and federation.
+
+**Not compiled in the authoring sandbox** (no Maven access there); CI is the
+build/test gate. Independent security review gates any non-development
+deployment.
