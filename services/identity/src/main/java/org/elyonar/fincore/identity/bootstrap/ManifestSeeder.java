@@ -77,7 +77,23 @@ public class ManifestSeeder implements ApplicationRunner {
                     + " until one is provided (fincore.identity.bootstrap.manifest)");
             return;
         }
-        JsonNode root = json.readTree(Files.readString(Path.of(path)));
+        Path manifest = Path.of(path);
+        if (!Files.exists(manifest)) {
+            // Configured and absent is the same fact as never configured — there is no manifest to
+            // converge — so it gets the same answer rather than a stack trace. It is the ordinary
+            // state of a fresh clone: compose points at /bootstrap/tenants.json and mounts the
+            // directory, and the repository commits no manifest, because whose tenants an instance
+            // serves is a deployment's own business. Refusing to start here crash-looped the
+            // service on `docker compose up` before anyone could write one.
+            //
+            // A malformed manifest still refuses outright, and that distinction is the point: a
+            // manifest that says something wrong must never be half-applied, while a manifest that
+            // does not exist has said nothing at all.
+            log.warn("  │  Bootstrap  NO MANIFEST at {} — this instance can authenticate nobody until"
+                    + " one is written there (mounted from ./bootstrap in compose)", manifest.toAbsolutePath());
+            return;
+        }
+        JsonNode root = json.readTree(Files.readString(manifest));
         List<JsonNode> entries = validate(root); // the whole manifest, before anything is written
         for (JsonNode entry : entries) {
             seed(entry);
