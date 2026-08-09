@@ -177,6 +177,72 @@ public class DirectoryController {
         return ResponseEntity.noContent().build();
     }
 
+    // --- the institution's vocabulary ----------------------------------------------------------
+
+    /** The job titles this institution recognises, with how many people hold each. */
+    @GetMapping("/job-titles")
+    public List<Directory.JobTitle> jobTitles(HttpServletRequest http) {
+        var caller = auth.identify(http);
+        return tx.inTenant(caller.tenantId(), () -> directory.jobTitles(caller.tenantId()));
+    }
+
+    /** Adds a title to the vocabulary. */
+    @PostMapping("/job-titles")
+    @ResponseStatus(HttpStatus.CREATED)
+    public Directory.JobTitle createJobTitle(@RequestBody NewJobTitle request, HttpServletRequest http) {
+        var caller = auth.identify(http);
+        return tx.inTenant(
+                caller.tenantId(),
+                () -> directory.createJobTitle(
+                        caller.tenantId(), caller.administrator(), request.title(), source(http)));
+    }
+
+    /** Retires a title. Refused while anybody holds it. */
+    @DeleteMapping("/job-titles/{title}")
+    public ResponseEntity<Void> deleteJobTitle(@PathVariable String title, HttpServletRequest http) {
+        var caller = auth.identify(http);
+        tx.inTenant(caller.tenantId(), () -> {
+            directory.deleteJobTitle(caller.tenantId(), caller.administrator(), title, source(http));
+            return null;
+        });
+        return ResponseEntity.noContent().build();
+    }
+
+    /** The staff numbering rule, and what the next hire would be given. */
+    @GetMapping("/staff-numbering")
+    public Directory.StaffNumbering numbering(HttpServletRequest http) {
+        var caller = auth.identify(http);
+        return tx.inTenant(caller.tenantId(), () -> directory.numbering(caller.tenantId()));
+    }
+
+    /** Changes the numbering rule. */
+    @PutMapping("/staff-numbering")
+    public Directory.StaffNumbering setNumbering(
+            @RequestBody Directory.StaffNumbering request, HttpServletRequest http) {
+        var caller = auth.identify(http);
+        return tx.inTenant(
+                caller.tenantId(),
+                () -> directory.setNumbering(caller.tenantId(), caller.administrator(), request, source(http)));
+    }
+
+    /**
+     * Sets somebody's administered employment facts.
+     *
+     * <p>Separate from the self-service profile on purpose: this is the half a person may not write
+     * about themselves.
+     */
+    @PutMapping("/users/{id}/employment")
+    public Directory.User setEmployment(
+            @PathVariable UUID id, @RequestBody Directory.Employment request, HttpServletRequest http) {
+        var caller = auth.identify(http);
+        return tx.inTenant(
+                caller.tenantId(),
+                () -> directory.setEmployment(
+                        caller.tenantId(), caller.administrator(), id, request, source(http)));
+    }
+
+    public record NewJobTitle(String title) {}
+
     public record NewRole(String name, List<String> permissions) {}
 
     public record PermissionNames(List<String> permissions) {}

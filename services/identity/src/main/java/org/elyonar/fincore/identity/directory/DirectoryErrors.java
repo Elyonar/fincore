@@ -50,4 +50,22 @@ public final class DirectoryErrors {
 
     /** Refused: a platform template is the starting position, not the tenant's to delete. */
     public static final String ROLE_NOT_CUSTOM = "ROLE_NOT_CUSTOM";
+
+    /** The institution already has that job title, in some spelling. */
+    public static final String JOB_TITLE_EXISTS = "JOB_TITLE_EXISTS";
+
+    /**
+     * The job title is not in this institution's vocabulary.
+     *
+     * <p>Refused rather than accepted as free text: a title nobody authored is how "Teller",
+     * "teller" and "Cashier/Teller" become three jobs, and a vocabulary that anything can be added
+     * to by typing is not a vocabulary.
+     */
+    public static final String JOB_TITLE_UNKNOWN = "JOB_TITLE_UNKNOWN";
+
+    /** Refused: somebody still holds that title. {@code details.holders}. */
+    public static final String JOB_TITLE_IN_USE = "JOB_TITLE_IN_USE";
+
+    /** That staff number belongs to somebody else. The unique index arbitrates, never a pre-check. */
+    public static final String STAFF_NUMBER_TAKEN = "STAFF_NUMBER_TAKEN";
 }

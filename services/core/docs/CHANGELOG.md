@@ -8,6 +8,34 @@ entry first.
 
 ---
 
+## [1.22.0] — 2026-08-09 · MINOR
+
+**Job titles, staff numbering and the employment record** — the administration surface can now
+describe an institution's own staff rather than storing whatever was typed on the hiring form.
+
+- **API (new in `api.md`):** `GET /v1/job-titles`, `POST /v1/job-titles`,
+  `DELETE /v1/job-titles/{title}`, `GET /v1/staff-numbering`, `PUT /v1/staff-numbering`,
+  `PUT /v1/users/{id}/employment`. Reads take `users:read` because every screen showing a person
+  shows their title; writes take `users:manage`.
+- **A title is not a role.** Kept on a separate surface from `/v1/roles` deliberately: a role is
+  what somebody may do and is checked on every request; a title is what they are called and is
+  checked nowhere. Institutions that conflate them encode place and seniority into permission sets
+  — `job:teller-lagos` — which is the multiplication
+  [ADR 0012](../../../docs/adr/0012-organizational-units.md) exists to prevent.
+- **`PUT /v1/users/{id}/employment` closes a real gap.** Staff number, job title and start date
+  could only be set at creation, so everybody hired before an institution settled on its titles —
+  including the seeded administrator — was permanently blank with no endpoint able to fix it.
+- **Records live in the directory**, as with every other staff fact
+  ([ADR 0018](../../../docs/adr/0018-first-party-identity-service.md)); Core proxies with the
+  service credential plus the initiating administrator's forwarded token, and the directory's
+  refusal codes (`JOB_TITLE_EXISTS`, `JOB_TITLE_UNKNOWN`, `JOB_TITLE_IN_USE`,
+  `STAFF_NUMBER_TAKEN`) pass through unchanged — Core translates only where the two catalogs spell
+  the same thing differently, and here they do not.
+- **Not maker-checked**, and that is the same reasoning as staff creation: the guardrail that
+  matters is that nobody grants what they do not hold, and a job title grants nothing at all.
+
+---
+
 ## [1.21.0] — 2026-08-09 · MINOR
 
 **Staff administration is built** — the slice of [`admin-surface.md`](admin-surface.md) §5 the

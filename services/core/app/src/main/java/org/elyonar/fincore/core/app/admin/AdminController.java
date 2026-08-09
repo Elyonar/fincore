@@ -204,6 +204,85 @@ public class AdminController {
         return directory.unlock(id);
     }
 
+    // --- the institution's vocabulary ----------------------------------------------------------
+
+    /**
+     * The job titles this institution recognises.
+     *
+     * <p>A title is not a role and this surface keeps them apart: a role is what somebody may do
+     * and is checked on every request; a title is what they are called and is checked nowhere.
+     * Institutions that conflate the two end up encoding place and seniority into permission sets.
+     *
+     * <p>Readable with {@code users:read} rather than {@code users:manage}, because every screen
+     * showing a person shows their title, and a list of job names discloses nothing a staff
+     * directory does not already.
+     */
+    @GetMapping("/job-titles")
+    public JsonNode jobTitles() {
+        Authorization.require("users:read");
+        return directory.jobTitles();
+    }
+
+    /** Adds a title to the vocabulary. */
+    @PostMapping("/job-titles")
+    public JsonNode createJobTitle(@RequestBody NewJobTitle request) {
+        Authorization.require("users:manage");
+        return directory.createJobTitle(request.title());
+    }
+
+    /** Retires a title. Refused while anybody holds it. */
+    @DeleteMapping("/job-titles/{title}")
+    public JsonNode deleteJobTitle(@PathVariable String title) {
+        Authorization.require("users:manage");
+        return directory.deleteJobTitle(title);
+    }
+
+    /** How staff numbers are formed, and what the next hire would be given. */
+    @GetMapping("/staff-numbering")
+    public JsonNode numbering() {
+        Authorization.require("users:read");
+        return directory.numbering();
+    }
+
+    /** Changes the numbering rule. */
+    @PutMapping("/staff-numbering")
+    public JsonNode setNumbering(@RequestBody Numbering request) {
+        Authorization.require("users:manage");
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("prefix", request.prefix() == null ? "" : request.prefix());
+        body.put("width", request.width());
+        body.put("nextValue", request.nextValue());
+        return directory.setNumbering(body);
+    }
+
+    /**
+     * Sets somebody's administered employment facts after they were created.
+     *
+     * <p>Deliberately not part of the self-service profile: staff number, job title and start date
+     * are facts about the job, and a person editing their own job title is not a control. Until
+     * this existed they could only be set at creation, which left everybody hired before an
+     * institution settled on its titles permanently blank.
+     */
+    @PutMapping("/users/{id}/employment")
+    public JsonNode setEmployment(@PathVariable UUID id, @RequestBody Employment request) {
+        Authorization.require("users:manage");
+        Map<String, Object> body = new LinkedHashMap<>();
+        // Nulls are meaningful here — they clear the field — so the map keeps them rather than
+        // using Map.of, which refuses a null value outright.
+        body.put("staffNumber", request.staffNumber());
+        body.put("jobTitle", request.jobTitle());
+        body.put("startedOn", request.startedOn());
+        return directory.setEmployment(id, body);
+    }
+
+    public record NewJobTitle(String title) {}
+
+    /** @param width how many digits the numeric part is padded to, 1–12 */
+    public record Numbering(String prefix, int width, long nextValue) {}
+
+    /** @param startedOn ISO date, or null to clear */
+    public record Employment(String staffNumber, String jobTitle, String startedOn) {}
+
     /** @param roles role names as the directory spells them, e.g. {@code job:teller} */
     /** @param startedOn ISO date; the administered half a person may never edit themselves */
     public record NewUser(

@@ -124,6 +124,24 @@ public class Directory {
     /** What creation hands back — the credential appears here once and is never readable again. */
     public record CreatedUser(UUID id, String username, String temporaryCredential) {}
 
+    /** A job the institution recognises, and how many people currently hold it. */
+    public record JobTitle(String title, int holders) {}
+
+    /**
+     * How staff numbers are formed.
+     *
+     * @param preview what the next hire would be given, so a settings screen can show the rule's
+     *     effect rather than asking an administrator to imagine it. Null on the way in.
+     */
+    public record StaffNumbering(String prefix, int width, long nextValue, String preview) {
+        StaffNumbering withPreview(String preview) {
+            return new StaffNumbering(prefix, width, nextValue, preview);
+        }
+    }
+
+    /** The administered facts about somebody's job, settable after they were created. */
+    public record Employment(String staffNumber, String jobTitle, String startedOn) {}
+
     // --- reads ---------------------------------------------------------------------------------
 
     /** The closed vocabulary the code can enforce (ADR 0017). Read-only, forever. */
@@ -254,16 +272,28 @@ public class Directory {
             throw refuse(DirectoryErrors.USER_EXISTS, null, Map.of("username", username));
         }
 
-        // The administered half: facts about the job, set here and never by the holder.
-        tx.jdbc()
-                .update(
-                        "UPDATE auth.users SET staff_number = ?, job_title = ?, started_on = ?::date"
-                                + " WHERE tenant_id = ? AND id = ?",
-                        blankToNull(request.staffNumber()),
-                        blankToNull(request.jobTitle()),
-                        blankToNull(request.startedOn()),
-                        tenantId,
-                        userId);
+        // The administered half: facts about the job, set here and never by the holder. A staff
+        // number left blank is taken from the institution's numbering rule rather than left null —
+        // an identifier payroll needs is not something to remember to fill in later.
+        String jobTitle = blankToNull(request.jobTitle());
+        requireJobTitleKnown(tenantId, jobTitle);
+        String staffNumber = blankToNull(request.staffNumber());
+        if (staffNumber == null) {
+            staffNumber = claimStaffNumber(tenantId);
+        }
+        try {
+            tx.jdbc()
+                    .update(
+                            "UPDATE auth.users SET staff_number = ?, job_title = ?, started_on = ?::date"
+                                    + " WHERE tenant_id = ? AND id = ?",
+                            staffNumber,
+                            jobTitle,
+                            blankToNull(request.startedOn()),
+                            tenantId,
+                            userId);
+        } catch (org.springframework.dao.DuplicateKeyException e) {
+            throw refuse(DirectoryErrors.STAFF_NUMBER_TAKEN, null, Map.of("staffNumber", staffNumber));
+        }
 
         for (String role : roles) {
             tx.jdbc()
@@ -530,6 +560,284 @@ public class Directory {
                 source,
                 Map.of("complete", phone != null));
         return requireUser(tenantId, userId);
+    }
+
+    // --- the institution's vocabulary ----------------------------------------------------------
+
+    /**
+     * The job titles this institution uses, with how many people hold each.
+     *
+     * <p>A title is not a role and this file keeps them apart deliberately. A role is what somebody
+     * may do and is enforced on every request; a title is what they are called and is enforced
+     * nowhere. Institutions that conflate the two end up encoding place and seniority into
+     * permission sets — {@code job:teller-lagos} — which is the multiplication ADR 0012 exists to
+     * prevent.
+     */
+    public List<JobTitle> jobTitles(UUID tenantId) {
+        return tx.jdbc()
+                .query(
+                        "SELECT t.title,"
+                                + " (SELECT count(*) FROM auth.users u"
+                                + "   WHERE u.tenant_id = t.tenant_id AND u.job_title = t.title) AS holders"
+                                + " FROM auth.job_titles t WHERE t.tenant_id = ? ORDER BY lower(t.title)",
+                        (rs, row) -> new JobTitle(rs.getString("title"), rs.getInt("holders")),
+                        tenantId);
+    }
+
+    /** Adds a title to the vocabulary. Case is preserved as authored; uniqueness ignores it. */
+    public JobTitle createJobTitle(UUID tenantId, Administrator admin, String proposed, String source) {
+        String title = require(proposed, "title").trim();
+        if (title.length() > 96) {
+            throw refuse(DirectoryErrors.FIELD_INVALID, "title", Map.of("title", title));
+        }
+
+        int rows;
+        try {
+            rows = tx.jdbc()
+                    .update(
+                            "INSERT INTO auth.job_titles (tenant_id, title, created_by) VALUES (?,?,?)"
+                                    + " ON CONFLICT DO NOTHING",
+                            tenantId,
+                            title,
+                            admin.attribution());
+        } catch (org.springframework.dao.DuplicateKeyException e) {
+            // The case-insensitive index, which ON CONFLICT DO NOTHING does not cover.
+            throw refuse(DirectoryErrors.JOB_TITLE_EXISTS, null, Map.of("title", title));
+        }
+        if (rows == 0) {
+            throw refuse(DirectoryErrors.JOB_TITLE_EXISTS, null, Map.of("title", title));
+        }
+
+        audit.recordAs(
+                tenantId,
+                admin.userId(),
+                AuthEvent.JOB_TITLE_CREATED,
+                admin.attribution(),
+                admin.service(),
+                source,
+                Map.of("title", title));
+        return new JobTitle(title, 0);
+    }
+
+    /**
+     * Retires a title.
+     *
+     * <p>Refused while anybody holds it, for the same reason a role in use cannot be deleted: the
+     * alternative is a staff record naming a job the institution no longer recognises, discovered
+     * by whoever next reads a profile.
+     */
+    public void deleteJobTitle(UUID tenantId, Administrator admin, String title, String source) {
+        Integer holders = tx.jdbc()
+                .queryForObject(
+                        "SELECT count(*) FROM auth.users WHERE tenant_id = ? AND job_title = ?",
+                        Integer.class,
+                        tenantId,
+                        title);
+        if (holders != null && holders > 0) {
+            throw refuse(DirectoryErrors.JOB_TITLE_IN_USE, null, Map.of("holders", holders));
+        }
+
+        int rows = tx.jdbc()
+                .update("DELETE FROM auth.job_titles WHERE tenant_id = ? AND title = ?", tenantId, title);
+        if (rows == 0) {
+            throw refuse(DirectoryErrors.JOB_TITLE_UNKNOWN, null, Map.of("title", title));
+        }
+
+        audit.recordAs(
+                tenantId,
+                admin.userId(),
+                AuthEvent.JOB_TITLE_DELETED,
+                admin.attribution(),
+                admin.service(),
+                source,
+                Map.of("title", title));
+    }
+
+    /** How the next staff number will be formed, and what it will be. */
+    public StaffNumbering numbering(UUID tenantId) {
+        StaffNumbering found = tx.jdbc()
+                .query(
+                        "SELECT prefix, width, next_value FROM auth.staff_numbering WHERE tenant_id = ?",
+                        rs ->
+                                rs.next()
+                                        ? new StaffNumbering(
+                                                rs.getString("prefix"),
+                                                rs.getInt("width"),
+                                                rs.getLong("next_value"),
+                                                null)
+                                        : null,
+                        tenantId);
+        StaffNumbering numbering = found == null ? DEFAULT_NUMBERING : found;
+        return numbering.withPreview(format(numbering));
+    }
+
+    /**
+     * Changes the numbering rule.
+     *
+     * <p>{@code nextValue} is settable because an institution migrating onto this platform arrives
+     * with numbers already issued, and a counter that can only start at one would collide with
+     * every one of them on the first hire. Lowering it is permitted and the unique index remains
+     * the arbiter — a collision refuses the hire rather than silently reusing an identifier.
+     */
+    public StaffNumbering setNumbering(
+            UUID tenantId, Administrator admin, StaffNumbering request, String source) {
+        String prefix = request.prefix() == null ? "" : request.prefix().trim();
+        int width = request.width();
+        long next = request.nextValue();
+        if (width < 1 || width > 12) {
+            throw refuse(DirectoryErrors.FIELD_INVALID, "width", Map.of("width", width));
+        }
+        if (next < 1) {
+            throw refuse(DirectoryErrors.FIELD_INVALID, "nextValue", Map.of("nextValue", next));
+        }
+
+        tx.jdbc()
+                .update(
+                        "INSERT INTO auth.staff_numbering (tenant_id, prefix, width, next_value, updated_by)"
+                                + " VALUES (?,?,?,?,?)"
+                                + " ON CONFLICT (tenant_id) DO UPDATE SET prefix = EXCLUDED.prefix,"
+                                + " width = EXCLUDED.width, next_value = EXCLUDED.next_value,"
+                                + " updated_at = now(), updated_by = EXCLUDED.updated_by",
+                        tenantId,
+                        prefix,
+                        width,
+                        next,
+                        admin.attribution());
+
+        audit.recordAs(
+                tenantId,
+                admin.userId(),
+                AuthEvent.NUMBERING_CHANGED,
+                admin.attribution(),
+                admin.service(),
+                source,
+                Map.of("prefix", prefix, "width", width, "nextValue", next));
+        return numbering(tenantId);
+    }
+
+    /**
+     * Sets the administered half of somebody's record after the fact.
+     *
+     * <p>Creation was the only place these could be set, which left every person hired before an
+     * institution decided on titles — including the seeded administrator — permanently blank. They
+     * stay administered: the holder may not write them, because a person editing their own job
+     * title is not a control.
+     */
+    public User setEmployment(
+            UUID tenantId, Administrator admin, UUID userId, Employment request, String source) {
+        requireUser(tenantId, userId);
+        String jobTitle = blankToNull(request.jobTitle());
+        String staffNumber = blankToNull(request.staffNumber());
+        String startedOn = blankToNull(request.startedOn());
+        requireJobTitleKnown(tenantId, jobTitle);
+
+        try {
+            tx.jdbc()
+                    .update(
+                            "UPDATE auth.users SET staff_number = ?, job_title = ?, started_on = ?::date"
+                                    + " WHERE tenant_id = ? AND id = ?",
+                            staffNumber,
+                            jobTitle,
+                            startedOn,
+                            tenantId,
+                            userId);
+        } catch (org.springframework.dao.DuplicateKeyException e) {
+            throw refuse(DirectoryErrors.STAFF_NUMBER_TAKEN, null, Map.of("staffNumber", staffNumber));
+        } catch (org.springframework.dao.DataIntegrityViolationException e) {
+            // A malformed date reaches the driver as a cast failure, which is a caller error.
+            throw refuse(DirectoryErrors.FIELD_INVALID, "startedOn", Map.of("startedOn", String.valueOf(startedOn)));
+        }
+
+        audit.recordAs(
+                tenantId,
+                userId,
+                AuthEvent.EMPLOYMENT_CHANGED,
+                admin.attribution(),
+                admin.service(),
+                source,
+                Map.of(
+                        "jobTitle", String.valueOf(jobTitle),
+                        "staffNumber", String.valueOf(staffNumber),
+                        "startedOn", String.valueOf(startedOn)));
+        return requireUser(tenantId, userId);
+    }
+
+    /** The numbering an institution gets before it decides on one. */
+    private static final StaffNumbering DEFAULT_NUMBERING = new StaffNumbering("STF-", 4, 1L, null);
+
+    /**
+     * Takes the next staff number, atomically.
+     *
+     * <p>{@code UPDATE ... RETURNING} under the row lock is the arbiter, so two administrators
+     * hiring in the same second take different numbers. The row is created on first use rather
+     * than by a migration, because migrations run with no tenant context against FORCE ROW LEVEL
+     * SECURITY tables and would write nothing while appearing to succeed.
+     */
+    private String claimStaffNumber(UUID tenantId) {
+        Long claimed = tx.jdbc()
+                .query(
+                        "UPDATE auth.staff_numbering SET next_value = next_value + 1"
+                                + " WHERE tenant_id = ? RETURNING next_value - 1",
+                        rs -> rs.next() ? rs.getLong(1) : null,
+                        tenantId);
+        if (claimed == null) {
+            tx.jdbc()
+                    .update(
+                            "INSERT INTO auth.staff_numbering (tenant_id, prefix, width, next_value, updated_by)"
+                                    + " VALUES (?,?,?,?,?) ON CONFLICT (tenant_id) DO NOTHING",
+                            tenantId,
+                            DEFAULT_NUMBERING.prefix(),
+                            DEFAULT_NUMBERING.width(),
+                            DEFAULT_NUMBERING.nextValue() + 1,
+                            "service:identity");
+            claimed = DEFAULT_NUMBERING.nextValue();
+            return format(DEFAULT_NUMBERING);
+        }
+        StaffNumbering rule = tx.jdbc()
+                .query(
+                        "SELECT prefix, width FROM auth.staff_numbering WHERE tenant_id = ?",
+                        rs ->
+                                rs.next()
+                                        ? new StaffNumbering(rs.getString("prefix"), rs.getInt("width"), 0L, null)
+                                        : DEFAULT_NUMBERING,
+                        tenantId);
+        return format(new StaffNumbering(rule.prefix(), rule.width(), claimed, null));
+    }
+
+    private static String format(StaffNumbering numbering) {
+        String digits = Long.toString(numbering.nextValue());
+        StringBuilder padded = new StringBuilder();
+        for (int i = digits.length(); i < numbering.width(); i++) {
+            padded.append('0');
+        }
+        return numbering.prefix() + padded + digits;
+    }
+
+    /**
+     * A job title must be one the institution authored.
+     *
+     * <p>Until the vocabulary has anything in it, free text is accepted — refusing every hire
+     * because nobody has visited a settings screen yet would make an empty catalogue a lockout.
+     * From the first authored title onward the catalogue is the vocabulary.
+     */
+    private void requireJobTitleKnown(UUID tenantId, String title) {
+        if (title == null) {
+            return;
+        }
+        Integer authored = tx.jdbc()
+                .queryForObject("SELECT count(*) FROM auth.job_titles WHERE tenant_id = ?", Integer.class, tenantId);
+        if (authored == null || authored == 0) {
+            return;
+        }
+        Integer match = tx.jdbc()
+                .queryForObject(
+                        "SELECT count(*) FROM auth.job_titles WHERE tenant_id = ? AND lower(title) = lower(?)",
+                        Integer.class,
+                        tenantId,
+                        title);
+        if (match == null || match == 0) {
+            throw refuse(DirectoryErrors.JOB_TITLE_UNKNOWN, null, Map.of("title", title));
+        }
     }
 
     private static String blankToNull(String value) {

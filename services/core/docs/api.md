@@ -65,6 +65,12 @@ the first place.
 | `PUT  /v1/users/{id}/units` | replace unit assignments — Core's record and the token claim together | app (directory) | `users:manage` | admin |
 | `POST /v1/users/{id}/reset-password` | fresh temporary credential, forced change, sessions revoked | app (directory) | `users:manage` | admin |
 | `POST /v1/users/{id}/unlock` | clear a lockout early | app (directory) | `users:manage` | admin |
+| `PUT  /v1/users/{id}/employment` | set the administered facts — staff number, job title, start date | app (directory) | `users:manage` | admin |
+| `GET  /v1/job-titles` | the institution's job vocabulary, with how many hold each | app (directory) | `users:read` | admin |
+| `POST /v1/job-titles` | add a title to the vocabulary | app (directory) | `users:manage` | admin |
+| `DELETE /v1/job-titles/{title}` | retire a title; refused while anybody holds it | app (directory) | `users:manage` | admin |
+| `GET  /v1/staff-numbering` | the numbering rule, and the number the next hire would take | app (directory) | `users:read` | admin |
+| `PUT  /v1/staff-numbering` | change prefix, width or next value | app (directory) | `users:manage` | admin |
 | `POST /v1/tills` | provision a till inside a validated branch | orchestration | `tills:manage` | admin |
 | `GET  /v1/tills` | the tenant's tills | orchestration | `tills:read` | admin, supervisor |
 | `POST /v1/tills/{id}/close` | close a till; cash cannot move through it afterwards | orchestration | `tills:manage` | admin |

@@ -127,6 +127,31 @@ public class IdentityDirectory {
         return exchange("POST", "/v1/directory/users/{id}/unlock", Map.of(), id);
     }
 
+    public JsonNode jobTitles() {
+        return exchange("GET", "/v1/directory/job-titles", null);
+    }
+
+    public JsonNode createJobTitle(String title) {
+        return exchange("POST", "/v1/directory/job-titles", Map.of("title", title));
+    }
+
+    /** A URI template variable, because a title is prose — spaces, slashes and all. */
+    public JsonNode deleteJobTitle(String title) {
+        return exchange("DELETE", "/v1/directory/job-titles/{title}", Map.of(), title);
+    }
+
+    public JsonNode numbering() {
+        return exchange("GET", "/v1/directory/staff-numbering", null);
+    }
+
+    public JsonNode setNumbering(Map<String, Object> body) {
+        return exchange("PUT", "/v1/directory/staff-numbering", body);
+    }
+
+    public JsonNode setEmployment(UUID id, Map<String, Object> body) {
+        return exchange("PUT", "/v1/directory/users/{id}/employment", body, id);
+    }
+
     // --- plumbing ------------------------------------------------------------------------------
 
     private JsonNode exchange(String method, String path, Object body, Object... vars) {

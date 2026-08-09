@@ -53,6 +53,26 @@ public class ManifestSeeder implements ApplicationRunner {
     private static final Set<String> ADMIN_REQUIRED = Set.of("username", "email", "firstName", "lastName");
     private static final SecureRandom RANDOM = new SecureRandom();
 
+    /** What the seeded administrator is called, on the screens that show a job rather than a role. */
+    private static final String SEEDED_ADMIN_TITLE = "Super administrator";
+
+    /**
+     * The vocabulary an institution starts with — one title per seeded role template, plus the two
+     * every branch has and no template covers. Not derived from the template names in code: a role
+     * name is a slug in a claim and a title is what appears on somebody's profile, and deriving one
+     * from the other would tie a display string to an identifier that must never change.
+     */
+    private static final List<String> STARTING_JOB_TITLES = List.of(
+            SEEDED_ADMIN_TITLE,
+            "Administrator",
+            "Branch manager",
+            "Teller",
+            "Supervisor",
+            "Loan officer",
+            "Compliance officer",
+            "Operations officer",
+            "Customer service officer");
+
     private final Tx tx;
     private final Tenants tenants;
     private final Passwords passwords;
@@ -194,6 +214,30 @@ public class ManifestSeeder implements ApplicationRunner {
                                     permission);
                 }
             }
+            // A starting vocabulary of job titles, for the same reason the role templates are
+            // seeded: an institution has to be able to describe its own staff on day one. Titles
+            // are not roles and grant nothing — this is the list a hiring form offers, and an
+            // administrator adds to it or retires from it under Settings. Converged with
+            // ON CONFLICT so an institution that has renamed its jobs keeps its own.
+            for (String title : STARTING_JOB_TITLES) {
+                tx.jdbc()
+                        .update(
+                                "INSERT INTO auth.job_titles (tenant_id, title, created_by)"
+                                        + " VALUES (?,?,?) ON CONFLICT DO NOTHING",
+                                tenantId,
+                                title,
+                                "bootstrap:manifest");
+            }
+            // The numbering rule, so the first hire is numbered rather than blank. Defaults only —
+            // an institution that already numbers its staff changes prefix, width and next value
+            // under Settings before it hires anybody.
+            tx.jdbc()
+                    .update(
+                            "INSERT INTO auth.staff_numbering (tenant_id, updated_by) VALUES (?,?)"
+                                    + " ON CONFLICT (tenant_id) DO NOTHING",
+                            tenantId,
+                            "bootstrap:manifest");
+
             int rows = tx.jdbc()
                     .update(
                             "INSERT INTO auth.users (tenant_id, id, username, email, first_name,"
@@ -233,6 +277,18 @@ public class ManifestSeeder implements ApplicationRunner {
                                         + " AND profile_completed_at IS NULL",
                                 tenantId,
                                 username);
+                // Tenants seeded before job titles and staff numbers existed have a super-
+                // administrator whose own record reads as blank on every screen that shows it.
+                // Filled here rather than left for them to notice, and only where still null so a
+                // deliberate change is never overwritten on the next boot.
+                tx.jdbc()
+                        .update(
+                                "UPDATE auth.users SET job_title = ?"
+                                        + " WHERE tenant_id = ? AND lower(username) = lower(?)"
+                                        + " AND job_title IS NULL",
+                                SEEDED_ADMIN_TITLE,
+                                tenantId,
+                                username);
                 return false;
             }
             tx.jdbc()
@@ -253,7 +309,7 @@ public class ManifestSeeder implements ApplicationRunner {
                     .update(
                             "UPDATE auth.users SET profile_completed_at = now(), job_title = ?"
                                     + " WHERE tenant_id = ? AND id = ?",
-                            "Super administrator",
+                            SEEDED_ADMIN_TITLE,
                             tenantId,
                             userId);
             audit.record(tenantId, userId, "USER_CREATED", "bootstrap", Map.of("username", username));

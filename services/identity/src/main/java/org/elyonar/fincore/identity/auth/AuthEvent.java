@@ -76,6 +76,18 @@ public final class AuthEvent {
     /** An administrator cleared a lockout before it expired. */
     public static final String UNLOCKED = "UNLOCKED";
 
+    /** The institution added a job title to its vocabulary. */
+    public static final String JOB_TITLE_CREATED = "JOB_TITLE_CREATED";
+
+    /** The institution retired a job title nobody held. */
+    public static final String JOB_TITLE_DELETED = "JOB_TITLE_DELETED";
+
+    /** The staff numbering rule — prefix, width or next value — was changed. */
+    public static final String NUMBERING_CHANGED = "NUMBERING_CHANGED";
+
+    /** A user's administered employment facts were set: staff number, job title, start date. */
+    public static final String EMPLOYMENT_CHANGED = "EMPLOYMENT_CHANGED";
+
     // --- causes, the detail on a refusal ------------------------------------------------------
 
     /** The key every cause is recorded under. */

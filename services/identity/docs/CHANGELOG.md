@@ -10,6 +10,53 @@ a frozen contract.
 
 ---
 
+## [0.4.0] — 2026-08-09 · MINOR
+
+**An institution can describe its own staff** — job titles become a vocabulary, staff numbers are
+allocated rather than typed, and the administered half of a record can be set after creation.
+
+- **New surface:** `GET /v1/directory/job-titles`, `POST /v1/directory/job-titles`,
+  `DELETE /v1/directory/job-titles/{title}`, `GET /v1/directory/staff-numbering`,
+  `PUT /v1/directory/staff-numbering`, `PUT /v1/directory/users/{id}/employment`.
+- **Why, plainly.** `V4` gave the staff record a `job_title` and a `staff_number`, both free text
+  set once at creation. That is enough to store a value and not enough to make it mean anything:
+  three administrators hiring three tellers produce "Teller", "teller" and "Cashier/Teller", and
+  the identifier payroll uses is whatever somebody remembered to type. Nothing could ask how many
+  tellers an institution has, and nothing could fill either field in afterwards — including for
+  the seeded administrator, whose own record read blank on every screen that showed it.
+- **A title is not a role, and the schema says so.** A role is what somebody may do and is checked
+  on every request; a title is what they are called and is checked nowhere. They are separate
+  tables, separate endpoints and separate screens, because institutions that conflate them end up
+  encoding place and seniority into permission sets — `job:teller-lagos` — which is exactly the
+  multiplication [ADR 0012](../../../docs/adr/0012-organizational-units.md) exists to prevent.
+- **Schema `V5__job_titles.sql`:** `auth.job_titles` (case-preserving, case-insensitively unique —
+  "Teller" and "teller" are one job) and `auth.staff_numbering` (prefix, zero-pad width, next
+  value). Both RLS-enabled and forced. No seeding in the migration, for the reason `V3` and `V4`
+  give: migrations run as the owner with no tenant context, so an `INSERT … SELECT` over tenants
+  would appear to succeed and write nothing. `ManifestSeeder` converges both per tenant.
+- **Numbering is a counter, not a sequence.** `UPDATE … RETURNING` under the row lock arbitrates,
+  so two administrators hiring in the same second take different numbers. A PostgreSQL sequence
+  would not do: sequences are not tenant-scoped, and one that silently skips on rollback while
+  looking gap-free is worse than an honest counter an institution can reset. `nextValue` is
+  settable because an institution migrating onto this platform arrives with numbers already
+  issued; the unique index stays the arbiter, so a collision refuses the hire rather than reusing
+  an identifier.
+- **The vocabulary is enforced, with one deliberate exception.** A job title outside the catalogue
+  is refused (`JOB_TITLE_UNKNOWN`) — otherwise the catalogue is decoration. While the catalogue is
+  *empty*, free text is accepted: refusing every hire because nobody has visited a settings screen
+  yet would turn an empty table into a lockout.
+- **New codes:** `JOB_TITLE_EXISTS`, `JOB_TITLE_UNKNOWN`, `JOB_TITLE_IN_USE`,
+  `STAFF_NUMBER_TAKEN`. New audit events: `JOB_TITLE_CREATED`, `JOB_TITLE_DELETED`,
+  `NUMBERING_CHANGED`, `EMPLOYMENT_CHANGED`.
+- **`PUT …/employment` stays administered.** Staff number, job title and start date are facts
+  about the job. `/v1/me/profile` still refuses them, because a person editing their own job title
+  is not a control.
+- **Seeder:** a starting vocabulary of nine titles per tenant, the numbering row, and — for
+  tenants seeded before any of this existed — the super-administrator's own title, filled only
+  where still null so a deliberate change is never overwritten on the next boot.
+
+---
+
 ## [0.3.0] — 2026-08-09 · MINOR
 
 **The staff directory is built** — the service-facing half of Core's administration surface
