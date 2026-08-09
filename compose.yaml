@@ -118,11 +118,11 @@ services:
   # included — in one command. It replaces Keycloak, which was opt-in only because nothing consumed
   # it; identity is consumed by everything, so it comes up with everything.
   #
-  # `docker compose up` runs the stack in dev-header mode (the services' default), with identity
-  # live and seeding. To run the whole platform on REAL tokens end to end, one command:
-  #   FINCORE_AUTH_MODE=jwt FINCORE_LEDGER_AUTH_MODE=jwt docker compose up
-  # The issuer/JWKS defaults below already point every verifier at this service, so nothing else
-  # needs setting.
+  # `docker compose up` runs core and notification on REAL tokens (FINCORE_AUTH_MODE defaults
+  # to jwt below) verified against this service — the portal's login path end to end. The ledger
+  # stays in header mode by default because Core's service token (FINCORE_CORE_LEDGER_SERVICE_TOKEN)
+  # is deployment-supplied; flip it too with FINCORE_LEDGER_AUTH_MODE=jwt once that token is minted.
+  # To fall back to header-trusting dev mode: FINCORE_AUTH_MODE=dev docker compose up.
   #
   # One deployed instance serves one institution (ADR 0018). The manifest (bootstrap/tenants.json)
   # is seeded by this service's own seeder at startup — no realm rendering, no separate registry
@@ -152,6 +152,10 @@ services:
 
       # The manifest, mounted read-only. Seeded idempotently on every boot (ADR 0016 / 0018).
       FINCORE_IDENTITY_MANIFEST: /bootstrap/tenants.json
+      # One deployed instance = one institution (ADR 0018). The manifest carries one entry and
+      # this names it explicitly, so a second entry added by mistake fails loudly at startup
+      # instead of leaving Tenants.instanceTenant to refuse the ambiguity at first login.
+      FINCORE_IDENTITY_TENANT_ID: ${FINCORE_IDENTITY_TENANT_ID:-8f1c0a52-3d47-4e19-9b6a-2c7f4a10d8e3}
       # The one super-administrator's temporary credential is written here, once, mode 600. This
       # bind-mounts back to the repo's bootstrap/ so a developer can read it after first boot; it
       # is gitignored. Never committed (AGENTS.md hard rule 8).
@@ -292,9 +296,10 @@ services:
       # Dev identity: headers rather than tokens. libs/auth refuses this unless a
       # sanctioned profile is also active, so the profile is set here too and the
       # startup banner says loudly that this is not authentication (ADR 0010).
-      # Flip the whole stack with FINCORE_AUTH_MODE=jwt — the issuer/JWKS defaults below already
+      # Real tokens by default; FINCORE_AUTH_MODE=dev falls back to the header-trusting dev
+      # resolver. The issuer/JWKS defaults below already
       # point at the identity service (ADR 0018), so no other config is needed.
-      FINCORE_AUTH_MODE: ${FINCORE_AUTH_MODE:-dev}
+      FINCORE_AUTH_MODE: ${FINCORE_AUTH_MODE:-jwt}
       FINCORE_AUTH_ISSUER_URI: ${FINCORE_AUTH_ISSUER_URI:-http://localhost:58183}
       # Where this service fetches the signing keys — a name only the compose network resolves,
       # while the issuer above is the public string in every token.
@@ -372,7 +377,7 @@ services:
       # (ADR 0010). The startup banner says loudly that this is not
       # authentication — and a second banner says the senders deliver nothing,
       # because the messaging connector does not exist yet.
-      FINCORE_AUTH_MODE: ${FINCORE_AUTH_MODE:-dev}
+      FINCORE_AUTH_MODE: ${FINCORE_AUTH_MODE:-jwt}
       # Defaults point at the identity service, so FINCORE_AUTH_MODE=jwt needs nothing more.
       FINCORE_AUTH_ISSUER_URI: ${FINCORE_AUTH_ISSUER_URI:-http://localhost:58183}
       FINCORE_AUTH_JWKS_URI: ${FINCORE_AUTH_JWKS_URI:-http://identity:8083/.well-known/jwks.json}
