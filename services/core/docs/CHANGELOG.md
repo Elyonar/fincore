@@ -8,6 +8,47 @@ entry first.
 
 ---
 
+## [1.21.0] — 2026-08-09 · MINOR
+
+**Staff administration is built** — the slice of [`admin-surface.md`](admin-surface.md) §5 the
+AGREED table does not mark maker-checked, plus two operational rows added by this amendment.
+
+- **API (new in `api.md`):** `GET /v1/permissions` and `GET /v1/roles` (`users:read`);
+  `POST /v1/users`, `GET /v1/users`, `GET /v1/users/{id}` (`users:read` / `users:manage`);
+  `PUT /v1/users/{id}/units`, `POST /v1/users/{id}/reset-password`,
+  `POST /v1/users/{id}/unlock` (`users:manage`).
+- **New by amendment, not in the §5 table:** `reset-password` and `unlock`. An administrator who
+  cannot restore a colleague's access on the first morning does not have an administration
+  surface. Both are attributed and audited in the directory like every other mutation.
+- **Deliberately still absent:** `POST /v1/roles`, `PUT /v1/roles/{role}/permissions`,
+  `DELETE /v1/roles/{role}`, `PUT /v1/users/{id}/roles`, `deactivate`, `reactivate`.
+  [ADR 0017](../../../docs/adr/0017-tenant-defined-roles.md) guardrail 3 requires a second
+  signature on each, and Core's approval machinery is bound to a transaction id and an amount —
+  a maker-checked write shipped without its second signature is worse than one not yet shipped.
+  Extending `orchestration.approvals` to carry an approval *kind* is the work these wait on.
+- **Where it lives:** Core owns the product surface; the identity service owns the records
+  beneath it ([ADR 0018](../../../docs/adr/0018-first-party-identity-service.md)). Core
+  authenticates to the directory as a service with a client-credentials token it mints and
+  re-mints for itself — closing the static-token residual — and forwards the administrator's own
+  token beside it, the ledger's `X-Forwarded-Authorization` pattern.
+- **The units drift is closed for this path.** `PUT /v1/users/{id}/units` and creation with units
+  write *both* stores: Core's `unit_assignments` and the directory's `units` claim. ADR 0017 names
+  their divergence as a live defect — assignment was the documented system of record while nothing
+  derived the claim, so putting a teller in a branch had no effect on authorization. Core's record
+  is written first because it is the one that can refuse: a code naming no active unit stops the
+  whole operation, so the two cannot disagree because half of it succeeded. The per-unit
+  assignment endpoints are unchanged and still write Core's record alone.
+- **Module contract:** `OrganizationUnits` gains `replaceAssignments` and `assignmentsOf`, and a
+  `NoSuchUnit` refusal declared on the port rather than beside the adapter — the caller that must
+  catch it lives outside the module, and `internal` is not importable.
+- **Refusals:** `USER_EXISTS`, `ROLE_NOT_FOUND` (translated from the directory's `ROLE_UNKNOWN`),
+  `PERMISSION_NOT_HELD_BY_GRANTOR` (403), `UNIT_NOT_FOUND`, `DIRECTORY_UNREACHABLE` (503).
+- **Honest edge:** the catalog and surface tests for these rows are **PLANNED**. The path was
+  exercised end to end against a running stack — login, catalog, roles, create staff, dual-write,
+  reset — and hand-reviewed; CI is the gate.
+
+---
+
 ## [1.20.0] — 2026-08-08 · MINOR
 
 **The administration surface is designed.** What a tenant's own administrator needs to turn a

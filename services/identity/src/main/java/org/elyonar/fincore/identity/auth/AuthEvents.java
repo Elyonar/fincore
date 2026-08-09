@@ -41,6 +41,36 @@ public class AuthEvents {
     }
 
     /**
+     * Records an event a <em>service</em> performed on a <em>human's</em> behalf.
+     *
+     * <p>{@link #record} attributes to the subject of the event, which is right for authentication
+     * — the person logging in is the person the row is about. It is wrong for the directory: the
+     * row is about the user being created, while the actor is the administrator who created them,
+     * carried here by Core in the forwarded token. ADR 0017 guardrail 4 asks who granted what to
+     * whom, and only this overload can answer it. Dual attribution per service-scaffold §6.
+     */
+    public void recordAs(
+            UUID tenantId,
+            UUID subjectUserId,
+            String event,
+            String actorPrincipal,
+            String actorService,
+            String source,
+            Map<String, Object> details) {
+        tx.jdbc()
+                .update(
+                        "INSERT INTO auth.auth_events (tenant_id, user_id, event, actor_principal,"
+                                + " actor_service, source, details) VALUES (?,?,?,?,?,?,?::jsonb)",
+                        tenantId,
+                        subjectUserId,
+                        event,
+                        actorPrincipal,
+                        actorService,
+                        source,
+                        write(details));
+    }
+
+    /**
      * Records a refusal, in its own transaction, so it survives the throw that follows it.
      *
      * <p>Every failing path audits and then throws. Inside the caller's transaction the throw took

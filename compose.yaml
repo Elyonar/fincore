@@ -150,6 +150,13 @@ services:
       # public fact while where keys are fetched is a network detail only the compose net resolves.
       FINCORE_IDENTITY_ISSUER: http://localhost:58183
 
+      # Core is the directory's only trusted caller (admin-surface §5): it mints a
+      # client-credentials token with this secret and forwards the administrator's own token
+      # beside it. A dev secret like the throwaway database passwords above — a deployment
+      # supplies a real one by reference (hard rule 8).
+      FINCORE_IDENTITY_SERVICE_CLIENTS: core=FINCORE_CORE_IDENTITY_SECRET
+      FINCORE_CORE_IDENTITY_SECRET: ${FINCORE_CORE_IDENTITY_SECRET:-dev-core-directory-secret}
+
       # The manifest, mounted read-only. Seeded idempotently on every boot (ADR 0016 / 0018).
       FINCORE_IDENTITY_MANIFEST: /bootstrap/tenants.json
       # One deployed instance = one institution (ADR 0018). The manifest carries one entry and
@@ -275,6 +282,8 @@ services:
       # ledger's migrations.
       ledger:
         condition: service_healthy
+      identity:
+        condition: service_healthy
     environment:
       # Core's own database — never the ledger's. A deployable owns its database
       # (AGENTS.md rule 5), and the roles come from db/init/30-core-roles.sql.
@@ -307,6 +316,12 @@ services:
       # Core's own credential for addressing the ledger in jwt mode (ADR 0014): a service token
       # minted for the `core` client. Unset in dev — header mode needs none.
       FINCORE_CORE_LEDGER_SERVICE_TOKEN: ${FINCORE_CORE_LEDGER_SERVICE_TOKEN:-}
+
+      # The staff directory (admin-surface §5 over ADR 0018). Core mints its own short-lived
+      # service token at need rather than carrying a long-lived one in configuration.
+      FINCORE_CORE_IDENTITY_BASE_URL: http://identity:8083
+      FINCORE_CORE_IDENTITY_CLIENT_ID: core
+      FINCORE_CORE_IDENTITY_CLIENT_SECRET: ${FINCORE_CORE_IDENTITY_SECRET:-dev-core-directory-secret}
       SPRING_PROFILES_ACTIVE: ${FINCORE_CORE_PROFILE:-dev}
     ports:
       # Published on 58081 for the same reason the ledger uses 58080: Core's own tests bind 8081.

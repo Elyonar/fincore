@@ -170,14 +170,29 @@ public class ManifestSeeder implements ApplicationRunner {
         // row with no credential — is invisible to login (which JOINs the two) and, because the
         // user insert then converges, never repaired on a re-run. All three commit together or none.
         Boolean inserted = tx.inTenant(tenantId, () -> {
-            for (String permission : PermissionCatalog.ADMIN_TEMPLATE) {
+            // Every job template, not only the administrator's. An institution has to be able to
+            // staff itself on day one — a teller, a supervisor, a loan officer — and authoring a
+            // role is the operation that needs a second signature and therefore a second human.
+            // Seeding the starting position is what breaks that circle. ADR 0017: nothing here is
+            // privileged after provisioning; these are a starting position, not a structure.
+            for (var template : PermissionCatalog.ROLE_TEMPLATES.entrySet()) {
                 tx.jdbc()
                         .update(
-                                "INSERT INTO auth.role_permissions (tenant_id, role_name, permission)"
-                                        + " VALUES (?,?,?) ON CONFLICT DO NOTHING",
+                                "INSERT INTO auth.roles (tenant_id, name, template, created_by, created_via)"
+                                        + " VALUES (?,?,TRUE,?,?) ON CONFLICT DO NOTHING",
                                 tenantId,
-                                PermissionCatalog.ADMIN_ROLE,
-                                permission);
+                                template.getKey(),
+                                "bootstrap:manifest",
+                                "service:identity");
+                for (String permission : template.getValue()) {
+                    tx.jdbc()
+                            .update(
+                                    "INSERT INTO auth.role_permissions (tenant_id, role_name, permission)"
+                                            + " VALUES (?,?,?) ON CONFLICT DO NOTHING",
+                                    tenantId,
+                                    template.getKey(),
+                                    permission);
+                }
             }
             int rows = tx.jdbc()
                     .update(
@@ -193,7 +208,32 @@ public class ManifestSeeder implements ApplicationRunner {
                             "bootstrap:manifest",
                             "service:identity");
             if (rows == 0) {
-                return false; // converged already — additive means a re-run touches nothing
+                // Converged already: the user exists, so nothing here creates anything. One grant
+                // is still asserted, because a tenant seeded before job:super-admin existed has a
+                // super-administrator who cannot staff their own institution — the manifest says
+                // who holds that authority, and a boot that reads the manifest should make it true.
+                tx.jdbc()
+                        .update(
+                                "INSERT INTO auth.user_roles (tenant_id, user_id, role_name)"
+                                        + " SELECT ?, u.id, ? FROM auth.users u"
+                                        + " WHERE u.tenant_id = ? AND lower(u.username) = lower(?)"
+                                        + " ON CONFLICT DO NOTHING",
+                                tenantId,
+                                PermissionCatalog.SUPER_ADMIN_ROLE,
+                                tenantId,
+                                username);
+                // Exempt from the profile gate: there is nobody to unblock the first
+                // administrator if they get stuck behind it, and the institution has to be
+                // administrable from its first minute. They complete their own record from
+                // Settings like anyone else.
+                tx.jdbc()
+                        .update(
+                                "UPDATE auth.users SET profile_completed_at = now()"
+                                        + " WHERE tenant_id = ? AND lower(username) = lower(?)"
+                                        + " AND profile_completed_at IS NULL",
+                                tenantId,
+                                username);
+                return false;
             }
             tx.jdbc()
                     .update(
@@ -201,7 +241,7 @@ public class ManifestSeeder implements ApplicationRunner {
                                     + " ON CONFLICT DO NOTHING",
                             tenantId,
                             userId,
-                            PermissionCatalog.ADMIN_ROLE);
+                            PermissionCatalog.SUPER_ADMIN_ROLE);
             tx.jdbc()
                     .update(
                             "INSERT INTO auth.credentials (tenant_id, user_id, password_hash)"
@@ -209,6 +249,13 @@ public class ManifestSeeder implements ApplicationRunner {
                             tenantId,
                             userId,
                             passwords.hash(temporary));
+            tx.jdbc()
+                    .update(
+                            "UPDATE auth.users SET profile_completed_at = now(), job_title = ?"
+                                    + " WHERE tenant_id = ? AND id = ?",
+                            "Super administrator",
+                            tenantId,
+                            userId);
             audit.record(tenantId, userId, "USER_CREATED", "bootstrap", Map.of("username", username));
             return true;
         });

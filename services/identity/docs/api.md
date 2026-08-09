@@ -52,6 +52,14 @@ single-purpose `actionToken` whose only accepted use is the named action.
 
 | Method & path | Purpose |
 |---|---|
+> **Built as of 2026-08-09:** `POST /v1/directory/users`, `GET /v1/directory/users`,
+> `GET /v1/directory/users/{id}`, `PUT /v1/directory/users/{id}/units`,
+> `POST /v1/directory/users/{id}/reset-password`, `POST /v1/directory/users/{id}/unlock`, and the
+> two catalog reads — served at `/v1/directory/permissions` and `/v1/directory/roles` rather than
+> at the top level, so the edge's single allowlist covers the whole administration surface without
+> a per-path exclusion to remember. Everything else in this table remains planned; role authoring
+> and role *changes* wait on the maker-checker work (ADR 0017 guardrail 3).
+
 | `POST /v1/directory/users` | Create a staff member: username, names, contact, roles, units. Temporary credential generated, returned once. Idempotency-Key required; `(tenant, username)` unique index arbitrates. |
 | `GET /v1/directory/users` · `GET /v1/directory/users/{id}` | Read staff, keyset-paged; one user with roles, units, status. |
 | `PUT /v1/directory/users/{id}/roles` | Replace role grants. Grants restricted to catalog permissions the *initiating administrator* holds — the grantor rule is enforced here as well as in Core. |
