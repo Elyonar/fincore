@@ -95,8 +95,9 @@ class SchemaTest {
     @DisplayName("auth_events refuses UPDATE and DELETE — the audit trail is append-only")
     void authEventsAppendOnly() {
         // Owner, with the same tenant context, so RLS admits the row and the trigger is what stops
-        // the mutation rather than a missing grant or an invisible row.
-        owner.update("SELECT set_config('app.tenant_id', ?, false)", tenant.toString());
+        // the mutation rather than a missing grant or an invisible row. queryForObject, not update:
+        // set_config returns a row, and executeUpdate on a statement that returns one throws.
+        owner.queryForObject("SELECT set_config('app.tenant_id', ?, false)", String.class, tenant.toString());
         owner.update(
                 "INSERT INTO identity.auth_events (tenant_id, event, source) VALUES (?, 'TEST', 'test')",
                 tenant);
