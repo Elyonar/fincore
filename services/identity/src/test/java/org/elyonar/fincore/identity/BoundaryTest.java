@@ -44,10 +44,19 @@ class BoundaryTest {
     void callsNoOtherDeployable() {
         // Identity is the thing everything else points at; the arrow must never reverse. A client
         // onto the ledger, Core or Notification here would be a boundary violation, not a feature.
+        //
+        // Fully qualified, like the libs/auth rule below, and not `..core..`: ArchUnit's `..x..`
+        // matches *any* package with a segment named `x`, so `..core..` also names
+        // org.springframework.jdbc.core and org.springframework.core.env. Every JdbcTemplate on the
+        // service reported as a deployable-boundary violation — 53 of them — which is a rule that
+        // cannot pass rather than a rule that catches anything.
         noClasses()
                 .should()
                 .accessClassesThat()
-                .resideInAnyPackage("..ledger..", "..core..", "..notification..")
+                .resideInAnyPackage(
+                        "org.elyonar.fincore.ledger..",
+                        "org.elyonar.fincore.core..",
+                        "org.elyonar.fincore.notification..")
                 .because("identity is called; it calls no other deployable (ADR 0018, package-info)")
                 .check(production);
     }

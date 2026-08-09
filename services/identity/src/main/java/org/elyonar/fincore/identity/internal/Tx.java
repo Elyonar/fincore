@@ -5,6 +5,7 @@ import java.util.function.Supplier;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
@@ -37,6 +38,28 @@ public class Tx {
     /** Runs {@code work} in one transaction with no tenant context (registry, service clients). */
     public <T> T plain(Supplier<T> work) {
         return tx.execute(status -> work.get());
+    }
+
+    /**
+     * Runs {@code work} in its own transaction, committed even when the caller's rolls back.
+     *
+     * <p>For the writes a <em>refusal</em> must leave behind. Every failing path here records
+     * something and then throws — a failure count, a lockout, a revoked refresh family, an audit
+     * row — and the throw unwinds the transaction that just recorded it. The security control and
+     * the evidence of it disappear together, silently, while the code reads as though both
+     * happened. Brute-force lockout never engaged and no failed login was ever audited.
+     *
+     * <p>{@code REQUIRES_NEW}, so the record survives the refusal it describes. It takes a second
+     * connection for the duration, which is why the app pool may not be sized to one.
+     */
+    public <T> T independently(UUID tenantId, Supplier<T> work) {
+        TransactionTemplate own = new TransactionTemplate(tx.getTransactionManager());
+        own.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        return own.execute(status -> {
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)", String.class, tenantId.toString());
+            return work.get();
+        });
     }
 
     public JdbcTemplate jdbc() {

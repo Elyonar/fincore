@@ -43,10 +43,20 @@ public class Throttle {
         return count != null && count >= config.getSourceFailuresBeforeDelay();
     }
 
-    /** One failure against both scopes; locks the account scope at the threshold. */
+    /**
+     * One failure against both scopes; locks the account scope at the threshold.
+     *
+     * <p>In its own transaction, because every caller records a failure and then throws. Inside the
+     * caller's transaction the throw rolled this straight back, so the count never climbed, the
+     * lock never engaged, and six wrong passwords left exactly as much evidence as none — the
+     * control existed in the source and nowhere in the database.
+     */
     public void recordFailure(UUID tenantId, String username, String source) {
-        bump(tenantId, accountScope(username), true);
-        bump(tenantId, sourceScope(source), false);
+        tx.independently(tenantId, () -> {
+            bump(tenantId, accountScope(username), true);
+            bump(tenantId, sourceScope(source), false);
+            return null;
+        });
     }
 
     public void clear(UUID tenantId, String username) {

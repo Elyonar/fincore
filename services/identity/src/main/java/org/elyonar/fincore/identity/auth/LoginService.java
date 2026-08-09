@@ -89,23 +89,23 @@ public class LoginService {
             if (user == null) {
                 passwords.verifyDecoy(password);
                 throttle.recordFailure(tenantId, username, source);
-                audit.record(tenantId, null, "LOGIN_FAILED", source, Map.of("cause", "UNKNOWN_USER"));
+                audit.recordRefusal(tenantId, null, "LOGIN_FAILED", source, Map.of("cause", "UNKNOWN_USER"));
                 throw new AuthFailed();
             }
             boolean verified = passwords.verify(password, user.hash());
             if (!verified) {
                 throttle.recordFailure(tenantId, username, source);
-                audit.record(tenantId, user.id(), "LOGIN_FAILED", source, Map.of("cause", "BAD_CREDENTIAL"));
+                audit.recordRefusal(tenantId, user.id(), "LOGIN_FAILED", source, Map.of("cause", "BAD_CREDENTIAL"));
                 throw new AuthFailed();
             }
             if (throttle.accountLocked(tenantId, username)) {
                 // The credential was right and the answer is still no — and still the same no. A
                 // correct guess during a lock must not read differently from a wrong one.
-                audit.record(tenantId, user.id(), "LOGIN_FAILED", source, Map.of("cause", "LOCKED"));
+                audit.recordRefusal(tenantId, user.id(), "LOGIN_FAILED", source, Map.of("cause", "LOCKED"));
                 throw new AuthFailed();
             }
             if (!"ACTIVE".equals(user.status())) {
-                audit.record(tenantId, user.id(), "LOGIN_FAILED", source, Map.of("cause", "DISABLED"));
+                audit.recordRefusal(tenantId, user.id(), "LOGIN_FAILED", source, Map.of("cause", "DISABLED"));
                 throw new AuthFailed();
             }
             throttle.clear(tenantId, username);
@@ -155,7 +155,7 @@ public class LoginService {
             boolean ok = mfa.verifyFactor(tenantId, userId, code, recoveryCode);
             if (!ok) {
                 throttle.recordFailure(tenantId, username, source);
-                audit.record(tenantId, userId, "MFA_FAILED", source, Map.of());
+                audit.recordRefusal(tenantId, userId, "MFA_FAILED", source, Map.of());
                 throw new AuthFailed();
             }
             throttle.clear(tenantId, username);
@@ -214,7 +214,7 @@ public class LoginService {
                     || throttle.accountLocked(tenantId, username)
                     || !"ACTIVE".equals(user.status())) {
                 throttle.recordFailure(tenantId, username, source);
-                audit.record(tenantId, user.id(), "LOGIN_FAILED", source, Map.of("cause", "BAD_CREDENTIAL"));
+                audit.recordRefusal(tenantId, user.id(), "LOGIN_FAILED", source, Map.of("cause", "BAD_CREDENTIAL"));
                 throw new AuthFailed();
             }
             throttle.clear(tenantId, username);
@@ -228,18 +228,35 @@ public class LoginService {
         if (tenantId == null || refreshToken == null || refreshToken.isBlank()) {
             throw new TokenInvalid();
         }
-        return tx.inTenant(tenantId, () -> {
-            Sessions.Rotation rotation =
-                    sessions.rotate(tenantId, refreshToken, source).orElseThrow(TokenInvalid::new);
+        // The transaction commits and *then* the refusal is raised, rather than the refusal
+        // unwinding the transaction. Both refusing branches here write something that must outlive
+        // the refusal — a revoked family on reuse, revoked sessions for a disabled user — and
+        // throwing from inside took those writes with it: theft was detected, the family revoked,
+        // and the revocation rolled straight back, so the stolen token kept working.
+        //
+        // Nesting the writes in their own transaction is the wrong repair. Rotation holds row locks
+        // on exactly the rows the revocation updates, so an inner transaction blocks on the outer
+        // one that is waiting for it — a self-deadlock that only shows up under a lock timeout.
+        // Committing first and refusing after needs neither a second transaction nor a second
+        // connection.
+        TokenPair granted = tx.inTenant(tenantId, () -> {
+            Sessions.Rotation rotation = sessions.rotate(tenantId, refreshToken, source).orElse(null);
+            if (rotation == null) {
+                return null;
+            }
             UserRow user = findById(tenantId, rotation.userId());
             if (user == null || !"ACTIVE".equals(user.status()) || user.temporary()) {
                 // A disabled user's outstanding sessions die at the next rotation, quietly.
                 sessions.revokeAllFor(tenantId, rotation.userId(), "ADMIN", source);
-                throw new TokenInvalid();
+                return null;
             }
             TokenPair minted = staffTokens.grant(tenantId, user.id(), user.username(), clientId, false);
             return new TokenPair(minted.accessToken(), rotation.newRefreshToken(), minted.expiresIn());
         });
+        if (granted == null) {
+            throw new TokenInvalid();
+        }
+        return granted;
     }
 
     public void logout(String refreshToken, String source) {

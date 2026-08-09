@@ -91,6 +91,11 @@ public class Sessions {
         if (rotatedAt != null) {
             // The theft signal: this exact value was already spent. Whoever presents it second —
             // thief or victim — the family is no longer trustworthy, and the wire must not say so.
+            //
+            // Written in the caller's transaction, which commits: LoginService.refresh raises the
+            // refusal *after* the transaction returns, precisely so this revocation survives it.
+            // It used to throw from inside, and the throw discarded the revocation — theft was
+            // detected, decided correctly, and then forgotten, leaving the stolen family live.
             revokeFamily(tenantId, familyId, "ROTATION_REUSE");
             audit.record(tenantId, userId, "REUSE_REVOKED", source, Map.of("family", familyId.toString()));
             return java.util.Optional.empty();

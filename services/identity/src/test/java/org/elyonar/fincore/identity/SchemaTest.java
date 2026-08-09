@@ -58,6 +58,8 @@ class SchemaTest {
                         "auth_events",
                         "credentials",
                         "login_throttle",
+                        "mfa_enrollments",
+                        "mfa_recovery_codes",
                         "refresh_families",
                         "refresh_tokens",
                         "role_permissions",
