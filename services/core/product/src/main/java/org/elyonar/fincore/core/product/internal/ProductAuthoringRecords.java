@@ -253,6 +253,20 @@ public class ProductAuthoringRecords implements ProductAuthoring {
                 versionId);
     }
 
+    /**
+     * The moment, as an instant, or null.
+     *
+     * <p>This read used to hand back {@code String.valueOf(rs.getObject(...))}, which is a
+     * {@code Timestamp.toString()} — the server's local wall clock with no zone on it, and the
+     * four-character string {@code "null"} when the column was empty. Both are unreconcilable by a
+     * caller: a pricing change that starts "at 22:54, somewhere" is a pricing change nobody can
+     * reason about, and a literal "null" is a date that parses as a date until it doesn't. The
+     * catalogue read has always returned an {@code OffsetDateTime}; this now agrees with it.
+     */
+    private static String instant(java.time.OffsetDateTime moment) {
+        return moment == null ? null : moment.toInstant().toString();
+    }
+
     @Override
     @Transactional(readOnly = true, transactionManager = "productTransactionManager")
     public ProductAuthoring.VersionDetail read(UUID tenantId, UUID productId, int version) {
@@ -268,7 +282,7 @@ public class ProductAuthoringRecords implements ProductAuthoring {
                                 ? new Object[] {
                                     rs.getObject("id", UUID.class),
                                     rs.getString("status"),
-                                    String.valueOf(rs.getObject("effective_from")),
+                                    instant(rs.getObject("effective_from", java.time.OffsetDateTime.class)),
                                     rs.getString("published_by"),
                                     rs.getString("code"),
                                     rs.getString("type")
