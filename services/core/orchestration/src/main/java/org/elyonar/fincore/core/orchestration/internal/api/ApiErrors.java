@@ -8,6 +8,7 @@ import org.elyonar.fincore.core.orchestration.api.CoreException;
 import org.elyonar.fincore.core.orchestration.api.DetailKey;
 import org.elyonar.fincore.core.orchestration.api.ErrorCode;
 import org.elyonar.fincore.core.orchestration.internal.approval.ApprovalRecords;
+import org.elyonar.fincore.core.orchestration.internal.saga.InternalAccounts;
 import org.elyonar.fincore.core.orchestration.internal.saga.TransferService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -50,6 +51,7 @@ public class ApiErrors {
                     Map.entry(ErrorCode.TILL_NOT_OPEN, HttpStatus.UNPROCESSABLE_ENTITY),
                     Map.entry(ErrorCode.FEE_EXCEEDS_DEPOSIT, HttpStatus.UNPROCESSABLE_ENTITY),
                     Map.entry(ErrorCode.UNIT_NOT_FOUND, HttpStatus.UNPROCESSABLE_ENTITY),
+                    Map.entry(ErrorCode.ACCOUNT_CODE_TAKEN, HttpStatus.CONFLICT),
                     Map.entry(ErrorCode.INSUFFICIENT_FUNDS, HttpStatus.UNPROCESSABLE_ENTITY),
                     Map.entry(ErrorCode.LEDGER_REFUSED, HttpStatus.UNPROCESSABLE_ENTITY),
                     Map.entry(ErrorCode.NOT_REVERSIBLE, HttpStatus.UNPROCESSABLE_ENTITY),
@@ -81,6 +83,35 @@ public class ApiErrors {
     }
 
     /** Same key, different economics. A caller bug, and never a silent wrong answer. */
+    /** The institution already has an account by that code. 409, because the caller may rename. */
+    @ExceptionHandler(InternalAccounts.CodeTaken.class)
+    public ResponseEntity<ApiError> codeTaken(InternalAccounts.CodeTaken e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(new ApiError(
+                        ErrorCode.ACCOUNT_CODE_TAKEN.code(),
+                        null,
+                        e.getMessage(),
+                        false,
+                        null,
+                        Map.of(DetailKey.CODE, e.code)));
+    }
+
+    /**
+     * The ledger would not open the account.
+     *
+     * <p>Relayed with the ledger's own reason rather than flattened: {@code CURRENCY_UNKNOWN} names
+     * something an administrator can fix, and "the account could not be opened" does not.
+     */
+    @ExceptionHandler(InternalAccounts.LedgerRefused.class)
+    public ResponseEntity<ApiError> ledgerRefusedOpen(InternalAccounts.LedgerRefused e) {
+        boolean unreachable = "ledger unreachable".equals(e.reason);
+        log.warn("ledger refused to open an account: {}", e.reason);
+        return ResponseEntity.status(unreachable ? HttpStatus.SERVICE_UNAVAILABLE : HttpStatus.UNPROCESSABLE_ENTITY)
+                .body(ApiError.of(
+                        (unreachable ? ErrorCode.LEDGER_UNREACHABLE : ErrorCode.LEDGER_REFUSED).code(),
+                        e.getMessage()));
+    }
+
     @ExceptionHandler(TransferService.IdempotencyKeyReused.class)
     public ResponseEntity<ApiError> keyReused(TransferService.IdempotencyKeyReused e) {
         return ResponseEntity.status(HttpStatus.CONFLICT)

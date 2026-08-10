@@ -75,6 +75,8 @@ the first place.
 | `DELETE /v1/job-titles/{title}` | retire a title; refused while anybody holds it | app (directory) | `users:manage` | admin |
 | `GET  /v1/staff-numbering` | the numbering rule, and the number the next hire would take | app (directory) | `users:read` | admin |
 | `PUT  /v1/staff-numbering` | change prefix, width or next value | app (directory) | `users:manage` | admin |
+| `GET  /v1/internal-accounts` | the institution's own accounts, with what each is called and for | orchestration | `accounts:read` | admin |
+| `POST /v1/internal-accounts` | open one in the ledger and name it — till, fee income, suspense | orchestration | `accounts:manage` | admin |
 | `POST /v1/tills` | provision a till inside a validated branch | orchestration | `tills:manage` | admin |
 | `GET  /v1/tills` | the tenant's tills | orchestration | `tills:read` | admin, supervisor |
 | `POST /v1/tills/{id}/close` | close a till; cash cannot move through it afterwards | orchestration | `tills:manage` | admin |
@@ -234,6 +236,7 @@ tenant renders its own string from `code`, `reason` and `details`.
 | `TILL_NOT_OPEN` | the teller's till is not open | no |
 | `FEE_EXCEEDS_DEPOSIT` | the fee would consume more than the deposit | no |
 | `UNIT_NOT_FOUND` | no active organizational unit answers to that code — or it is not a branch → 422 (404 on the organization surface) | no |
+| `ACCOUNT_CODE_TAKEN` | the institution already has an internal account with that code → 409. `details.code` | no |
 | `UNIT_CODE_TAKEN` | the tenant already has a unit with this code; codes never recycle → 409 | no — caller bug |
 | `PARENT_UNIT_NOT_FOUND` | the named parent unit does not exist, is another tenant's, or is closed → 422 | no |
 | `ASSIGNMENT_EXISTS` | the principal already holds a live assignment to this unit → 409 | no |

@@ -48,6 +48,9 @@ public enum ErrorCode {
     /** No active organizational unit answers to that code — or it is not a branch (ADR 0012). */
     UNIT_NOT_FOUND,
 
+    /** The institution already has an internal account with that code. {@code details.code}. */
+    ACCOUNT_CODE_TAKEN,
+
     // ---- relayed from the Ledger ----------------------------------------------------
     /** The account would go available &lt; 0. */
     INSUFFICIENT_FUNDS,
