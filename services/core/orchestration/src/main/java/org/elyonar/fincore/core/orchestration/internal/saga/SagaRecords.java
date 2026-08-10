@@ -70,13 +70,20 @@ public class SagaRecords {
     }
 
     /**
-     * The fee-income account this saga will credit: the product's configured account when the
-     * pricing names one, else the caller's — the documented fallback for published versions that
-     * predate the configuration column. Resolved once, here, so the saga row and every worker
-     * retry rebuild the identical posting.
+     * The fee-income account this saga will credit: the product's, and only the product's.
+     *
+     * <p>The caller's account used to stand in when the pricing named none, which was the
+     * documented fallback for versions predating the configuration column — and, since nothing
+     * could write that column, was in practice the only path. Pricing is authorable now, so the
+     * fallback is gone: a caller naming the account its own fee lands in is a caller deciding
+     * where the institution's income goes.
+     *
+     * <p>Still resolved once, here, so the saga row and every worker retry rebuild the identical
+     * posting. A fee with no configured account fails the {@code Unretryable} check below rather
+     * than posting somewhere plausible.
      */
     private static UUID resolvedFeeAccount(UUID configured, UUID callerSupplied) {
-        return configured != null ? configured : callerSupplied;
+        return configured;
     }
 
     /**

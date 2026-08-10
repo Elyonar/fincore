@@ -93,7 +93,11 @@ public class LoanService {
             throw new Refused(LendingErrorCode.APPROVAL_SEQUENCE_INVALID, "signature refused");
         }
         if (count >= app.approvalsRequired()) {
-            LoanProducts.LoanTerms terms = products.termsFor(tenantId, app.productCode());
+            // The version the application was written under, not whatever is live now. An offer
+            // computed under a version published after the customer applied is an offer they were
+            // never shown.
+            LoanProducts.LoanTerms terms =
+                    products.termsForVersion(tenantId, app.productCode(), app.productVersion());
             if (terms != null) {
                 offer(tenantId, applicationId, app.amountMinor(), app.termMonths(), terms);
             }
@@ -160,7 +164,8 @@ public class LoanService {
         // which stays only as the fallback for versions predating the column — the fee-account
         // pattern. Resolved before DISBURSING is recorded, so retries and the convergence job
         // re-drive from the same resolved account.
-        LoanProducts.LoanTerms disburseTerms = products.termsFor(tenantId, app.productCode());
+        LoanProducts.LoanTerms disburseTerms =
+                products.termsForVersion(tenantId, app.productCode(), app.productVersion());
         if (disburseTerms != null && disburseTerms.fundingAccountId() != null) {
             fundingAccountId = disburseTerms.fundingAccountId();
         }
@@ -228,7 +233,8 @@ public class LoanService {
     }
 
     void finalizeDisbursement(UUID tenantId, Application app, UUID sagaId) {
-        LoanProducts.LoanTerms terms = products.termsFor(tenantId, app.productCode());
+        LoanProducts.LoanTerms terms =
+                products.termsForVersion(tenantId, app.productCode(), app.productVersion());
         int rateBp = terms == null ? 0 : terms.interestRateBp();
         String kind = terms == null ? "FLAT" : terms.scheduleKind();
         int grace = terms == null ? 0 : terms.graceMonths();
@@ -305,7 +311,8 @@ public class LoanService {
         if (loan == null) {
             return;
         }
-        LoanProducts.LoanTerms terms = products.termsFor(tenantId, loan.productCode());
+        LoanProducts.LoanTerms terms =
+                products.termsForVersion(tenantId, loan.productCode(), loan.productVersion());
         UUID interestAccount = terms == null ? null : terms.interestIncomeAccountId();
         UUID penaltyAccount =
                 terms == null
@@ -344,7 +351,8 @@ public class LoanService {
      * vocabulary.
      */
     void allocate(UUID tenantId, UUID repaymentId, Loan loan, long amountMinor) {
-        LoanProducts.LoanTerms terms = products.termsFor(tenantId, loan.productCode());
+        LoanProducts.LoanTerms terms =
+                products.termsForVersion(tenantId, loan.productCode(), loan.productVersion());
         List<String> order =
                 terms == null ? List.of("PENALTY", "FEE", "INTEREST", "PRINCIPAL") : terms.allocationOrder();
 

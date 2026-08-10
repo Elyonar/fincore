@@ -183,7 +183,8 @@ public class LendingJobs {
         List<PenaltyRow> due =
                 workerJdbc.query(
                         """
-                        SELECT id, tenant_id, product_code, penalty_through, penalty_charged_minor
+                        SELECT id, tenant_id, product_code, product_version, penalty_through,
+                               penalty_charged_minor
                           FROM lending.loans
                          WHERE state = 'ACTIVE' AND penalty_through < ?
                          ORDER BY penalty_through
@@ -194,11 +195,14 @@ public class LendingJobs {
                                         rs.getObject("id", UUID.class),
                                         rs.getObject("tenant_id", UUID.class),
                                         rs.getString("product_code"),
+                                        rs.getInt("product_version"),
                                         rs.getObject("penalty_through", LocalDate.class),
                                         rs.getLong("penalty_charged_minor")),
                         today);
         for (PenaltyRow row : due) {
-            var terms = products.termsFor(row.tenantId(), row.productCode());
+            // The version this loan was written under. Penalising an old loan at a new rate is
+            // repricing a contract after the fact, which is exactly what pinning prevents.
+            var terms = products.termsForVersion(row.tenantId(), row.productCode(), row.productVersion());
             long flat = terms == null ? 0 : terms.penaltyFlatMinor();
             int rateBp = terms == null ? 0 : terms.penaltyRateBp();
             Long cap = terms == null ? null : terms.penaltyCapMinor();
@@ -346,7 +350,8 @@ public class LendingJobs {
 
     private record Stuck(UUID id, UUID tenantId) {}
 
-    private record PenaltyRow(UUID id, UUID tenantId, String productCode, LocalDate through, long chargedMinor) {}
+    private record PenaltyRow(
+            UUID id, UUID tenantId, String productCode, int productVersion, LocalDate through, long chargedMinor) {}
 
     private record PendingRepayment(UUID id, UUID tenantId, UUID loanId, long amountMinor) {}
 }

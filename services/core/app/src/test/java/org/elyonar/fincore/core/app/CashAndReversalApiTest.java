@@ -153,8 +153,9 @@ class CashAndReversalApiTest {
                             for (String operation : new String[] {"DEPOSIT", "WITHDRAWAL", "TRANSFER"}) {
                                 productDb.update(
                                         "INSERT INTO product.fee_rules (tenant_id, product_version_id, operation,"
-                                                + " kind, flat_minor, currency) VALUES (?,?,?, 'FLAT', 5000, 'NGN')",
-                                        tenantId, versionId, operation);
+                                                + " kind, flat_minor, currency, fee_account_id)"
+                                                + " VALUES (?,?,?, 'FLAT', 5000, 'NGN', ?)",
+                                        tenantId, versionId, operation, feeAccount);
                             }
                             // Published last, because pricing for a live version is immutable (V7):
                             // a rule added after publish would change what an already-decided transaction

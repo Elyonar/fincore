@@ -158,9 +158,10 @@ class TransferEndToEndTest {
                                     UUID.class, tenantId, productId);
                     // 2.50% capped at ₦500 — integer basis points throughout.
                     productDb.update(
-                            "INSERT INTO product.fee_rules (tenant_id, product_version_id, operation, kind, basis_points, cap_minor, currency)"
-                                    + " VALUES (?,?, 'TRANSFER', 'PERCENT', 250, 50000, 'NGN')",
-                            tenantId, versionId);
+                            "INSERT INTO product.fee_rules (tenant_id, product_version_id, operation, kind,"
+                                    + " basis_points, cap_minor, currency, fee_account_id)"
+                                    + " VALUES (?,?, 'TRANSFER', 'PERCENT', 250, 50000, 'NGN', ?)",
+                            tenantId, versionId, feeAccount);
                     productDb.update(
                             "INSERT INTO product.limit_rules (tenant_id, product_version_id, kyc_tier, channel, limit_type, max_amount_minor, currency)"
                                     + " VALUES (?,?, 'TIER_2', 'TELLER', 'PER_TXN', 5000000, 'NGN')",

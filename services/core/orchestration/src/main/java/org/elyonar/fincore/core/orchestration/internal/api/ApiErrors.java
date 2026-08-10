@@ -52,6 +52,7 @@ public class ApiErrors {
                     Map.entry(ErrorCode.FEE_EXCEEDS_DEPOSIT, HttpStatus.UNPROCESSABLE_ENTITY),
                     Map.entry(ErrorCode.UNIT_NOT_FOUND, HttpStatus.UNPROCESSABLE_ENTITY),
                     Map.entry(ErrorCode.ACCOUNT_CODE_TAKEN, HttpStatus.CONFLICT),
+                    Map.entry(ErrorCode.FEE_ACCOUNT_NOT_CONFIGURED, HttpStatus.UNPROCESSABLE_ENTITY),
                     Map.entry(ErrorCode.INSUFFICIENT_FUNDS, HttpStatus.UNPROCESSABLE_ENTITY),
                     Map.entry(ErrorCode.LEDGER_REFUSED, HttpStatus.UNPROCESSABLE_ENTITY),
                     Map.entry(ErrorCode.NOT_REVERSIBLE, HttpStatus.UNPROCESSABLE_ENTITY),

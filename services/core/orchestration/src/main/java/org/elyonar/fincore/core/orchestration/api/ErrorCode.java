@@ -51,6 +51,16 @@ public enum ErrorCode {
     /** The institution already has an internal account with that code. {@code details.code}. */
     ACCOUNT_CODE_TAKEN,
 
+    /**
+     * The product prices a fee and names no account to credit it to.
+     *
+     * <p>Refused rather than posted somewhere plausible. Until pricing was authorable the caller
+     * could supply the account, which meant a caller could decide where the institution's own
+     * income landed; now the product must name it, and a product that prices a fee without one is
+     * misconfigured in a way only its author can fix.
+     */
+    FEE_ACCOUNT_NOT_CONFIGURED,
+
     // ---- relayed from the Ledger ----------------------------------------------------
     /** The account would go available &lt; 0. */
     INSUFFICIENT_FUNDS,

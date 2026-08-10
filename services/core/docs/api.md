@@ -113,12 +113,14 @@ API channel, `channel:teller` as a counter. An unknown channel is refused
 license is a 403. Cash endpoints take no channel at all: cash is counter
 business, and the channel is the endpoint.
 
-**The fee-income account is product configuration.** When a fee rule names its
-`fee_account_id`, the fee credits that account and a caller-supplied one is
-ignored. The body field remains only as the documented fallback for published
-versions that predate the configuration column — republishing a version is
-expected to carry the account, and the fallback is a known limitation until the
-last pre-column version ages out.
+**The fee-income account is product configuration, and only that.** A fee credits
+the account its fee rule names. The body still carries a `feeAccountId` and it is
+now ignored entirely: it existed as the fallback for versions predating the
+configuration column, which — while nothing could write that column — was in
+practice the only path, and meant a caller could choose where the institution's
+own income landed. Pricing is authorable now, so a product that prices a fee and
+names no account is refused with `FEE_ACCOUNT_NOT_CONFIGURED` rather than posting
+somewhere plausible.
 
 `GET /` answers with the service identity and its documentation links, and
 `/actuator/health` with liveness. Neither is part of the v1 contract, and both
@@ -246,6 +248,7 @@ tenant renders its own string from `code`, `reason` and `details`.
 | `FEE_EXCEEDS_DEPOSIT` | the fee would consume more than the deposit | no |
 | `UNIT_NOT_FOUND` | no active organizational unit answers to that code — or it is not a branch → 422 (404 on the organization surface) | no |
 | `ACCOUNT_CODE_TAKEN` | the institution already has an internal account with that code → 409. `details.code` | no |
+| `FEE_ACCOUNT_NOT_CONFIGURED` | the product prices a fee and names no account to credit it to → 422 | no |
 | `PRICING_ACCOUNT_INVALID` | a rule names an account the institution has not opened, has closed, opened for something else, or in another currency → 422 | no |
 | `ACCOUNT_NOT_OPENED` | the customer account could not be opened as asked — unknown customer, bad currency, or the ledger refused → 422 | no |
 | `UNIT_CODE_TAKEN` | the tenant already has a unit with this code; codes never recycle → 409 | no — caller bug |
