@@ -199,7 +199,7 @@ class JwtEndToEndTest {
                                     productDb.queryForObject(
                                             "INSERT INTO product.product_versions (tenant_id, product_id, version,"
                                                     + " status, created_by, published_by)"
-                                                    + " VALUES (?,?,1,'PUBLISHED','user:author','user:publisher')"
+                                                    + " VALUES (?,?,1,'DRAFT','user:author',NULL)"
                                                     + " RETURNING id",
                                             UUID.class, tenantId, productId);
                             productDb.update(
@@ -210,6 +210,13 @@ class JwtEndToEndTest {
                                          currency)
                                     VALUES (?,?, 2400, 'FLAT', 10000, 100000000, 1, 36, 'NGN')
                                     """,
+                                    tenantId, versionId);
+                            // Published last, because pricing for a live version is immutable (V7):
+                            // a rule added after publish would change what an already-decided transaction
+                            // was priced under, and the database refuses it.
+                            productDb.update(
+                                    "UPDATE product.product_versions SET status = 'PUBLISHED',"
+                                            + " published_by = 'user:publisher' WHERE tenant_id = ? AND id = ?",
                                     tenantId, versionId);
                         });
     }

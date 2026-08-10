@@ -74,6 +74,9 @@ class OrchestrationSchemaTest {
         assertThat(tables)
                 .containsExactlyInAnyOrder(
                         "approvals",
+                        // V9 — the register of the institution's own accounts, and the reason
+                        // anything can be opened in the ledger at all.
+                        "internal_accounts",
                         "limit_reservations",
                         "ops_cases",
                         "reconciliation_findings",

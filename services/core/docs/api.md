@@ -41,11 +41,20 @@ the first place.
 | `GET  /v1/approvals/pending` | the checker's queue, oldest first | orchestration | `approvals:check` | supervisor |
 | `POST /v1/customers/{id}/tier` | change KYC tier (attributed, reason required) | customer | `customers:tier` | compliance, admin |
 | `POST /v1/customers/{id}/accounts` | link a ledger account to a customer | customer | `customers:link` | admin |
+| `POST /v1/customers/{customerId}/accounts/open` | open a ledger account for a customer and number it | app (onboarding) | `customers:link` | admin, teller |
+| `GET  /v1/customer-numbering` | how customers and their accounts are numbered, and the next of each | app (onboarding) | `customers:read` | admin |
+| `PUT  /v1/customer-numbering/{series}` | change a series — prefix, width, next value | app (onboarding) | `customers:create` | admin |
 | `GET  /v1/customers/by-account/{ledgerAccountId}` | contact addresses, language and consent for the holder of an account — **no name, no tier** | customer | `customers:contact` | notification, API |
 | `POST /v1/customers/{id}/consent` | record what a customer agreed to, per category and channel | customer | `customers:consent` | admin, compliance |
 | `GET  /v1/products` | list products and their versions | product | `products:read` | teller, admin |
 | `POST /v1/products` | create a product with a DRAFT version 1 | product | `products:create` | admin |
 | `POST /v1/products/{id}/versions/{v}/publish` | publish a version (attributed; maker-checker) | product | `products:publish` | admin |
+| `POST /v1/products/{productId}/versions` | draft the next version, optionally copying an existing one's rules | app (pricing) | `products:create` | admin |
+| `GET  /v1/products/{productId}/versions/{version}` | one version with its fee, limit and loan rules | app (pricing) | `products:read` | admin |
+| `PUT  /v1/products/{productId}/versions/{version}/fee-rules` | replace the draft's fee schedule; accounts validated against the institution's own | app (pricing) | `products:create` | admin |
+| `PUT  /v1/products/{productId}/versions/{version}/limit-rules` | replace the draft's limits — without a PER_TXN rule the product refuses everything | app (pricing) | `products:create` | admin |
+| `PUT  /v1/products/{productId}/versions/{version}/loan-rules` | replace the draft's loan terms, rates and penalties | app (pricing) | `products:create` | admin |
+| `PATCH /v1/products/{productId}/versions/{version}` | schedule when the version becomes live once published | app (pricing) | `products:create` | admin |
 | `POST /v1/approvals` | raise a maker-checker approval, bound to a target and amount | orchestration | `approvals:make` | supervisor |
 | `POST /v1/approvals/{id}/check` | approve or reject (checker ≠ maker, enforced) | orchestration | `approvals:check` | supervisor |
 | `GET  /v1/ops/cases` | unresolved-outcome cases | orchestration | `ops:read` | ops |
@@ -75,6 +84,8 @@ the first place.
 | `DELETE /v1/job-titles/{title}` | retire a title; refused while anybody holds it | app (directory) | `users:manage` | admin |
 | `GET  /v1/staff-numbering` | the numbering rule, and the number the next hire would take | app (directory) | `users:read` | admin |
 | `PUT  /v1/staff-numbering` | change prefix, width or next value | app (directory) | `users:manage` | admin |
+| `GET  /v1/internal-accounts` | the institution's own accounts, with what each is called and for | orchestration | `accounts:read` | admin |
+| `POST /v1/internal-accounts` | open one in the ledger and name it — till, fee income, suspense | orchestration | `accounts:manage` | admin |
 | `POST /v1/tills` | provision a till inside a validated branch | orchestration | `tills:manage` | admin |
 | `GET  /v1/tills` | the tenant's tills | orchestration | `tills:read` | admin, supervisor |
 | `POST /v1/tills/{id}/close` | close a till; cash cannot move through it afterwards | orchestration | `tills:manage` | admin |
@@ -102,12 +113,14 @@ API channel, `channel:teller` as a counter. An unknown channel is refused
 license is a 403. Cash endpoints take no channel at all: cash is counter
 business, and the channel is the endpoint.
 
-**The fee-income account is product configuration.** When a fee rule names its
-`fee_account_id`, the fee credits that account and a caller-supplied one is
-ignored. The body field remains only as the documented fallback for published
-versions that predate the configuration column — republishing a version is
-expected to carry the account, and the fallback is a known limitation until the
-last pre-column version ages out.
+**The fee-income account is product configuration, and only that.** A fee credits
+the account its fee rule names. The body still carries a `feeAccountId` and it is
+now ignored entirely: it existed as the fallback for versions predating the
+configuration column, which — while nothing could write that column — was in
+practice the only path, and meant a caller could choose where the institution's
+own income landed. Pricing is authorable now, so a product that prices a fee and
+names no account is refused with `FEE_ACCOUNT_NOT_CONFIGURED` rather than posting
+somewhere plausible.
 
 `GET /` answers with the service identity and its documentation links, and
 `/actuator/health` with liveness. Neither is part of the v1 contract, and both
@@ -234,6 +247,10 @@ tenant renders its own string from `code`, `reason` and `details`.
 | `TILL_NOT_OPEN` | the teller's till is not open | no |
 | `FEE_EXCEEDS_DEPOSIT` | the fee would consume more than the deposit | no |
 | `UNIT_NOT_FOUND` | no active organizational unit answers to that code — or it is not a branch → 422 (404 on the organization surface) | no |
+| `ACCOUNT_CODE_TAKEN` | the institution already has an internal account with that code → 409. `details.code` | no |
+| `FEE_ACCOUNT_NOT_CONFIGURED` | the product prices a fee and names no account to credit it to → 422 | no |
+| `PRICING_ACCOUNT_INVALID` | a rule names an account the institution has not opened, has closed, opened for something else, or in another currency → 422 | no |
+| `ACCOUNT_NOT_OPENED` | the customer account could not be opened as asked — unknown customer, bad currency, or the ledger refused → 422 | no |
 | `UNIT_CODE_TAKEN` | the tenant already has a unit with this code; codes never recycle → 409 | no — caller bug |
 | `PARENT_UNIT_NOT_FOUND` | the named parent unit does not exist, is another tenant's, or is closed → 422 | no |
 | `ASSIGNMENT_EXISTS` | the principal already holds a live assignment to this unit → 409 | no |

@@ -164,6 +164,40 @@ public class HttpLedgerClient implements LedgerClient {
     }
 
     @Override
+    public Opened open(UUID tenantId, OpenAccount request) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("idempotencyKey", request.idempotencyKey());
+        body.put("type", request.type());
+        body.put("currency", request.currency());
+        body.put("customerRef", request.customerRef());
+        body.put("allowNegative", request.allowNegative());
+
+        try {
+            var response =
+                    http.post()
+                            .uri("/v1/accounts")
+                            .headers(h -> identity(h, tenantId))
+                            .body(body)
+                            .exchange((req, res) -> new RawResponse(res.getStatusCode().value(), readBody(res)), false);
+
+            JsonNode parsed = parse(response.body());
+            if (response.status() < 200 || response.status() >= 300) {
+                // The ledger's own error code where it gave one — CURRENCY_UNKNOWN and the like are
+                // worth passing through verbatim, because they name a thing the administrator can
+                // actually fix.
+                String code = textAt(parsed, "code");
+                return Opened.failed(code == null ? "ledger refused: status " + response.status() : code);
+            }
+            UUID id = uuidAt(parsed, "accountId");
+            // A 2xx we cannot read is not an account we can register. The idempotency key means
+            // the retry is safe and returns the same account rather than opening a second one.
+            return id == null ? Opened.failed("unparseable 2xx body") : Opened.of(id);
+        } catch (RuntimeException e) {
+            return Opened.failed("ledger unreachable");
+        }
+    }
+
+    @Override
     public LedgerClient.RawRead get(UUID tenantId, String pathAndQuery) {
         try {
             var response =

@@ -16,8 +16,27 @@ public interface LoanProducts {
      * The live loan terms for this product code, or null when there is no published LOAN version
      * in effect — absent, another tenant's, unpublished and not-yet-effective all
      * indistinguishable, as everywhere.
+     *
+     * <p>For deciding what a <em>new</em> application is offered, and nothing else. Every later
+     * question about an existing application or loan must ask {@link #termsForVersion} with the
+     * version that was pinned when it was written — see there for why.
      */
     LoanTerms termsFor(UUID tenantId, String productCode);
+
+    /**
+     * The terms of one specific version, published or not.
+     *
+     * <p>This exists because every consumer used the live lookup, and a loan stores the version it
+     * was written under precisely so that it need not. While a product could be versioned only
+     * once the two were the same query; now that an institution can publish version 2, they are
+     * not — and reading live would mean a new penalty rate silently repricing every loan already
+     * on the books, including the interest already accrued on them.
+     *
+     * <p>Not filtered by {@code status} or {@code effective_from}: a loan written under version 3
+     * is explained by version 3 forever, including after version 4 supersedes it. That is the whole
+     * point of pinning.
+     */
+    LoanTerms termsForVersion(UUID tenantId, String productCode, int version);
 
     /**
      * A published version's lending rules.

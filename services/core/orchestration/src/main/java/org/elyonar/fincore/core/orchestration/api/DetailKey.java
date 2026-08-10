@@ -24,6 +24,9 @@ public final class DetailKey {
     /** ISO 4217 code, when a failure is currency-specific. */
     public static final String CURRENCY = "currency";
 
+    /** The institution's own short reference for a thing it named — an internal account's code. */
+    public static final String CODE = "code";
+
     /** The saga a caller can poll when an outcome is unknown. */
     public static final String TRANSACTION_ID = "transactionId";
 

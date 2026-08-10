@@ -1,0 +1,147 @@
+package org.elyonar.fincore.core.app.onboarding;
+
+import io.swagger.v3.oas.annotations.tags.Tag;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.UUID;
+import org.elyonar.fincore.auth.Authorization;
+import org.elyonar.fincore.core.customer.api.CustomerAdministration;
+import org.elyonar.fincore.core.orchestration.api.InstitutionAccounts;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.ResponseStatus;
+import org.springframework.web.bind.annotation.RestController;
+
+/**
+ * Opening a customer's account, and the numbering it comes from (admin-surface §4).
+ *
+ * <p>Before this, {@code POST /v1/customers/{id}/accounts} <em>linked</em> a ledger account UUID
+ * the caller had to already possess — and nothing could produce one. A customer could be created
+ * and could not hold an account, which is the whole of retail banking.
+ *
+ * <p>Two modules and one act: Orchestration opens the account because it is the only module that
+ * may address the ledger, Customer records who holds it and under what number, and this composes
+ * them. In that order deliberately — an account that exists and is unlinked is a reconciliation
+ * item somebody can find, while a link to an account that does not exist is a number on a
+ * statement that resolves to nothing.
+ */
+@Tag(name = "Account opening", description = "Opening customer accounts, and how they are numbered")
+@RestController
+@RequestMapping("/v1")
+public class AccountOpeningController {
+
+    private final CustomerAdministration customers;
+    private final InstitutionAccounts accounts;
+
+    public AccountOpeningController(CustomerAdministration customers, InstitutionAccounts accounts) {
+        this.customers = customers;
+        this.accounts = accounts;
+    }
+
+    /**
+     * Opens an account and gives it a number.
+     *
+     * <p>{@code customers:link} rather than a new permission: the act is the same one that surface
+     * already governs, now able to complete itself.
+     */
+    @PostMapping("/customers/{customerId}/accounts/open")
+    @ResponseStatus(HttpStatus.CREATED)
+    public CustomerAdministration.OpenedAccount open(
+            @PathVariable UUID customerId, @RequestBody OpenAccount request) {
+        var identity = Authorization.require("customers:link");
+
+        String currency = request.currency() == null ? null : request.currency().trim().toUpperCase(Locale.ROOT);
+        if (currency == null || currency.length() != 3) {
+            throw new OpeningRefused("currency must be a 3-letter ISO 4217 code");
+        }
+
+        // The ledger holds no PII, so what identifies the account there is the institution's own
+        // customer number — which also makes the open idempotent per customer and currency.
+        String reference = customers.externalRefOf(identity.tenantId(), customerId);
+        if (reference == null) {
+            throw new OpeningRefused("no such customer");
+        }
+
+        InstitutionAccounts.Opened opened =
+                accounts.openForCustomer(identity.tenantId(), "customer:" + reference, currency);
+        if (!opened.ok()) {
+            throw new OpeningRefused("the account could not be opened: " + opened.failure());
+        }
+
+        return customers.linkWithNumber(
+                identity.tenantId(),
+                customerId,
+                opened.ledgerAccountId(),
+                currency,
+                request.role() == null || request.role().isBlank() ? "PRIMARY" : request.role());
+    }
+
+    /** How customers and their accounts are numbered, and what the next of each would be. */
+    @GetMapping("/customer-numbering")
+    public List<CustomerAdministration.NumberSeries> numbering() {
+        var identity = Authorization.require("customers:read");
+        return List.of(
+                customers.numbering(identity.tenantId(), "CUSTOMER"),
+                customers.numbering(identity.tenantId(), "ACCOUNT"));
+    }
+
+    /**
+     * Changes one of the series.
+     *
+     * <p>{@code nextValue} is settable for the reason staff numbering gives: an institution moving
+     * onto this platform arrives with numbers already issued, and a counter that can only start at
+     * one would collide with every one of them.
+     */
+    @PutMapping("/customer-numbering/{series}")
+    public CustomerAdministration.NumberSeries setNumbering(
+            @PathVariable String series, @RequestBody Numbering request) {
+        var identity = Authorization.require("customers:create");
+
+        String wanted = String.valueOf(series).trim().toUpperCase(Locale.ROOT);
+        if (!wanted.equals("CUSTOMER") && !wanted.equals("ACCOUNT")) {
+            throw new OpeningRefused("series must be CUSTOMER or ACCOUNT");
+        }
+        if (request.width() < 1 || request.width() > 20) {
+            throw new OpeningRefused("width must be between 1 and 20");
+        }
+        if (request.nextValue() < 1) {
+            throw new OpeningRefused("nextValue must be 1 or more");
+        }
+        return customers.setNumbering(
+                identity.tenantId(),
+                wanted,
+                request.prefix(),
+                request.width(),
+                request.nextValue(),
+                Authorization.initiatedBy());
+    }
+
+    /** @param role PRIMARY unless the institution distinguishes several accounts per customer */
+    public record OpenAccount(String currency, String role) {}
+
+    public record Numbering(String prefix, int width, long nextValue) {}
+
+    /** The account cannot be opened as asked. */
+    public static class OpeningRefused extends RuntimeException {
+        public OpeningRefused(String message) {
+            super(message);
+        }
+    }
+
+    /** Kept beside the controller: one refusal shape for one surface. */
+    @org.springframework.web.bind.annotation.RestControllerAdvice(assignableTypes = AccountOpeningController.class)
+    public static class Errors {
+
+        @org.springframework.web.bind.annotation.ExceptionHandler(OpeningRefused.class)
+        public org.springframework.http.ResponseEntity<Map<String, Object>> refused(OpeningRefused e) {
+            return org.springframework.http.ResponseEntity.unprocessableEntity()
+                    .body(Map.of("code", "ACCOUNT_NOT_OPENED", "message", e.getMessage(), "details", Map.of()));
+        }
+    }
+}

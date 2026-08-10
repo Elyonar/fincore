@@ -154,16 +154,24 @@ class TransferEndToEndTest {
                     UUID versionId =
                             productDb.queryForObject(
                                     "INSERT INTO product.product_versions (tenant_id, product_id, version, status, created_by, published_by)"
-                                            + " VALUES (?,?,1,'PUBLISHED','user:author','user:admin') RETURNING id",
+                                            + " VALUES (?,?,1,'DRAFT','user:author',NULL) RETURNING id",
                                     UUID.class, tenantId, productId);
                     // 2.50% capped at ₦500 — integer basis points throughout.
                     productDb.update(
-                            "INSERT INTO product.fee_rules (tenant_id, product_version_id, operation, kind, basis_points, cap_minor, currency)"
-                                    + " VALUES (?,?, 'TRANSFER', 'PERCENT', 250, 50000, 'NGN')",
-                            tenantId, versionId);
+                            "INSERT INTO product.fee_rules (tenant_id, product_version_id, operation, kind,"
+                                    + " basis_points, cap_minor, currency, fee_account_id)"
+                                    + " VALUES (?,?, 'TRANSFER', 'PERCENT', 250, 50000, 'NGN', ?)",
+                            tenantId, versionId, feeAccount);
                     productDb.update(
                             "INSERT INTO product.limit_rules (tenant_id, product_version_id, kyc_tier, channel, limit_type, max_amount_minor, currency)"
                                     + " VALUES (?,?, 'TIER_2', 'TELLER', 'PER_TXN', 5000000, 'NGN')",
+                            tenantId, versionId);
+                    // Published last, because pricing for a live version is immutable (V7):
+                    // a rule added after publish would change what an already-decided transaction
+                    // was priced under, and the database refuses it.
+                    productDb.update(
+                            "UPDATE product.product_versions SET status = 'PUBLISHED',"
+                                    + " published_by = 'user:admin' WHERE tenant_id = ? AND id = ?",
                             tenantId, versionId);
                 });
     }

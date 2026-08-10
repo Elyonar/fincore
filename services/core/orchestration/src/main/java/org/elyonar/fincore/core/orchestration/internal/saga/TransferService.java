@@ -2,9 +2,11 @@ package org.elyonar.fincore.core.orchestration.internal.saga;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.elyonar.fincore.core.customer.api.CustomerEligibility;
 import org.elyonar.fincore.core.customer.api.EligibilityResult;
+import org.elyonar.fincore.core.orchestration.api.CoreException;
 import org.elyonar.fincore.core.orchestration.api.LedgerOutcome;
 import org.elyonar.fincore.core.orchestration.api.LedgerPosting;
 import org.elyonar.fincore.core.orchestration.api.TransferCommand;
@@ -14,7 +16,6 @@ import org.elyonar.fincore.core.product.api.ProductDecision;
 import org.elyonar.fincore.core.product.api.ProductDecisions;
 import org.elyonar.fincore.core.product.api.ProductRequest;
 import org.springframework.stereotype.Service;
-import org.elyonar.fincore.core.orchestration.api.CoreException;
 import org.elyonar.fincore.core.orchestration.api.DetailKey;
 import org.elyonar.fincore.core.orchestration.api.ErrorCode;
 
@@ -146,12 +147,24 @@ public class TransferService {
                                         principal,
                                         command.currency())));
         if (fee > 0) {
+            if (decision.feeAccountId() == null) {
+                throw new CoreException(
+                        ErrorCode.FEE_ACCOUNT_NOT_CONFIGURED,
+                        null,
+                        "this product prices a fee and names no account to credit it to",
+                        Map.of());
+            }
             entries.add(
                     new LedgerPosting.Entry(
-                            // The product's configured fee-income account when the pricing names
-                            // one; the caller's only as the documented fallback for published
-                            // versions that predate the configuration column.
-                            decision.feeAccountId() != null ? decision.feeAccountId() : command.feeAccountId(),
+                            // The product's configured fee-income account, and only that.
+                            //
+                            // The caller-supplied account used to stand in when a published version
+                            // predated the configuration column, which is the hole V4 was written
+                            // to close and could not while nothing could write the column. Pricing
+                            // is authorable now, so the fallback is gone: a caller naming the
+                            // account its own fee lands in is a caller choosing where the
+                            // institution's income goes.
+                            decision.feeAccountId(),
                             LedgerPosting.Direction.CREDIT,
                             fee,
                             command.currency()));

@@ -42,6 +42,55 @@ public interface LedgerClient {
      */
     RawRead get(UUID tenantId, String pathAndQuery);
 
+    /**
+     * Opens an account, idempotently on the caller's key.
+     *
+     * <p>The one write on this interface that is not a posting, and it is here for the reason
+     * hard rule 3 gives: orchestration is the only module that may address the ledger. Until it
+     * existed nothing on the platform could create an account at all — every feature that names a
+     * ledger account demanded a UUID that only a direct call to the ledger's own port could
+     * produce, which meant an institution could be provisioned, staffed, and unable to take a
+     * deposit.
+     *
+     * <p>Unlike {@link #post}, this returns a result rather than a {@link LedgerOutcome}: opening
+     * an account is not money movement, so the three-way settled/refused/unknown protocol the saga
+     * engine depends on would be ceremony here. A failure is reported plainly and the caller
+     * retries with the same key, which returns the original account rather than a second one.
+     */
+    Opened open(UUID tenantId, OpenAccount request);
+
+    /**
+     * @param idempotencyKey unique per tenant; a retry returns the original account
+     * @param type one of the ledger's account types — CUSTOMER, INTERNAL, FEE, SUSPENSE,
+     *     AGENT_FLOAT, SETTLEMENT_MIRROR
+     * @param customerRef an opaque reference, never PII: the ledger stores no names
+     * @param allowNegative whether the balance may go below zero
+     */
+    record OpenAccount(
+            String idempotencyKey,
+            String type,
+            String currency,
+            String customerRef,
+            boolean allowNegative) {}
+
+    /**
+     * @param accountId null when the account was not opened
+     * @param failure null on success; a short reason otherwise, for the refusal a caller renders
+     */
+    record Opened(UUID accountId, String failure) {
+        public boolean ok() {
+            return accountId != null;
+        }
+
+        public static Opened of(UUID accountId) {
+            return new Opened(accountId, null);
+        }
+
+        public static Opened failed(String failure) {
+            return new Opened(null, failure);
+        }
+    }
+
     record RawRead(int status, String body) {
         public boolean unreachable() {
             return status == 0;

@@ -8,6 +8,20 @@ entry first.
 
 ---
 
+## [1.23.1] — 2026-08-10 · PATCH
+
+**A scheduled moment is now a moment.**
+
+- **`GET /v1/products/{productId}/versions/{version}` returns `effectiveFrom` as an ISO-8601
+  instant.** It returned `String.valueOf(rs.getObject(...))` — a `Timestamp.toString()`, which is
+  the server's local wall clock with no zone on it, and the four-character string `"null"` when the
+  column was empty. A caller cannot tell which moment either one means, and two callers in two
+  zones would not agree. The catalogue read (`GET /v1/products`) has always returned an
+  `OffsetDateTime`; the authoring read now agrees with it. Found by putting the value on a screen,
+  which is the shortest path to noticing a serialization nobody reads.
+
+---
+
 ## [1.23.0] — 2026-08-09 · PATCH-in-MINOR
 
 **Corrections to what 1.21.0 said was absent, and to a rule that outgrew its reason.**

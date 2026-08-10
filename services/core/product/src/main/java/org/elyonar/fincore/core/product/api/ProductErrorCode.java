@@ -33,7 +33,16 @@ public enum ProductErrorCode {
      * <p>Maker-checker: pricing that one person can both write and make live is pricing one person
      * can change unreviewed.
      */
-    PUBLISHER_IS_AUTHOR;
+    PUBLISHER_IS_AUTHOR,
+
+    /**
+     * A rule names an account the institution has not opened, has closed, opened for another
+     * purpose, or holds in another currency.
+     *
+     * <p>The check {@code V4__fee_account_configuration.sql} was written to make possible: a fee
+     * must credit a fee income account, not any account the caller can name.
+     */
+    PRICING_ACCOUNT_INVALID;
 
     public String code() {
         return name();

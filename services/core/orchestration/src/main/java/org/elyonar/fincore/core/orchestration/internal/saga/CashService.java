@@ -2,10 +2,12 @@ package org.elyonar.fincore.core.orchestration.internal.saga;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.elyonar.fincore.core.customer.api.CustomerEligibility;
 import org.elyonar.fincore.core.customer.api.EligibilityResult;
 import org.elyonar.fincore.core.orchestration.api.CashCommand;
+import org.elyonar.fincore.core.orchestration.api.CoreException;
 import org.elyonar.fincore.core.orchestration.api.LedgerOutcome;
 import org.elyonar.fincore.core.orchestration.api.LedgerPosting;
 import org.elyonar.fincore.core.orchestration.api.TransferResult;
@@ -163,13 +165,16 @@ public class CashService {
                                     entry(till.ledgerAccountId(), LedgerPosting.Direction.CREDIT, amount, command)));
         }
         if (fee > 0) {
-            // Configuration first, caller fallback — same resolution the saga row records.
-            entries.add(
-                    entry(
-                            decision.feeAccountId() != null ? decision.feeAccountId() : command.feeAccountId(),
-                            LedgerPosting.Direction.CREDIT,
-                            fee,
-                            command));
+            // The product's account, and only that — see TransferService for why the caller's is no
+            // longer accepted now that pricing can name one.
+            if (decision.feeAccountId() == null) {
+                throw new CoreException(
+                        ErrorCode.FEE_ACCOUNT_NOT_CONFIGURED,
+                        null,
+                        "this product prices a fee and names no account to credit it to",
+                        Map.of());
+            }
+            entries.add(entry(decision.feeAccountId(), LedgerPosting.Direction.CREDIT, fee, command));
         }
         return new LedgerPosting(key, command.initiatedBy(), command.description(), entries);
     }

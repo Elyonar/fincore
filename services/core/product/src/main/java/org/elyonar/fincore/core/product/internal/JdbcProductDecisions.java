@@ -77,17 +77,27 @@ public class JdbcProductDecisions implements ProductDecisions {
                 fee.amountMinor(), fee.accountId(), limitMinor, dailyLimitMinor, versionNumber);
     }
 
+    /**
+     * The bound for this tier, channel and type — in this currency.
+     *
+     * <p>Currency was in the WHERE clause of neither this query nor the fee one, though every rule
+     * table carries it {@code NOT NULL}. A ₦500,000 per-transaction ceiling therefore applied,
+     * unconverted, to a transaction in dollars. It has never fired because one currency is seeded,
+     * and a limit that is right only while nobody adds a second currency is not a limit.
+     */
     private Long limitFor(Object versionId, ProductRequest request, String limitType) {
         return jdbc.query(
                 """
                 SELECT max_amount_minor FROM product.limit_rules
                  WHERE product_version_id = ? AND kyc_tier = ? AND channel = ? AND limit_type = ?
+                   AND currency = ?
                 """,
                 rs -> rs.next() ? rs.getLong(1) : null,
                 versionId,
                 request.kycTier(),
                 request.channel(),
-                limitType);
+                limitType,
+                request.currency());
     }
 
     /**
@@ -101,7 +111,7 @@ public class JdbcProductDecisions implements ProductDecisions {
                         """
                         SELECT kind, flat_minor, basis_points, cap_minor, fee_account_id
                           FROM product.fee_rules
-                         WHERE product_version_id = ? AND operation = ?
+                         WHERE product_version_id = ? AND operation = ? AND currency = ?
                         """,
                         rs -> {
                             if (!rs.next()) {
@@ -115,7 +125,8 @@ public class JdbcProductDecisions implements ProductDecisions {
                                     rs.getObject("fee_account_id", UUID.class));
                         },
                         versionId,
-                        request.operation().name());
+                        request.operation().name(),
+                        request.currency());
 
         if (rule == null) {
             return new Fee(0L, null);
