@@ -8,6 +8,32 @@ entry first.
 
 ---
 
+## [1.23.0] — 2026-08-09 · PATCH-in-MINOR
+
+**Corrections to what 1.21.0 said was absent, and to a rule that outgrew its reason.**
+
+- **Role authoring and grants are documented, because they are built.** `POST /v1/roles`,
+  `PUT /v1/roles/{role}/permissions`, `DELETE /v1/roles/{role}` and `PUT /v1/users/{id}/roles`
+  were served by `AdminController` and listed in 1.21.0 as deliberately absent. `api.md` now
+  carries all four. `ApiSurfaceCatalogTest` is what found it — the bidirectional check doing
+  exactly the job it was written for, on the document that describes its own history of being
+  wrong.
+- **Maker-checker is still owed on them.** [ADR 0017](../../../docs/adr/0017-tenant-defined-roles.md)
+  guardrail 3 asks for a second signature on role authoring, grants and deactivation, and
+  `orchestration.approvals` is still bound to a transaction id and an amount. What keeps this an
+  accountability gap rather than an escalation one is guardrail 1, enforced server-side in the
+  directory: nobody composes or grants a permission they do not already hold. Deactivation remains
+  absent entirely.
+- **`only_orchestration_may_hold_an_http_client` now exempts `IdentityDirectory` by name.** Hard
+  rule 3 protects the Ledger boundary — orchestration is the only module that may post to it,
+  because a second caller is a second definition of what a balanced entry means. The rule was
+  written as "no HTTP client outside orchestration", which was the same thing until
+  [ADR 0018](../../../docs/adr/0018-first-party-identity-service.md) required Core's administration
+  surface to call the identity service. Exempted by fully-qualified name rather than by package, so
+  a second client anywhere else still fails the build and has to be argued for.
+
+---
+
 ## [1.22.0] — 2026-08-09 · MINOR
 
 **Job titles, staff numbering and the employment record** — the administration surface can now
@@ -48,8 +74,9 @@ AGREED table does not mark maker-checked, plus two operational rows added by thi
 - **New by amendment, not in the §5 table:** `reset-password` and `unlock`. An administrator who
   cannot restore a colleague's access on the first morning does not have an administration
   surface. Both are attributed and audited in the directory like every other mutation.
-- **Deliberately still absent:** `POST /v1/roles`, `PUT /v1/roles/{role}/permissions`,
-  `DELETE /v1/roles/{role}`, `PUT /v1/users/{id}/roles`, `deactivate`, `reactivate`.
+- **Deliberately still absent:** `deactivate`, `reactivate`. (Role authoring and grants were
+  listed here too and were built later the same day — see 1.23.0, which corrects this entry rather
+  than rewriting it.)
   [ADR 0017](../../../docs/adr/0017-tenant-defined-roles.md) guardrail 3 requires a second
   signature on each, and Core's approval machinery is bound to a transaction id and an amount —
   a maker-checked write shipped without its second signature is worse than one not yet shipped.

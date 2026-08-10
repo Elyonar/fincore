@@ -204,6 +204,18 @@ class ModuleBoundaryTest {
             noClasses()
                     .that()
                     .resideOutsideOfPackage(ORCHESTRATION)
+                    // The one exemption, named rather than packaged, so a second client anywhere
+                    // else still fails the build. Hard rule 3 protects the *Ledger* boundary:
+                    // orchestration is the only module that may post to it, because a second
+                    // caller is a second definition of what a balanced entry means. ADR 0018 then
+                    // required Core's administration surface to call the identity service — a
+                    // different upstream, holding no money and enforcing no invariant of ours —
+                    // and this rule, written before that existed, forbade every client rather than
+                    // every Ledger client. Widening it to a package would let the next one in
+                    // silently; exempting one class means the next one is argued for.
+                    .and()
+                    .doNotHaveFullyQualifiedName(
+                            "org.elyonar.fincore.core.app.admin.IdentityDirectory")
                     .should()
                     .dependOnClassesThat()
                     .resideInAnyPackage(
@@ -215,7 +227,9 @@ class ModuleBoundaryTest {
                             "feign..")
                     .because(
                             "AGENTS.md hard rule 3: core-orchestration is the only module that may"
-                                + " call the Ledger, so it is the only one that may hold a client")
+                                + " call the Ledger, so it is the only one that may hold a client."
+                                + " IdentityDirectory is exempt by name: it calls the identity"
+                                + " service (ADR 0018), never the Ledger.")
                     .allowEmptyShould(true);
 
     /** AGENTS.md hard rule 1 — money is integer minor units, everywhere, always. */

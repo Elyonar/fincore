@@ -26,12 +26,16 @@ import org.springframework.web.bind.annotation.RestController;
  * product, this is the record beneath it. {@link DirectoryAuth} enforces that independently of the
  * proxy, so the boundary survives a misconfiguration.
  *
- * <p>What is deliberately <em>absent</em>: role authoring, replacing an existing user's roles, and
- * deactivation. ADR 0017 guardrail 3 requires a second signature on each, Core's approval
- * machinery is bound to a transaction id and an amount today, and a maker-checked operation
- * shipped without its second signature is worse than one not yet shipped. They arrive with the
- * approval-kind work; the rows are listed in the service CHANGELOG so nobody mistakes the gap for
- * an oversight.
+ * <p>Role authoring, recomposition and grants are here and are <em>not</em> maker-checked. ADR 0017
+ * guardrail 3 asks for a second signature on each; Core's approval machinery is bound to a
+ * transaction id and an amount, so the signature is owed. What holds the line meanwhile is
+ * guardrail 1, enforced in this file rather than in the caller: nobody composes or grants a
+ * permission they do not already hold, so the gap is an accountability one and not an escalation
+ * one.
+ *
+ * <p>What is deliberately <em>absent</em>: deactivation. Guardrail 2 already refuses to strip the
+ * last administrator, and the remaining hazard — one administrator quietly disabling another — is
+ * exactly the thing a second signature exists to prevent, so it waits for the approval-kind work.
  */
 @Tag(name = "Directory (admin)", description = "Staff records driven by Core's administration surface")
 @RestController

@@ -33,11 +33,17 @@ import tools.jackson.databind.JsonNode;
  * reset-password and unlock — because an administrator who cannot restore a colleague's access on
  * the first morning does not have an administration surface, they have a demo.
  *
- * <p><b>What is deliberately not here.</b> Role authoring, replacing an existing user's roles, and
- * deactivate/reactivate. ADR 0017 guardrail 3 requires a second signature on each of those, and
- * Core's approval machinery is bound to a transaction id and an amount today. Shipping them
- * without the signature would put the platform's most sensitive write on the honour system; the
- * CHANGELOG names them as owed rather than leaving the gap to be discovered.
+ * <p><b>What is here without its second signature, and why that is defensible.</b> Role authoring,
+ * recomposition and grants. ADR 0017 guardrail 3 asks for a second signature on each, and Core's
+ * approval machinery is still bound to a transaction id and an amount, so what these carry instead
+ * is guardrail 1, enforced server-side in the directory: nobody composes or grants a permission
+ * they do not already hold. That leaves an accountability gap — one administrator can rearrange
+ * authority within their own — rather than an escalation one, which is the trade that makes an
+ * institution administrable on its first day, and is named here rather than discovered.
+ *
+ * <p><b>What is deliberately not here.</b> Deactivate and reactivate. Guardrail 2 already refuses
+ * to remove the last administrator; the hazard those two would add — one administrator quietly
+ * disabling another — is precisely what a second signature exists for, so they wait for it.
  *
  * <p>Creating a user is not maker-checked, and that is the table's decision rather than an
  * oversight: a tenant is seeded with exactly one administrator, so requiring a second signature on

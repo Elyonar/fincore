@@ -66,6 +66,10 @@ the first place.
 | `POST /v1/users/{id}/reset-password` | fresh temporary credential, forced change, sessions revoked | app (directory) | `users:manage` | admin |
 | `POST /v1/users/{id}/unlock` | clear a lockout early | app (directory) | `users:manage` | admin |
 | `PUT  /v1/users/{id}/employment` | set the administered facts — staff number, job title, start date | app (directory) | `users:manage` | admin |
+| `POST /v1/roles` | author a tenant role; name namespaced `role:`, permissions must be ones you hold | app (directory) | `users:manage` | admin |
+| `PUT  /v1/roles/{role}/permissions` | recompose a role; refused for any permission the grantor lacks | app (directory) | `users:manage` | admin |
+| `DELETE /v1/roles/{role}` | delete a tenant-authored role; refused while held, and for templates | app (directory) | `users:manage` | admin |
+| `PUT  /v1/users/{id}/roles` | replace a user's role grants; refused if it would remove the last administrator | app (directory) | `users:manage` | admin |
 | `GET  /v1/job-titles` | the institution's job vocabulary, with how many hold each | app (directory) | `users:read` | admin |
 | `POST /v1/job-titles` | add a title to the vocabulary | app (directory) | `users:manage` | admin |
 | `DELETE /v1/job-titles/{title}` | retire a title; refused while anybody holds it | app (directory) | `users:manage` | admin |

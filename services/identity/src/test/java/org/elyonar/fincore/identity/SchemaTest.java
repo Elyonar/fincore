@@ -57,13 +57,16 @@ class SchemaTest {
                 .containsExactly(
                         "auth_events",
                         "credentials",
+                        "job_titles",
                         "login_throttle",
                         "mfa_enrollments",
                         "mfa_recovery_codes",
                         "refresh_families",
                         "refresh_tokens",
                         "role_permissions",
+                        "roles",
                         "service_clients",
+                        "staff_numbering",
                         "tenants",
                         "user_roles",
                         "user_units",
@@ -77,7 +80,11 @@ class SchemaTest {
                 "SELECT relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace"
                         + " WHERE n.nspname = 'auth' AND c.relkind = 'r'"
                         + " AND relname IN ('users','credentials','role_permissions','user_roles',"
-                        + "   'user_units','refresh_families','refresh_tokens','login_throttle','auth_events')"
+                        + "   'user_units','refresh_families','refresh_tokens','login_throttle','auth_events',"
+                        // V3 and V5. Named here rather than left to the list above, because a
+                        // tenant-scoped table whose RLS nobody asserts is one FORCE away from
+                        // leaking every institution's staff to every other.
+                        + "   'roles','job_titles','staff_numbering')"
                         + " AND NOT (relrowsecurity AND relforcerowsecurity)",
                 String.class);
         assertThat(unforced).isEmpty();
