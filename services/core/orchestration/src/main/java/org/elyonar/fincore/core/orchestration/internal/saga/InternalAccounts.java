@@ -226,6 +226,31 @@ public class InternalAccounts implements InstitutionAccounts {
                 .toList();
     }
 
+    /**
+     * Opens a customer's account.
+     *
+     * <p>No register row: the institution's own accounts are named here because nothing else names
+     * them, and a customer's account is named by the customer module — by its holder and its
+     * account number. Two registers for one account would be two answers to "whose is this".
+     *
+     * <p>Idempotent on the customer reference and currency, so a retry after a lost response links
+     * the account that was already opened rather than opening a second one for the same person.
+     */
+    @Override
+    public InstitutionAccounts.Opened openForCustomer(UUID tenantId, String customerRef, String currency) {
+        var opened = ledger.open(
+                tenantId,
+                new LedgerClient.OpenAccount(
+                        "core-customer-account:" + tenantId + ":" + customerRef + ":" + currency,
+                        "CUSTOMER",
+                        currency,
+                        customerRef,
+                        // The one place the guard means something: a customer balance below zero is
+                        // money that was not there being spent.
+                        false));
+        return new InstitutionAccounts.Opened(opened.accountId(), opened.failure());
+    }
+
     @Override
     @Transactional(readOnly = true, transactionManager = "orchestrationTransactionManager")
     public InstitutionAccounts.Account byLedgerAccountId(UUID tenantId, UUID ledgerAccountId) {

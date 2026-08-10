@@ -37,6 +37,31 @@ public interface InstitutionAccounts {
         }
     }
 
+    /**
+     * Opens an account for a customer.
+     *
+     * <p>Here rather than on a customer-shaped port because opening an account is a call to the
+     * ledger, and this module is the only one permitted to make one (hard rule 3). What the account
+     * is <em>for</em> — who holds it, what number it is known by — is Customer's, and the surface
+     * that composes both is in {@code app}.
+     *
+     * <p>Customer accounts are opened with negatives refused, which is the opposite of every
+     * institutional account: a customer balance below zero means money was spent that was not
+     * there, and that is precisely the thing the guard exists to catch.
+     *
+     * @param customerRef an opaque reference the ledger stores as-is. Never a name: the ledger
+     *     holds no PII, so this is the institution's own customer number.
+     * @return the ledger account id, or null with a reason when the ledger refused
+     */
+    Opened openForCustomer(UUID tenantId, String customerRef, String currency);
+
+    /** @param failure null on success; the ledger's own reason otherwise */
+    record Opened(UUID ledgerAccountId, String failure) {
+        public boolean ok() {
+            return ledgerAccountId != null;
+        }
+    }
+
     /** Every account this institution has opened. */
     List<Account> all(UUID tenantId);
 

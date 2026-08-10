@@ -30,7 +30,16 @@ public enum CustomerErrorCode {
     TIER_UNCHANGED,
 
     /** A consent record omitted its category, channel or answer — consent is never a single flag. */
-    CONSENT_INCOMPLETE;
+    CONSENT_INCOMPLETE,
+
+    /**
+     * The customer account could not be opened — no such customer, an unusable currency, or the
+     * ledger refused.
+     *
+     * <p>One code for all three because the caller's next step is the same: fix the request or
+     * fix the institution's configuration. The message names which.
+     */
+    ACCOUNT_NOT_OPENED;
 
     public String code() {
         return name();

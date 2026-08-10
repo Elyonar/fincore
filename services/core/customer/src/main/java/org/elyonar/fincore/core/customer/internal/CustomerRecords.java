@@ -5,6 +5,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import org.elyonar.fincore.core.customer.api.CustomerAdministration;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -26,7 +27,7 @@ import org.elyonar.fincore.core.customer.api.CustomerErrorCode;
  * forgot to filter, and a backstop that is only active sometimes is not one.
  */
 @Repository
-public class CustomerRecords {
+public class CustomerRecords implements CustomerAdministration {
 
     private final JdbcTemplate jdbc;
 
@@ -56,6 +57,10 @@ public class CustomerRecords {
             String createdBy) {
 
         scopeTo(tenantId);
+        // Left blank, the institution's own numbering answers. Before this, `external_ref` was
+        // NOT NULL with no default and taken verbatim from the request body, so every branch
+        // invented a scheme and the first collision surfaced as a 409 at the counter.
+        String reference = externalRef == null || externalRef.isBlank() ? claim(tenantId, "CUSTOMER") : externalRef;
         try {
             UUID id =
                     jdbc.queryForObject(
@@ -66,12 +71,12 @@ public class CustomerRecords {
                             RETURNING id
                             """,
                             UUID.class,
-                            tenantId, externalRef, fullName, phone, email, locale, kycTier, createdBy);
+                            tenantId, reference, fullName, phone, email, locale, kycTier, createdBy);
             return read(tenantId, id);
         } catch (DuplicateKeyException e) {
             // The tenant already numbered this customer. A 409 rather than a silent second record:
             // two rows for one person is how a KYC tier gets enforced against the wrong one.
-            throw new ExternalRefTaken(externalRef);
+            throw new ExternalRefTaken(reference);
         }
     }
 
@@ -391,6 +396,144 @@ public class CustomerRecords {
 
     /** One explicit answer. Absence of an entry means the customer was never asked. */
     public record Consent(String category, String channel, boolean granted) {}
+
+    // --- numbering, and the published port -------------------------------------------------------
+
+    /** What an institution gets before it decides: a bare ten-digit serial, NUBAN-shaped. */
+    private static final String DEFAULT_PREFIX = "";
+
+    private static final int DEFAULT_WIDTH = 10;
+
+    /**
+     * Takes the next number in a series, atomically.
+     *
+     * <p>{@code UPDATE … RETURNING} under the row lock is the arbiter, so two tellers opening
+     * accounts in the same second take different numbers. The row is created on first use rather
+     * than by a migration, because migrations run with no tenant context against FORCE row-level
+     * security and would write nothing while appearing to succeed.
+     */
+    private String claim(UUID tenantId, String series) {
+        Long claimed = jdbc.query(
+                "UPDATE customer.numbering SET next_value = next_value + 1"
+                        + " WHERE tenant_id = ? AND series = ? RETURNING next_value - 1",
+                rs -> rs.next() ? rs.getLong(1) : null,
+                tenantId,
+                series);
+        if (claimed == null) {
+            jdbc.update(
+                    "INSERT INTO customer.numbering (tenant_id, series, prefix, width, next_value, updated_by)"
+                            + " VALUES (?,?,?,?,?,?) ON CONFLICT DO NOTHING",
+                    tenantId,
+                    series,
+                    DEFAULT_PREFIX,
+                    DEFAULT_WIDTH,
+                    2L,
+                    "service:core");
+            return format(DEFAULT_PREFIX, DEFAULT_WIDTH, 1L);
+        }
+        String[] rule = jdbc.query(
+                "SELECT prefix, width FROM customer.numbering WHERE tenant_id = ? AND series = ?",
+                rs -> rs.next() ? new String[] {rs.getString(1), String.valueOf(rs.getInt(2))} : null,
+                tenantId,
+                series);
+        return rule == null
+                ? format(DEFAULT_PREFIX, DEFAULT_WIDTH, claimed)
+                : format(rule[0], Integer.parseInt(rule[1]), claimed);
+    }
+
+    private static String format(String prefix, int width, long value) {
+        String digits = Long.toString(value);
+        StringBuilder padded = new StringBuilder();
+        for (int i = digits.length(); i < width; i++) {
+            padded.append('0');
+        }
+        return prefix + padded + digits;
+    }
+
+    @Override
+    @Transactional(readOnly = true, transactionManager = "customerTransactionManager")
+    public CustomerAdministration.NumberSeries numbering(UUID tenantId, String series) {
+        scopeTo(tenantId);
+        CustomerAdministration.NumberSeries found = jdbc.query(
+                "SELECT prefix, width, next_value FROM customer.numbering"
+                        + " WHERE tenant_id = ? AND series = ?",
+                rs ->
+                        rs.next()
+                                ? new CustomerAdministration.NumberSeries(
+                                        series, rs.getString(1), rs.getInt(2), rs.getLong(3), null)
+                                : null,
+                tenantId,
+                series);
+        CustomerAdministration.NumberSeries rule = found == null
+                ? new CustomerAdministration.NumberSeries(series, DEFAULT_PREFIX, DEFAULT_WIDTH, 1L, null)
+                : found;
+        return new CustomerAdministration.NumberSeries(
+                rule.series(),
+                rule.prefix(),
+                rule.width(),
+                rule.nextValue(),
+                format(rule.prefix(), rule.width(), rule.nextValue()));
+    }
+
+    @Override
+    @Transactional(transactionManager = "customerTransactionManager")
+    public CustomerAdministration.NumberSeries setNumbering(
+            UUID tenantId, String series, String prefix, int width, long nextValue, String updatedBy) {
+        scopeTo(tenantId);
+        jdbc.update(
+                "INSERT INTO customer.numbering (tenant_id, series, prefix, width, next_value, updated_by)"
+                        + " VALUES (?,?,?,?,?,?)"
+                        + " ON CONFLICT (tenant_id, series) DO UPDATE SET prefix = EXCLUDED.prefix,"
+                        + " width = EXCLUDED.width, next_value = EXCLUDED.next_value,"
+                        + " updated_at = now(), updated_by = EXCLUDED.updated_by",
+                tenantId,
+                series,
+                prefix == null ? "" : prefix,
+                width,
+                nextValue,
+                updatedBy);
+        return numbering(tenantId, series);
+    }
+
+    @Override
+    @Transactional(transactionManager = "customerTransactionManager")
+    public CustomerAdministration.OpenedAccount linkWithNumber(
+            UUID tenantId, UUID customerId, UUID ledgerAccountId, String currency, String role) {
+        scopeTo(tenantId);
+
+        Integer exists =
+                jdbc.query("SELECT 1 FROM customer.customers WHERE id = ?", rs -> rs.next() ? 1 : null, customerId);
+        if (exists == null) {
+            throw new NoSuchCustomer();
+        }
+
+        String number = claim(tenantId, "ACCOUNT");
+        try {
+            jdbc.update(
+                    "INSERT INTO customer.customer_accounts"
+                            + " (tenant_id, customer_id, ledger_account_id, currency, role, account_number)"
+                            + " VALUES (?,?,?,?,?,?)",
+                    tenantId,
+                    customerId,
+                    ledgerAccountId,
+                    currency,
+                    role,
+                    number);
+        } catch (DuplicateKeyException e) {
+            throw new AccountAlreadyHeld();
+        }
+        return new CustomerAdministration.OpenedAccount(ledgerAccountId, number, currency, role);
+    }
+
+    @Override
+    @Transactional(readOnly = true, transactionManager = "customerTransactionManager")
+    public String externalRefOf(UUID tenantId, UUID customerId) {
+        scopeTo(tenantId);
+        return jdbc.query(
+                "SELECT external_ref FROM customer.customers WHERE id = ?",
+                rs -> rs.next() ? rs.getString(1) : null,
+                customerId);
+    }
 
     public record Link(UUID ledgerAccountId, String currency, String role, OffsetDateTime linkedAt) {}
 
