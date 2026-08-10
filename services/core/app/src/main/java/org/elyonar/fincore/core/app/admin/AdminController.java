@@ -278,6 +278,7 @@ public class AdminController {
         body.put("staffNumber", request.staffNumber());
         body.put("jobTitle", request.jobTitle());
         body.put("startedOn", request.startedOn());
+        body.put("autoAssignStaffNumber", request.autoAssignStaffNumber());
         return directory.setEmployment(id, body);
     }
 
@@ -286,8 +287,14 @@ public class AdminController {
     /** @param width how many digits the numeric part is padded to, 1–12 */
     public record Numbering(String prefix, int width, long nextValue) {}
 
-    /** @param startedOn ISO date, or null to clear */
-    public record Employment(String staffNumber, String jobTitle, String startedOn) {}
+    /**
+     * @param startedOn ISO date, or null to clear
+     * @param autoAssignStaffNumber take the next number from the institution's rule rather than the
+     *     string given. A flag rather than an inference from a blank field, because blank
+     *     legitimately means "clear this".
+     */
+    public record Employment(
+            String staffNumber, String jobTitle, String startedOn, Boolean autoAssignStaffNumber) {}
 
     /** @param roles role names as the directory spells them, e.g. {@code job:teller} */
     /** @param startedOn ISO date; the administered half a person may never edit themselves */

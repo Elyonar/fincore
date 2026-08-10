@@ -139,8 +139,15 @@ public class Directory {
         }
     }
 
-    /** The administered facts about somebody's job, settable after they were created. */
-    public record Employment(String staffNumber, String jobTitle, String startedOn) {}
+    /**
+     * The administered facts about somebody's job, settable after they were created.
+     *
+     * @param autoAssignStaffNumber take the next number from the institution's rule instead of the
+     *     string above. Sent as a flag rather than inferred from a blank field, because blank
+     *     legitimately means "clear this" and the two must not be the same request.
+     */
+    public record Employment(
+            String staffNumber, String jobTitle, String startedOn, Boolean autoAssignStaffNumber) {}
 
     // --- reads ---------------------------------------------------------------------------------
 
@@ -729,6 +736,12 @@ public class Directory {
         String jobTitle = blankToNull(request.jobTitle());
         String staffNumber = blankToNull(request.staffNumber());
         String startedOn = blankToNull(request.startedOn());
+        if (staffNumber == null && Boolean.TRUE.equals(request.autoAssignStaffNumber())) {
+            // Claimed from the counter here rather than composed by the caller: a client that
+            // reads the preview and posts it back can hand two people the same number, and the
+            // counter would never move past it.
+            staffNumber = claimStaffNumber(tenantId);
+        }
         requireJobTitleKnown(tenantId, jobTitle);
 
         try {
