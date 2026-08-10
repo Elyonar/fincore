@@ -39,3 +39,21 @@ they prove.
 Deferred with reasons, stated now: performance/soak (no load target exists yet
 for login); penetration testing is external review, tracked as a deployment
 gate rather than a CI suite; MFA suites arrive with phase 2.
+
+## Directory suites — PLANNED
+
+The staff directory (`/v1/directory/**`, shipped 0.3.0) has no suite of its own yet. Named here so
+the gap is a decision rather than a discovery:
+
+- **Grantor rule** — an administrator granting a role containing a permission they do not hold is
+  refused with `PERMISSION_NOT_HELD_BY_GRANTOR`, and nothing is written. (Exercised by hand against
+  a running stack, which is how `job:super-admin` was found to be necessary; not yet a test.)
+- **Service-credential-only auth** — a staff token presented directly to the directory is refused;
+  a service token with no forwarded identity is refused; a service token whose `azp` is not on the
+  trusted-caller list is refused.
+- **Forwarded attribution** — every directory mutation writes an `auth_events` row naming the
+  administrator as actor and the calling service, not `service:identity` acting on itself.
+- **Cross-tenant probe** — a forwarded token whose tenant differs from the instance's is refused.
+- **Idempotency** — a repeated username is refused by the unique index, not by a pre-check.
+- **Seeding convergence** — a tenant seeded before `job:super-admin` existed gains it on the next
+  boot; a second boot changes nothing.

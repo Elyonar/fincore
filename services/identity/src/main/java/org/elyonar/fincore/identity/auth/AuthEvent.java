@@ -46,6 +46,48 @@ public final class AuthEvent {
     /** A password was changed — by its owner, or forced on first use. */
     public static final String PASSWORD_CHANGED = "PASSWORD_CHANGED";
 
+    /** A member of staff was created — by the manifest at bootstrap, or by an administrator. */
+    public static final String USER_CREATED = "USER_CREATED";
+
+    /** A tenant-authored role was created. */
+    public static final String ROLE_CREATED = "ROLE_CREATED";
+
+    /** What a role grants was replaced. */
+    public static final String ROLE_CHANGED = "ROLE_CHANGED";
+
+    /** A custom role was removed. */
+    public static final String ROLE_DELETED = "ROLE_DELETED";
+
+    /** A user's role grants were replaced. */
+    public static final String ROLES_CHANGED = "ROLES_CHANGED";
+
+    /** A member of staff completed their own record and opened the onboarding gate. */
+    public static final String PROFILE_COMPLETED = "PROFILE_COMPLETED";
+
+    /** A member of staff changed their own details. */
+    public static final String PROFILE_UPDATED = "PROFILE_UPDATED";
+
+    /** A user's organizational unit assignments were replaced (ADR 0012, ADR 0017). */
+    public static final String UNITS_CHANGED = "UNITS_CHANGED";
+
+    /** An administrator issued a fresh temporary credential and revoked the user's sessions. */
+    public static final String PASSWORD_RESET = "PASSWORD_RESET";
+
+    /** An administrator cleared a lockout before it expired. */
+    public static final String UNLOCKED = "UNLOCKED";
+
+    /** The institution added a job title to its vocabulary. */
+    public static final String JOB_TITLE_CREATED = "JOB_TITLE_CREATED";
+
+    /** The institution retired a job title nobody held. */
+    public static final String JOB_TITLE_DELETED = "JOB_TITLE_DELETED";
+
+    /** The staff numbering rule — prefix, width or next value — was changed. */
+    public static final String NUMBERING_CHANGED = "NUMBERING_CHANGED";
+
+    /** A user's administered employment facts were set: staff number, job title, start date. */
+    public static final String EMPLOYMENT_CHANGED = "EMPLOYMENT_CHANGED";
+
     // --- causes, the detail on a refusal ------------------------------------------------------
 
     /** The key every cause is recorded under. */

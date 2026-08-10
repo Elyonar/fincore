@@ -57,6 +57,24 @@ the first place.
 | `POST /v1/org-units/{id}/assignments` | assign a principal to a unit, attributed | organization | `org:manage` | admin |
 | `POST /v1/org-units/{id}/assignments/revoke` | revoke a live assignment, attributed; history kept | organization | `org:manage` | admin |
 | `GET  /v1/org-units/{id}/assignments` | the unit's live assignments — what identity provisioning reads | organization | `org:read` | admin |
+| `GET  /v1/permissions` | the platform's permission vocabulary, with what each grants | app (directory) | `users:read` | admin |
+| `GET  /v1/roles` | the tenant's roles — seeded templates and anything authored — with contents | app (directory) | `users:read` | admin |
+| `POST /v1/users` | create a member of staff with roles and units; temporary credential returned once | app (directory) | `users:manage` | admin |
+| `GET  /v1/users` | staff, filtered by role and unit, keyset-paged | app (directory) | `users:read` | admin |
+| `GET  /v1/users/{id}` | one user with roles, units and status | app (directory) | `users:read` | admin |
+| `PUT  /v1/users/{id}/units` | replace unit assignments — Core's record and the token claim together | app (directory) | `users:manage` | admin |
+| `POST /v1/users/{id}/reset-password` | fresh temporary credential, forced change, sessions revoked | app (directory) | `users:manage` | admin |
+| `POST /v1/users/{id}/unlock` | clear a lockout early | app (directory) | `users:manage` | admin |
+| `PUT  /v1/users/{id}/employment` | set the administered facts — staff number, job title, start date | app (directory) | `users:manage` | admin |
+| `POST /v1/roles` | author a tenant role; name namespaced `role:`, permissions must be ones you hold | app (directory) | `users:manage` | admin |
+| `PUT  /v1/roles/{role}/permissions` | recompose a role; refused for any permission the grantor lacks | app (directory) | `users:manage` | admin |
+| `DELETE /v1/roles/{role}` | delete a tenant-authored role; refused while held, and for templates | app (directory) | `users:manage` | admin |
+| `PUT  /v1/users/{id}/roles` | replace a user's role grants; refused if it would remove the last administrator | app (directory) | `users:manage` | admin |
+| `GET  /v1/job-titles` | the institution's job vocabulary, with how many hold each | app (directory) | `users:read` | admin |
+| `POST /v1/job-titles` | add a title to the vocabulary | app (directory) | `users:manage` | admin |
+| `DELETE /v1/job-titles/{title}` | retire a title; refused while anybody holds it | app (directory) | `users:manage` | admin |
+| `GET  /v1/staff-numbering` | the numbering rule, and the number the next hire would take | app (directory) | `users:read` | admin |
+| `PUT  /v1/staff-numbering` | change prefix, width or next value | app (directory) | `users:manage` | admin |
 | `POST /v1/tills` | provision a till inside a validated branch | orchestration | `tills:manage` | admin |
 | `GET  /v1/tills` | the tenant's tills | orchestration | `tills:read` | admin, supervisor |
 | `POST /v1/tills/{id}/close` | close a till; cash cannot move through it afterwards | orchestration | `tills:manage` | admin |

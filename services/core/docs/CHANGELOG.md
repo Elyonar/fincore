@@ -8,6 +8,102 @@ entry first.
 
 ---
 
+## [1.23.0] — 2026-08-09 · PATCH-in-MINOR
+
+**Corrections to what 1.21.0 said was absent, and to a rule that outgrew its reason.**
+
+- **Role authoring and grants are documented, because they are built.** `POST /v1/roles`,
+  `PUT /v1/roles/{role}/permissions`, `DELETE /v1/roles/{role}` and `PUT /v1/users/{id}/roles`
+  were served by `AdminController` and listed in 1.21.0 as deliberately absent. `api.md` now
+  carries all four. `ApiSurfaceCatalogTest` is what found it — the bidirectional check doing
+  exactly the job it was written for, on the document that describes its own history of being
+  wrong.
+- **Maker-checker is still owed on them.** [ADR 0017](../../../docs/adr/0017-tenant-defined-roles.md)
+  guardrail 3 asks for a second signature on role authoring, grants and deactivation, and
+  `orchestration.approvals` is still bound to a transaction id and an amount. What keeps this an
+  accountability gap rather than an escalation one is guardrail 1, enforced server-side in the
+  directory: nobody composes or grants a permission they do not already hold. Deactivation remains
+  absent entirely.
+- **`only_orchestration_may_hold_an_http_client` now exempts `IdentityDirectory` by name.** Hard
+  rule 3 protects the Ledger boundary — orchestration is the only module that may post to it,
+  because a second caller is a second definition of what a balanced entry means. The rule was
+  written as "no HTTP client outside orchestration", which was the same thing until
+  [ADR 0018](../../../docs/adr/0018-first-party-identity-service.md) required Core's administration
+  surface to call the identity service. Exempted by fully-qualified name rather than by package, so
+  a second client anywhere else still fails the build and has to be argued for.
+
+---
+
+## [1.22.0] — 2026-08-09 · MINOR
+
+**Job titles, staff numbering and the employment record** — the administration surface can now
+describe an institution's own staff rather than storing whatever was typed on the hiring form.
+
+- **API (new in `api.md`):** `GET /v1/job-titles`, `POST /v1/job-titles`,
+  `DELETE /v1/job-titles/{title}`, `GET /v1/staff-numbering`, `PUT /v1/staff-numbering`,
+  `PUT /v1/users/{id}/employment`. Reads take `users:read` because every screen showing a person
+  shows their title; writes take `users:manage`.
+- **A title is not a role.** Kept on a separate surface from `/v1/roles` deliberately: a role is
+  what somebody may do and is checked on every request; a title is what they are called and is
+  checked nowhere. Institutions that conflate them encode place and seniority into permission sets
+  — `job:teller-lagos` — which is the multiplication
+  [ADR 0012](../../../docs/adr/0012-organizational-units.md) exists to prevent.
+- **`PUT /v1/users/{id}/employment` closes a real gap.** Staff number, job title and start date
+  could only be set at creation, so everybody hired before an institution settled on its titles —
+  including the seeded administrator — was permanently blank with no endpoint able to fix it.
+- **Records live in the directory**, as with every other staff fact
+  ([ADR 0018](../../../docs/adr/0018-first-party-identity-service.md)); Core proxies with the
+  service credential plus the initiating administrator's forwarded token, and the directory's
+  refusal codes (`JOB_TITLE_EXISTS`, `JOB_TITLE_UNKNOWN`, `JOB_TITLE_IN_USE`,
+  `STAFF_NUMBER_TAKEN`) pass through unchanged — Core translates only where the two catalogs spell
+  the same thing differently, and here they do not.
+- **Not maker-checked**, and that is the same reasoning as staff creation: the guardrail that
+  matters is that nobody grants what they do not hold, and a job title grants nothing at all.
+
+---
+
+## [1.21.0] — 2026-08-09 · MINOR
+
+**Staff administration is built** — the slice of [`admin-surface.md`](admin-surface.md) §5 the
+AGREED table does not mark maker-checked, plus two operational rows added by this amendment.
+
+- **API (new in `api.md`):** `GET /v1/permissions` and `GET /v1/roles` (`users:read`);
+  `POST /v1/users`, `GET /v1/users`, `GET /v1/users/{id}` (`users:read` / `users:manage`);
+  `PUT /v1/users/{id}/units`, `POST /v1/users/{id}/reset-password`,
+  `POST /v1/users/{id}/unlock` (`users:manage`).
+- **New by amendment, not in the §5 table:** `reset-password` and `unlock`. An administrator who
+  cannot restore a colleague's access on the first morning does not have an administration
+  surface. Both are attributed and audited in the directory like every other mutation.
+- **Deliberately still absent:** `deactivate`, `reactivate`. (Role authoring and grants were
+  listed here too and were built later the same day — see 1.23.0, which corrects this entry rather
+  than rewriting it.)
+  [ADR 0017](../../../docs/adr/0017-tenant-defined-roles.md) guardrail 3 requires a second
+  signature on each, and Core's approval machinery is bound to a transaction id and an amount —
+  a maker-checked write shipped without its second signature is worse than one not yet shipped.
+  Extending `orchestration.approvals` to carry an approval *kind* is the work these wait on.
+- **Where it lives:** Core owns the product surface; the identity service owns the records
+  beneath it ([ADR 0018](../../../docs/adr/0018-first-party-identity-service.md)). Core
+  authenticates to the directory as a service with a client-credentials token it mints and
+  re-mints for itself — closing the static-token residual — and forwards the administrator's own
+  token beside it, the ledger's `X-Forwarded-Authorization` pattern.
+- **The units drift is closed for this path.** `PUT /v1/users/{id}/units` and creation with units
+  write *both* stores: Core's `unit_assignments` and the directory's `units` claim. ADR 0017 names
+  their divergence as a live defect — assignment was the documented system of record while nothing
+  derived the claim, so putting a teller in a branch had no effect on authorization. Core's record
+  is written first because it is the one that can refuse: a code naming no active unit stops the
+  whole operation, so the two cannot disagree because half of it succeeded. The per-unit
+  assignment endpoints are unchanged and still write Core's record alone.
+- **Module contract:** `OrganizationUnits` gains `replaceAssignments` and `assignmentsOf`, and a
+  `NoSuchUnit` refusal declared on the port rather than beside the adapter — the caller that must
+  catch it lives outside the module, and `internal` is not importable.
+- **Refusals:** `USER_EXISTS`, `ROLE_NOT_FOUND` (translated from the directory's `ROLE_UNKNOWN`),
+  `PERMISSION_NOT_HELD_BY_GRANTOR` (403), `UNIT_NOT_FOUND`, `DIRECTORY_UNREACHABLE` (503).
+- **Honest edge:** the catalog and surface tests for these rows are **PLANNED**. The path was
+  exercised end to end against a running stack — login, catalog, roles, create staff, dual-write,
+  reset — and hand-reviewed; CI is the gate.
+
+---
+
 ## [1.20.0] — 2026-08-08 · MINOR
 
 **The administration surface is designed.** What a tenant's own administrator needs to turn a

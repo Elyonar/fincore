@@ -52,6 +52,15 @@ single-purpose `actionToken` whose only accepted use is the named action.
 
 | Method & path | Purpose |
 |---|---|
+> **Built as of 2026-08-09:** `POST /v1/directory/users`, `GET /v1/directory/users`,
+> `GET /v1/directory/users/{id}`, `PUT /v1/directory/users/{id}/units`,
+> `POST /v1/directory/users/{id}/reset-password`, `POST /v1/directory/users/{id}/unlock`, and the
+> two catalog reads — served at `/v1/directory/permissions` and `/v1/directory/roles` rather than
+> at the top level, so the edge's single allowlist covers the whole administration surface without
+> a per-path exclusion to remember. Role authoring and grants were built on 2026-08-09; job titles,
+> staff numbering and `PUT …/employment` followed. Everything else in this table remains planned,
+> and deactivation still waits on the maker-checker work (ADR 0017 guardrail 3).
+
 | `POST /v1/directory/users` | Create a staff member: username, names, contact, roles, units. Temporary credential generated, returned once. Idempotency-Key required; `(tenant, username)` unique index arbitrates. |
 | `GET /v1/directory/users` · `GET /v1/directory/users/{id}` | Read staff, keyset-paged; one user with roles, units, status. |
 | `PUT /v1/directory/users/{id}/roles` | Replace role grants. Grants restricted to catalog permissions the *initiating administrator* holds — the grantor rule is enforced here as well as in Core. |
@@ -60,6 +69,9 @@ single-purpose `actionToken` whose only accepted use is the named action.
 | `POST /v1/directory/users/{id}/reset-password` | Admin-initiated: new temporary credential, forced change, all families revoked. |
 | `POST /v1/directory/users/{id}/unlock` | Clear a throttling lock early. |
 | `GET /v1/directory/users/{id}/sessions` · `DELETE …/sessions` | List and revoke a user's refresh families. |
+| `PUT /v1/directory/users/{id}/employment` | Set the administered facts: staff number, job title, start date. Separate from `/v1/me/profile` because these are facts about the job, and a person editing their own job title is not a control. |
+| `GET /v1/directory/job-titles` · `POST` · `DELETE …/{title}` | The institution's job vocabulary. A title grants nothing — it is what somebody is called, not what they may do — and is refused for deletion while anybody holds it. |
+| `GET /v1/directory/staff-numbering` · `PUT` | Prefix, zero-pad width and next value. `nextValue` is settable because an institution migrating in arrives with numbers already issued. |
 | `POST /v1/roles` — role composition rows | Live in Core per admin-surface §5; the directory stores composition Core has already maker-checked. The directory refuses any permission string outside the platform catalog. |
 
 Maker-checker lives in Core (its approval machinery, per admin-surface §5); the

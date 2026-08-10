@@ -59,6 +59,48 @@ public class IdentityErrors {
                         Map.of("violations", e.violations)));
     }
 
+    /**
+     * The directory's refusals, which do carry a code and a reason.
+     *
+     * <p>The uniform-401 rule above is a control for a pre-identity surface an attacker can reach.
+     * It is not a house style: an authenticated administrator asking about their own institution's
+     * records is owed the fact, and hiding it here would only move the question to a support queue.
+     */
+    @ExceptionHandler(Refused.class)
+    public ResponseEntity<Error> refused(Refused e) {
+        return ResponseEntity.status(e.status)
+                .body(new Error(e.code, e.reason, e.getMessage(), e.details));
+    }
+
+    /**
+     * A named refusal from a surface that may name it. HTTP status is derived from the code so
+     * that one throw site cannot disagree with itself about what it means.
+     */
+    public static class Refused extends RuntimeException {
+        final String code;
+        final String reason;
+        final Map<String, Object> details;
+        final HttpStatus status;
+
+        public Refused(String code, String reason, Map<String, Object> details) {
+            super("refused: " + code);
+            this.code = code;
+            this.reason = reason;
+            this.details = details == null ? Map.of() : details;
+            this.status = statusFor(code);
+        }
+
+        private static HttpStatus statusFor(String code) {
+            return switch (code) {
+                case "USER_NOT_FOUND" -> HttpStatus.NOT_FOUND;
+                case "USER_EXISTS", "LAST_ADMINISTRATOR", "ROLE_EXISTS", "ROLE_IN_USE", "ROLE_NOT_CUSTOM" ->
+                        HttpStatus.CONFLICT;
+                case "PERMISSION_NOT_HELD_BY_GRANTOR" -> HttpStatus.FORBIDDEN;
+                default -> HttpStatus.BAD_REQUEST;
+            };
+        }
+    }
+
     /** Thrown for every credential failure; the constructor's cause never reaches the wire. */
     public static class AuthFailed extends RuntimeException {
         public AuthFailed() {
