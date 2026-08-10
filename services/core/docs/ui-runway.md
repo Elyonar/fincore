@@ -1,6 +1,6 @@
 # Core — The UI Runway
 
-**Status:** AGREED v1.20 (2026-08-08) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
+**Status:** AGREED v1.24 (2026-08-10) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
 
 The bridge between the APIs that exist and the client apps that will consume
 them ([ADR 0014](../../../docs/adr/0014-ui-runway.md)): identity made real,

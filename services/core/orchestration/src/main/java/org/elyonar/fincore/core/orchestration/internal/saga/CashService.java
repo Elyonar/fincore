@@ -70,8 +70,24 @@ public class CashService {
                             ? ErrorCode.CUSTOMER_NOT_FOUND
                             : ErrorCode.CUSTOMER_NOT_ACTIVE);
         }
-        if (!customers.holdsAccount(command.tenantId(), command.customerId(), command.customerAccountId())) {
-            throw new TransferService.TransferRefused(ErrorCode.ACCOUNT_NOT_LINKED);
+        // The product comes from the account, never from the request. What a transaction is priced
+        // by — which fee it pays and which ceiling it is measured against — is a property of the
+        // account the customer holds, and a caller that could name it could choose the rules its
+        // own transaction was judged by. Same correction V4 made for the fee account; this one
+        // decides which rules apply at all, which is the larger of the two.
+        //
+        // One read answers both questions. A null means either that she does not hold the account
+        // or that the account predates the column, and both refuse — the second with its own code,
+        // because "you do not hold this" would be a lie about a real account.
+        String productCode =
+                customers.productOfHeldAccount(
+                        command.tenantId(), command.customerId(), command.customerAccountId());
+        if (productCode == null) {
+            throw new TransferService.TransferRefused(
+                    customers.holdsAccount(
+                                    command.tenantId(), command.customerId(), command.customerAccountId())
+                            ? ErrorCode.ACCOUNT_HAS_NO_PRODUCT
+                            : ErrorCode.ACCOUNT_NOT_LINKED);
         }
 
         TillRecords.Till till = tills.openTill(command.tenantId(), command.tillId());
@@ -88,7 +104,7 @@ public class CashService {
                 products.evaluate(
                         new ProductRequest(
                                 command.tenantId(),
-                                command.productCode(),
+                                productCode,
                                 command.operation() == CashCommand.Operation.DEPOSIT
                                         ? ProductRequest.Operation.DEPOSIT
                                         : ProductRequest.Operation.WITHDRAWAL,

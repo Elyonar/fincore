@@ -73,6 +73,10 @@ public class ClientReadsController {
             row.put("ledgerAccountId", account.ledgerAccountId().toString());
             row.put("currency", account.currency());
             row.put("role", account.role());
+            // What prices every transaction on this account. Null on accounts opened before the
+            // platform recorded it, and worth showing as null rather than omitting: a teller
+            // looking at a customer-360 should see that this one cannot take a deposit.
+            row.put("productCode", account.productCode());
             if (read.status() == 200) {
                 JsonNode parsed = json.readTree(read.body());
                 row.put("currentMinor", parsed.path("currentMinor").asString());

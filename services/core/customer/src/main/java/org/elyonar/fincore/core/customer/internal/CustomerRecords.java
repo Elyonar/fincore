@@ -116,7 +116,7 @@ public class CustomerRecords implements CustomerAdministration {
         List<Link> links =
                 jdbc.query(
                         """
-                        SELECT ledger_account_id, currency, role, linked_at
+                        SELECT ledger_account_id, currency, role, product_code, linked_at
                           FROM customer.customer_accounts
                          WHERE customer_id = ? AND unlinked_at IS NULL
                          ORDER BY linked_at
@@ -126,6 +126,7 @@ public class CustomerRecords implements CustomerAdministration {
                                         rs.getObject("ledger_account_id", UUID.class),
                                         rs.getString("currency"),
                                         rs.getString("role"),
+                                        rs.getString("product_code"),
                                         rs.getObject("linked_at", OffsetDateTime.class)),
                         customerId);
 
@@ -177,7 +178,13 @@ public class CustomerRecords implements CustomerAdministration {
      * hard rule 3). So this is deliberately a claim about ownership, not a verification of it.
      */
     @Transactional(transactionManager = "customerTransactionManager")
-    public Link link(UUID tenantId, UUID customerId, UUID ledgerAccountId, String currency, String role) {
+    public Link link(
+            UUID tenantId,
+            UUID customerId,
+            UUID ledgerAccountId,
+            String currency,
+            String role,
+            String productCode) {
         scopeTo(tenantId);
 
         Integer exists =
@@ -190,17 +197,18 @@ public class CustomerRecords implements CustomerAdministration {
             return jdbc.queryForObject(
                     """
                     INSERT INTO customer.customer_accounts
-                        (tenant_id, customer_id, ledger_account_id, currency, role)
-                    VALUES (?,?,?,?,?)
-                    RETURNING ledger_account_id, currency, role, linked_at
+                        (tenant_id, customer_id, ledger_account_id, currency, role, product_code)
+                    VALUES (?,?,?,?,?,?)
+                    RETURNING ledger_account_id, currency, role, product_code, linked_at
                     """,
                     (rs, row) ->
                             new Link(
                                     rs.getObject("ledger_account_id", UUID.class),
                                     rs.getString("currency"),
                                     rs.getString("role"),
+                                    rs.getString("product_code"),
                                     rs.getObject("linked_at", OffsetDateTime.class)),
-                    tenantId, customerId, ledgerAccountId, currency, role);
+                    tenantId, customerId, ledgerAccountId, currency, role, productCode);
         } catch (DuplicateKeyException e) {
             // `one_live_holder_per_account`. Two customers holding one account at once would make
             // CustomerEligibility.holdsAccount unanswerable, which the money path depends on.
@@ -498,7 +506,12 @@ public class CustomerRecords implements CustomerAdministration {
     @Override
     @Transactional(transactionManager = "customerTransactionManager")
     public CustomerAdministration.OpenedAccount linkWithNumber(
-            UUID tenantId, UUID customerId, UUID ledgerAccountId, String currency, String role) {
+            UUID tenantId,
+            UUID customerId,
+            UUID ledgerAccountId,
+            String currency,
+            String role,
+            String productCode) {
         scopeTo(tenantId);
 
         Integer exists =
@@ -511,18 +524,20 @@ public class CustomerRecords implements CustomerAdministration {
         try {
             jdbc.update(
                     "INSERT INTO customer.customer_accounts"
-                            + " (tenant_id, customer_id, ledger_account_id, currency, role, account_number)"
-                            + " VALUES (?,?,?,?,?,?)",
+                            + " (tenant_id, customer_id, ledger_account_id, currency, role, account_number,"
+                            + "  product_code)"
+                            + " VALUES (?,?,?,?,?,?,?)",
                     tenantId,
                     customerId,
                     ledgerAccountId,
                     currency,
                     role,
-                    number);
+                    number,
+                    productCode);
         } catch (DuplicateKeyException e) {
             throw new AccountAlreadyHeld();
         }
-        return new CustomerAdministration.OpenedAccount(ledgerAccountId, number, currency, role);
+        return new CustomerAdministration.OpenedAccount(ledgerAccountId, number, currency, role, productCode);
     }
 
     @Override
@@ -535,7 +550,9 @@ public class CustomerRecords implements CustomerAdministration {
                 customerId);
     }
 
-    public record Link(UUID ledgerAccountId, String currency, String role, OffsetDateTime linkedAt) {}
+    /** @param productCode what the account is held under; what prices every transaction on it. */
+    public record Link(
+            UUID ledgerAccountId, String currency, String role, String productCode, OffsetDateTime linkedAt) {}
 
     public record TierChange(UUID customerId, String fromTier, String toTier) {}
 

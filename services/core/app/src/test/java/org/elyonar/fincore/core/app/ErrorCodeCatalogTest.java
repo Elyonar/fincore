@@ -22,6 +22,7 @@ import org.elyonar.fincore.core.organization.api.OrganizationErrorCode;
 import org.elyonar.fincore.core.lending.api.LendingErrorCode;
 import org.elyonar.fincore.core.product.api.ProductDecision;
 import org.elyonar.fincore.core.product.api.ProductErrorCode;
+import org.elyonar.fincore.core.product.api.ProductErrorReason;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -86,7 +87,15 @@ class ErrorCodeCatalogTest {
 
         // Non-error vocabulary comes from the enums that define it, never a hand-kept list, so
         // adding a saga state or a product refusal can never read as an undocumented error code.
-        Stream.of(ProductDecision.Refusal.class, LedgerPosting.Direction.class, CashCommand.Operation.class)
+        Stream.of(
+                        ProductDecision.Refusal.class,
+                        // The reasons carried by Product's one-code-many-causes entries. They were
+                        // string literals, so api.md documented thirteen names no constant answered
+                        // to and this test called every one a phantom. Enumerated now, they are
+                        // reconciled here like everything else (hard rule 10).
+                        ProductErrorReason.class,
+                        LedgerPosting.Direction.class,
+                        CashCommand.Operation.class)
                 .flatMap(t -> Arrays.stream(t.getEnumConstants()))
                 .map(Enum::name)
                 .forEach(known::add);

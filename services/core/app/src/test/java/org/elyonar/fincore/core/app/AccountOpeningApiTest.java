@@ -175,7 +175,7 @@ class AccountOpeningApiTest {
         String customerId = newCustomer(null);
 
         HttpResponse<String> opened =
-                send("POST", "/v1/customers/" + customerId + "/accounts/open", "{\"currency\":\"NGN\"}");
+                send("POST", "/v1/customers/" + customerId + "/accounts/open", "{\"currency\":\"NGN\",\"productCode\":\"P\"}");
         assertThat(opened.statusCode()).isEqualTo(201);
 
         JsonNode account = json(opened);
@@ -183,6 +183,9 @@ class AccountOpeningApiTest {
         assertThat(account.get("accountNumber").asString()).hasSize(10).containsOnlyDigits();
         assertThat(account.get("currency").asString()).isEqualTo("NGN");
         assertThat(account.get("role").asString()).isEqualTo("PRIMARY");
+        // What the account is held under. The money path reads its pricing from here rather than
+        // from the request body, so an account that did not record it could not transact at all.
+        assertThat(account.get("productCode").asString()).isEqualTo("P");
 
         // And the customer now reads back holding it — the link, not just the ledger account.
         JsonNode profile = json(send("GET", "/v1/customers/" + customerId, null));
@@ -203,13 +206,13 @@ class AccountOpeningApiTest {
         String first = json(send(
                         "POST",
                         "/v1/customers/" + newCustomer(null) + "/accounts/open",
-                        "{\"currency\":\"NGN\"}"))
+                        "{\"currency\":\"NGN\",\"productCode\":\"P\"}"))
                 .get("accountNumber")
                 .asString();
         String second = json(send(
                         "POST",
                         "/v1/customers/" + newCustomer(null) + "/accounts/open",
-                        "{\"currency\":\"NGN\"}"))
+                        "{\"currency\":\"NGN\",\"productCode\":\"P\"}"))
                 .get("accountNumber")
                 .asString();
 
@@ -222,13 +225,21 @@ class AccountOpeningApiTest {
         assertThat(send(
                                 "POST",
                                 "/v1/customers/" + UUID.randomUUID() + "/accounts/open",
-                                "{\"currency\":\"NGN\"}")
+                                "{\"currency\":\"NGN\",\"productCode\":\"P\"}")
                         .statusCode())
                 .isEqualTo(422);
 
         HttpResponse<String> badCurrency =
-                send("POST", "/v1/customers/" + newCustomer(null) + "/accounts/open", "{\"currency\":\"NAIRA\"}");
+                send("POST", "/v1/customers/" + newCustomer(null) + "/accounts/open", "{\"currency\":\"NAIRA\",\"productCode\":\"P\"}");
         assertThat(badCurrency.statusCode()).isEqualTo(422);
         assertThat(json(badCurrency).get("code").asString()).isEqualTo("ACCOUNT_NOT_OPENED");
+
+        // An account with no product is an account that can never transact — the money path prices
+        // by the product the account records, and refuses when there is none. Catching it at the
+        // one moment somebody knows the answer beats discovering it at a counter.
+        HttpResponse<String> noProduct =
+                send("POST", "/v1/customers/" + newCustomer(null) + "/accounts/open", "{\"currency\":\"NGN\"}");
+        assertThat(noProduct.statusCode()).isEqualTo(422);
+        assertThat(json(noProduct).get("message").asString()).contains("productCode");
     }
 }

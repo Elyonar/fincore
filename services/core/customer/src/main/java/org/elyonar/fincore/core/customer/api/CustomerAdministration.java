@@ -19,7 +19,8 @@ public interface CustomerAdministration {
     record NumberSeries(String series, String prefix, int width, long nextValue, String preview) {}
 
     /** An account, as the customer knows it. */
-    record OpenedAccount(UUID ledgerAccountId, String accountNumber, String currency, String role) {}
+    record OpenedAccount(
+            UUID ledgerAccountId, String accountNumber, String currency, String role, String productCode) {}
 
     /** Both series: how customers are numbered, and how their accounts are. */
     NumberSeries numbering(UUID tenantId, String series);
@@ -34,8 +35,19 @@ public interface CustomerAdministration {
      * <p>The number is claimed here rather than passed in, so two tellers opening accounts in the
      * same second cannot be handed the same one: the row lock inside this transaction is the
      * arbiter, exactly as it is for staff numbers.
+     *
+     * <p>{@code productCode} is required, not optional. It decides which fee and limit rules every
+     * transaction on this account is judged by, and an account without one cannot transact at all —
+     * so the moment to establish it is the moment the account comes into being, when somebody is
+     * present who knows the answer.
      */
-    OpenedAccount linkWithNumber(UUID tenantId, UUID customerId, UUID ledgerAccountId, String currency, String role);
+    OpenedAccount linkWithNumber(
+            UUID tenantId,
+            UUID customerId,
+            UUID ledgerAccountId,
+            String currency,
+            String role,
+            String productCode);
 
     /** The customer's own reference — what the institution calls them. Null when they do not exist. */
     String externalRefOf(UUID tenantId, UUID customerId);

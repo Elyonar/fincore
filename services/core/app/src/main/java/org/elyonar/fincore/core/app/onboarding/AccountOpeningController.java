@@ -61,6 +61,14 @@ public class AccountOpeningController {
             throw new OpeningRefused("currency must be a 3-letter ISO 4217 code");
         }
 
+        // Required, because an account without one cannot transact: the money path reads the
+        // product from the account and refuses when there is none. Establishing it here is the only
+        // moment somebody is present who knows what the customer is opening.
+        String productCode = request.productCode() == null ? null : request.productCode().trim();
+        if (productCode == null || productCode.isBlank()) {
+            throw new OpeningRefused("productCode is required — an account is held under a product");
+        }
+
         // The ledger holds no PII, so what identifies the account there is the institution's own
         // customer number — which also makes the open idempotent per customer and currency.
         String reference = customers.externalRefOf(identity.tenantId(), customerId);
@@ -79,7 +87,8 @@ public class AccountOpeningController {
                 customerId,
                 opened.ledgerAccountId(),
                 currency,
-                request.role() == null || request.role().isBlank() ? "PRIMARY" : request.role());
+                request.role() == null || request.role().isBlank() ? "PRIMARY" : request.role(),
+                productCode);
     }
 
     /** How customers and their accounts are numbered, and what the next of each would be. */
@@ -122,8 +131,13 @@ public class AccountOpeningController {
                 Authorization.initiatedBy());
     }
 
-    /** @param role PRIMARY unless the institution distinguishes several accounts per customer */
-    public record OpenAccount(String currency, String role) {}
+    /**
+     * @param productCode what the account is held under. Decides which fee and limit rules every
+     *     transaction on it is judged by, so it is required rather than defaulted — a default here
+     *     would be the platform guessing at pricing on a customer's behalf.
+     * @param role PRIMARY unless the institution distinguishes several accounts per customer
+     */
+    public record OpenAccount(String currency, String role, String productCode) {}
 
     public record Numbering(String prefix, int width, long nextValue) {}
 

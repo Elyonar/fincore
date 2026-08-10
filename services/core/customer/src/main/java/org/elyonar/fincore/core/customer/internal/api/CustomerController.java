@@ -134,12 +134,16 @@ public class CustomerController {
     @ResponseStatus(HttpStatus.CREATED)
     public CustomerRecords.Link link(@PathVariable UUID id, @RequestBody LinkAccount request) {
         var identity = Authorization.require("customers:link");
+        if (request.productCode() == null || request.productCode().isBlank()) {
+            throw new IllegalArgumentException(CustomerErrorCode.PRODUCT_REQUIRED.code());
+        }
         return customers.link(
                 identity.tenantId(),
                 id,
                 request.ledgerAccountId(),
                 request.currency(),
-                request.role() == null ? "PRIMARY" : request.role());
+                request.role() == null ? "PRIMARY" : request.role(),
+                request.productCode().trim());
     }
 
     /**
@@ -204,5 +208,10 @@ public class CustomerController {
 
     public record ChangeTier(String toTier, String reason) {}
 
-    public record LinkAccount(UUID ledgerAccountId, String currency, String role) {}
+    /**
+     * @param productCode what the account is held under. Required for the same reason it is
+     *     required when opening one: the money path prices a transaction by the account's product,
+     *     and an account without one cannot transact at all.
+     */
+    public record LinkAccount(UUID ledgerAccountId, String currency, String role, String productCode) {}
 }

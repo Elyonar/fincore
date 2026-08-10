@@ -138,7 +138,7 @@ class UiReadsApiTest {
                                     customerId, tenantId, "C-0001", "Ada Lovelace");
                             customerDb.update(
                                     "INSERT INTO customer.customer_accounts (tenant_id, customer_id,"
-                                            + " ledger_account_id, currency) VALUES (?,?,?, 'NGN')",
+                                            + " ledger_account_id, currency, product_code) VALUES (?,?,?, 'NGN', 'P')",
                                     tenantId, customerId, customerAccount);
                         });
 

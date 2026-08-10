@@ -30,6 +30,20 @@ public interface CustomerEligibility {
     boolean holdsAccount(UUID tenantId, UUID customerId, UUID ledgerAccountId);
 
     /**
+     * The product this account was opened under, or null.
+     *
+     * <p>Null means one of two things, and the money path treats them alike: the customer does not
+     * hold this account, or the account predates {@code customer_accounts.product_code} and has no
+     * honest answer. Both are refusals. The alternative is taking the product from the request
+     * body, which is where the fee charged and the limit applied used to come from — a caller could
+     * name which rules its own transaction was judged by, and that is the hole this closes.
+     *
+     * <p>Still no PII. A product code is what the institution calls a product, not anything about
+     * the person holding the account; the narrowness of this port is load-bearing.
+     */
+    String productOfHeldAccount(UUID tenantId, UUID customerId, UUID ledgerAccountId);
+
+    /**
      * The accounts this customer currently holds — the customer-360 read (ui-runway.md §3).
      *
      * <p>Account ids, currencies and roles only: the money side (balances) is the ledger's answer
@@ -38,5 +52,9 @@ public interface CustomerEligibility {
      */
     java.util.List<HeldAccount> heldAccounts(UUID tenantId, UUID customerId);
 
-    record HeldAccount(UUID ledgerAccountId, String currency, String role) {}
+    /**
+     * @param productCode what the account was opened under. Null for accounts linked before the
+     *     column existed — a customer-360 read shows the gap rather than inventing a product.
+     */
+    record HeldAccount(UUID ledgerAccountId, String currency, String role, String productCode) {}
 }

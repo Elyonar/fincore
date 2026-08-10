@@ -72,6 +72,30 @@ public class JdbcCustomerEligibility implements CustomerEligibility {
                         ledgerAccountId);
         return found != null;
     }
+
+    /**
+     * The product, read under the same predicate {@code holdsAccount} uses.
+     *
+     * <p>One query rather than "does she hold it" followed by "what is it": two reads could
+     * disagree across an unlink, and the money path would then price a transaction against an
+     * account the customer no longer holds. The null return folds both refusals together, which is
+     * what the caller wants — it refuses either way.
+     */
+    @Override
+    @Transactional(readOnly = true, transactionManager = CustomerBeans.TRANSACTION_MANAGER)
+    public String productOfHeldAccount(UUID tenantId, UUID customerId, UUID ledgerAccountId) {
+        jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenantId.toString());
+
+        return jdbc.query(
+                """
+                SELECT product_code FROM customer.customer_accounts
+                 WHERE customer_id = ? AND ledger_account_id = ? AND unlinked_at IS NULL
+                """,
+                rs -> rs.next() ? rs.getString("product_code") : null,
+                customerId,
+                ledgerAccountId);
+    }
+
     @Override
     @org.springframework.transaction.annotation.Transactional(
             readOnly = true,
@@ -80,7 +104,7 @@ public class JdbcCustomerEligibility implements CustomerEligibility {
         jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenantId.toString());
         return jdbc.query(
                 """
-                SELECT ledger_account_id, currency, role
+                SELECT ledger_account_id, currency, role, product_code
                   FROM customer.customer_accounts
                  WHERE customer_id = ? AND unlinked_at IS NULL
                  ORDER BY linked_at
@@ -89,7 +113,8 @@ public class JdbcCustomerEligibility implements CustomerEligibility {
                         new HeldAccount(
                                 rs.getObject("ledger_account_id", java.util.UUID.class),
                                 rs.getString("currency"),
-                                rs.getString("role")),
+                                rs.getString("role"),
+                                rs.getString("product_code")),
                 customerId);
     }
 }

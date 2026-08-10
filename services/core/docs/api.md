@@ -27,8 +27,8 @@ the first place.
 
 | Method & path | Purpose | Module | Permission | Caller |
 |---|---|---|---|---|
-| `POST /v1/deposits` | cash in: till → customer account | orchestration | `cash:transact` | teller, API |
-| `POST /v1/withdrawals` | cash out: customer account → till | orchestration | `cash:transact` | teller, API |
+| `POST /v1/deposits` | cash in: till → customer account; priced by the account's own product | orchestration | `cash:transact` | teller, API |
+| `POST /v1/withdrawals` | cash out: customer account → till; priced by the account's own product | orchestration | `cash:transact` | teller, API |
 | `POST /v1/transfers` | intra-tenant book transfer | orchestration | `transfers:create` | teller, API |
 | `GET  /v1/transactions/{id}` | saga state and the accounts it moved between — **non-mutating recovery read** | orchestration | `transfers:read` | teller, API, ops, consumers |
 | `POST /v1/transactions/{id}/reverse` | **business** reversal of a completed transaction — approval required | orchestration | `transfers:reverse` | ops, supervisor |
@@ -41,7 +41,7 @@ the first place.
 | `GET  /v1/approvals/pending` | the checker's queue, oldest first | orchestration | `approvals:check` | supervisor |
 | `POST /v1/customers/{id}/tier` | change KYC tier (attributed, reason required) | customer | `customers:tier` | compliance, admin |
 | `POST /v1/customers/{id}/accounts` | link a ledger account to a customer | customer | `customers:link` | admin |
-| `POST /v1/customers/{customerId}/accounts/open` | open a ledger account for a customer and number it | app (onboarding) | `customers:link` | admin, teller |
+| `POST /v1/customers/{customerId}/accounts/open` | open a ledger account for a customer, number it, and record the product it is held under | app (onboarding) | `customers:link` | admin, teller |
 | `GET  /v1/customer-numbering` | how customers and their accounts are numbered, and the next of each | app (onboarding) | `customers:read` | admin |
 | `PUT  /v1/customer-numbering/{series}` | change a series — prefix, width, next value | app (onboarding) | `customers:create` | admin |
 | `GET  /v1/customers/by-account/{ledgerAccountId}` | contact addresses, language and consent for the holder of an account — **no name, no tier** | customer | `customers:contact` | notification, API |
@@ -237,6 +237,7 @@ tenant renders its own string from `code`, `reason` and `details`.
 | `CUSTOMER_NOT_FOUND` | unknown customer, or another tenant's | no |
 | `CUSTOMER_NOT_ACTIVE` | customer is dormant or closed | no |
 | `ACCOUNT_NOT_LINKED` | the account is not linked to this customer | no |
+| `ACCOUNT_HAS_NO_PRODUCT` | the account records no product, so nothing prices the transaction | no |
 | `PRODUCT_NOT_FOUND` | no product, or no published version in effect | no |
 | `OPERATION_NOT_PERMITTED` | the product forbids this operation for this tier or channel | no |
 | `LIMIT_EXCEEDED` | per-transaction or daily limit would be breached | no — new key after the window rolls |
@@ -277,6 +278,7 @@ tenant renders its own string from `code`, `reason` and `details`.
 | `EXTERNAL_REF_TAKEN` | the tenant already numbered a customer with this reference → 409 | no — caller bug |
 | `ACCOUNT_ALREADY_HELD` | that ledger account is already live-linked to a customer → 409 | no |
 | `REASON_REQUIRED` | a tier change carried no reason → 422 | no |
+| `PRODUCT_REQUIRED` | an account was linked or opened without naming its product → 422 | no — caller bug |
 | `TIER_UNCHANGED` | the customer already holds that tier → 422 | no |
 | `CONSENT_INCOMPLETE` | a consent record omitted its category, channel or answer → 422 | no |
 | `PRODUCT_CODE_TAKEN` | the tenant already has a product with this code → 409 | no — caller bug |
@@ -284,6 +286,10 @@ tenant renders its own string from `code`, `reason` and `details`.
 | `PRODUCT_VERSION_NOT_FOUND` | no such version, or another tenant's → 404 | no |
 | `VERSION_ALREADY_PUBLISHED` | that version is live already → 409 | no |
 | `PUBLISHER_IS_AUTHOR` | the principal wrote this version and may not publish it → 403 | no — a colleague must publish |
+| `VERSION_NOT_DRAFT` | a write against a version that is already live → 409 | no — draft the next version |
+| `RULES_INVALID` | a rule set this version cannot hold; `reason` names which → 422 | no — caller bug |
+| `LOAN_RULES_ON_NON_LOAN_PRODUCT` | loan terms on a product that is not a LOAN → 422 | no |
+| `EFFECTIVE_FROM_IN_THE_PAST` | a draft dated to become effective before it existed → 422 | no |
 
 `NOT_REVERSIBLE` is checked **before** the approval is examined. A transaction
 that has already been reversed is refused no matter what authority accompanies

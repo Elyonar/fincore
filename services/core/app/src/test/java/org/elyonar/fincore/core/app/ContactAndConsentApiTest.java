@@ -112,7 +112,7 @@ class ContactAndConsentApiTest {
         UUID accountId = UUID.randomUUID();
         HttpResponse<String> linked = send(as("/v1/customers/" + customerId + "/accounts", "customers:link")
                 .POST(HttpRequest.BodyPublishers.ofString(
-                        "{\"ledgerAccountId\":\"" + accountId + "\",\"currency\":\"NGN\"}"))
+                        "{\"ledgerAccountId\":\"" + accountId + "\",\"currency\":\"NGN\",\"productCode\":\"P\"}"))
                 .build());
         assertThat(linked.statusCode()).isEqualTo(201);
 

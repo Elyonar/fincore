@@ -127,7 +127,7 @@ class ReconciliationTest {
                                     customerId, tenantId, "C-" + UUID.randomUUID(), "Ada");
                             customerDb.update(
                                     "INSERT INTO customer.customer_accounts (tenant_id, customer_id,"
-                                            + " ledger_account_id, currency) VALUES (?,?,?, 'NGN')",
+                                            + " ledger_account_id, currency, product_code) VALUES (?,?,?, 'NGN', 'P')",
                                     tenantId, customerId, fromAccount);
                         });
 

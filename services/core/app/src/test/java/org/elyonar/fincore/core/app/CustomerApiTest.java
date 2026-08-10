@@ -269,7 +269,7 @@ class CustomerApiTest {
                         as("/v1/customers/" + id + "/accounts", "customers:link")
                                 .POST(
                                         HttpRequest.BodyPublishers.ofString(
-                                                "{\"ledgerAccountId\":\"" + account + "\",\"currency\":\"NGN\"}"))
+                                                "{\"ledgerAccountId\":\"" + account + "\",\"currency\":\"NGN\",\"productCode\":\"P\"}"))
                                 .build());
 
         assertThat(linked.statusCode()).isEqualTo(201);
@@ -284,7 +284,7 @@ class CustomerApiTest {
         String first = field(createCustomer("CUST-" + UUID.randomUUID()).body(), "customerId");
         String second = field(createCustomer("CUST-" + UUID.randomUUID()).body(), "customerId");
         UUID account = UUID.randomUUID();
-        String body = "{\"ledgerAccountId\":\"" + account + "\",\"currency\":\"NGN\"}";
+        String body = "{\"ledgerAccountId\":\"" + account + "\",\"currency\":\"NGN\",\"productCode\":\"P\"}";
 
         assertThat(
                         send(
@@ -314,7 +314,7 @@ class CustomerApiTest {
                                 .POST(
                                         HttpRequest.BodyPublishers.ofString(
                                                 "{\"ledgerAccountId\":\"" + UUID.randomUUID()
-                                                        + "\",\"currency\":\"NGN\"}"))
+                                                        + "\",\"currency\":\"NGN\",\"productCode\":\"P\"}"))
                                 .build());
 
         assertThat(linked.statusCode()).isEqualTo(404);

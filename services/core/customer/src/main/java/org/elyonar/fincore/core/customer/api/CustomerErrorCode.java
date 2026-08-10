@@ -26,6 +26,15 @@ public enum CustomerErrorCode {
     /** A tier change carried no reason. Tier movements are audited, so the reason is required. */
     REASON_REQUIRED,
 
+    /**
+     * An account was linked or opened without naming the product it is held under.
+     *
+     * <p>Required rather than defaulted: the product decides which fee and limit rules every
+     * transaction on the account is judged by, and a default would be the platform guessing at
+     * pricing on a customer's behalf.
+     */
+    PRODUCT_REQUIRED,
+
     /** The customer already holds that tier. */
     TIER_UNCHANGED,
 
