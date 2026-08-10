@@ -130,7 +130,7 @@ class LendingApiTest {
                                     productDb.queryForObject(
                                             "INSERT INTO product.product_versions (tenant_id, product_id, version,"
                                                     + " status, created_by, published_by)"
-                                                    + " VALUES (?,?,1,'PUBLISHED','user:author','user:publisher') RETURNING id",
+                                                    + " VALUES (?,?,1,'DRAFT','user:author',NULL) RETURNING id",
                                             UUID.class, tenantId, productId);
                             productDb.update(
                                     """
@@ -141,6 +141,13 @@ class LendingApiTest {
                                     VALUES (?,?, 2400, 'FLAT', 10000, 100000000, 1, 36, 'NGN', ?, ?)
                                     """,
                                     tenantId, versionId, incomeAccount, configuredFunding);
+                            // Published last, because pricing for a live version is immutable (V7):
+                            // a rule added after publish would change what an already-decided transaction
+                            // was priced under, and the database refuses it.
+                            productDb.update(
+                                    "UPDATE product.product_versions SET status = 'PUBLISHED',"
+                                            + " published_by = 'user:publisher' WHERE tenant_id = ? AND id = ?",
+                                    tenantId, versionId);
                         });
     }
 
@@ -457,7 +464,37 @@ class LendingApiTest {
                         s -> {
                             productDb.queryForObject(
                                     "SELECT set_config('app.tenant_id', ?, true)", String.class, tenantId.toString());
-                            productDb.update("UPDATE product.loan_rules SET interest_income_account_id = NULL");
+                            // A published version's pricing is immutable (V7), which is the
+                            // platform's rule and not an obstacle to work around: an institution
+                            // whose loan product has no income account got there by publishing it
+                            // that way. Reproduced faithfully — draft the next version without the
+                            // account, publish it, and let the money path resolve the live one.
+                            UUID productId =
+                                    productDb.queryForObject(
+                                            "SELECT id FROM product.products WHERE tenant_id = ? AND code = 'AJO_LOAN'",
+                                            UUID.class, tenantId);
+                            UUID next =
+                                    productDb.queryForObject(
+                                            "INSERT INTO product.product_versions (tenant_id, product_id, version,"
+                                                    + " status, created_by)"
+                                                    + " VALUES (?,?,2,'DRAFT','user:author') RETURNING id",
+                                            UUID.class, tenantId, productId);
+                            productDb.update(
+                                    "INSERT INTO product.loan_rules (tenant_id, product_version_id,"
+                                            + " interest_rate_bp, schedule_kind, min_amount_minor,"
+                                            + " max_amount_minor, min_term_months, max_term_months,"
+                                            + " allocation_order, currency, funding_account_id)"
+                                            + " SELECT tenant_id, ?, interest_rate_bp, schedule_kind,"
+                                            + "        min_amount_minor, max_amount_minor, min_term_months,"
+                                            + "        max_term_months, allocation_order, currency,"
+                                            + "        funding_account_id"
+                                            + "   FROM product.loan_rules WHERE tenant_id = ?"
+                                            + "  ORDER BY id LIMIT 1",
+                                    next, tenantId);
+                            productDb.update(
+                                    "UPDATE product.product_versions SET status = 'PUBLISHED',"
+                                            + " published_by = 'user:publisher' WHERE tenant_id = ? AND id = ?",
+                                    tenantId, next);
                         });
         setTier(100_000_000, 0);
         JsonNode app = apply(1_000_000, "user:officer");

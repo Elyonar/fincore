@@ -7,6 +7,7 @@ import java.util.UUID;
 import org.elyonar.fincore.core.orchestration.api.CoreException;
 import org.elyonar.fincore.core.orchestration.api.DetailKey;
 import org.elyonar.fincore.core.orchestration.api.ErrorCode;
+import org.elyonar.fincore.core.orchestration.api.InstitutionAccounts;
 import org.elyonar.fincore.core.orchestration.internal.ledger.LedgerClient;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -32,7 +33,7 @@ import org.springframework.transaction.annotation.Transactional;
  * exist, and every screen that offered it would be offering a UUID the money path would reject.
  */
 @Repository
-public class InternalAccounts {
+public class InternalAccounts implements InstitutionAccounts {
 
     /**
      * What the bank means by an account, mapped to what the ledger does with it.
@@ -206,6 +207,47 @@ public class InternalAccounts {
                 "ACTIVE",
                 null,
                 openedBy);
+    }
+
+    // --- the published port ---------------------------------------------------------------------
+
+    /**
+     * Every account, as a neighbour sees them.
+     *
+     * <p>The port's shape rather than this class's: {@code InternalAccount} carries who opened it
+     * and when, which is the administration screen's business and nobody else's.
+     */
+    @Override
+    @Transactional(readOnly = true, transactionManager = "orchestrationTransactionManager")
+    public List<InstitutionAccounts.Account> all(UUID tenantId) {
+        return list(tenantId).stream()
+                .map(a -> new InstitutionAccounts.Account(
+                        a.id(), a.ledgerAccountId(), a.code(), a.name(), a.purpose(), a.currency(), a.status()))
+                .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true, transactionManager = "orchestrationTransactionManager")
+    public InstitutionAccounts.Account byLedgerAccountId(UUID tenantId, UUID ledgerAccountId) {
+        if (ledgerAccountId == null) {
+            return null;
+        }
+        scopeTo(tenantId);
+        List<InstitutionAccounts.Account> found = jdbc.query(
+                "SELECT id, ledger_account_id, code, name, purpose, currency, status"
+                        + " FROM orchestration.internal_accounts"
+                        + " WHERE tenant_id = ? AND ledger_account_id = ?",
+                (rs, row) -> new InstitutionAccounts.Account(
+                        rs.getObject("id", UUID.class),
+                        rs.getObject("ledger_account_id", UUID.class),
+                        rs.getString("code"),
+                        rs.getString("name"),
+                        rs.getString("purpose"),
+                        rs.getString("currency"),
+                        rs.getString("status")),
+                tenantId,
+                ledgerAccountId);
+        return found.isEmpty() ? null : found.get(0);
     }
 
     private static String require(String value, String field) {

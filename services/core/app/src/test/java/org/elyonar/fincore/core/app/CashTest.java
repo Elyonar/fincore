@@ -132,7 +132,7 @@ class CashTest {
                             UUID versionId =
                                     productDb.queryForObject(
                                             "INSERT INTO product.product_versions (tenant_id, product_id, version,"
-                                                    + " status, created_by, published_by) VALUES (?,?,1,'PUBLISHED','user:author','user:publisher') RETURNING id",
+                                                    + " status, created_by, published_by) VALUES (?,?,1,'DRAFT','user:author',NULL) RETURNING id",
                                             UUID.class, tenantId, productId);
                             // One limit rule per tier and channel covers both operations.
                             productDb.update(
@@ -147,6 +147,13 @@ class CashTest {
                                                 + " kind, flat_minor, currency) VALUES (?,?,?, 'FLAT', 5000, 'NGN')",
                                         tenantId, versionId, operation);
                             }
+                            // Published last, because pricing for a live version is immutable (V7):
+                            // a rule added after publish would change what an already-decided transaction
+                            // was priced under, and the database refuses it.
+                            productDb.update(
+                                    "UPDATE product.product_versions SET status = 'PUBLISHED',"
+                                            + " published_by = 'user:publisher' WHERE tenant_id = ? AND id = ?",
+                                    tenantId, versionId);
                         });
 
         tillId = tills.open(tenantId, "BR-01", null, tillAccount, "NGN", "user:teller-1");

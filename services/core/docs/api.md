@@ -46,6 +46,12 @@ the first place.
 | `GET  /v1/products` | list products and their versions | product | `products:read` | teller, admin |
 | `POST /v1/products` | create a product with a DRAFT version 1 | product | `products:create` | admin |
 | `POST /v1/products/{id}/versions/{v}/publish` | publish a version (attributed; maker-checker) | product | `products:publish` | admin |
+| `POST /v1/products/{productId}/versions` | draft the next version, optionally copying an existing one's rules | app (pricing) | `products:create` | admin |
+| `GET  /v1/products/{productId}/versions/{version}` | one version with its fee, limit and loan rules | app (pricing) | `products:read` | admin |
+| `PUT  /v1/products/{productId}/versions/{version}/fee-rules` | replace the draft's fee schedule; accounts validated against the institution's own | app (pricing) | `products:create` | admin |
+| `PUT  /v1/products/{productId}/versions/{version}/limit-rules` | replace the draft's limits — without a PER_TXN rule the product refuses everything | app (pricing) | `products:create` | admin |
+| `PUT  /v1/products/{productId}/versions/{version}/loan-rules` | replace the draft's loan terms, rates and penalties | app (pricing) | `products:create` | admin |
+| `PATCH /v1/products/{productId}/versions/{version}` | schedule when the version becomes live once published | app (pricing) | `products:create` | admin |
 | `POST /v1/approvals` | raise a maker-checker approval, bound to a target and amount | orchestration | `approvals:make` | supervisor |
 | `POST /v1/approvals/{id}/check` | approve or reject (checker ≠ maker, enforced) | orchestration | `approvals:check` | supervisor |
 | `GET  /v1/ops/cases` | unresolved-outcome cases | orchestration | `ops:read` | ops |
@@ -237,6 +243,7 @@ tenant renders its own string from `code`, `reason` and `details`.
 | `FEE_EXCEEDS_DEPOSIT` | the fee would consume more than the deposit | no |
 | `UNIT_NOT_FOUND` | no active organizational unit answers to that code — or it is not a branch → 422 (404 on the organization surface) | no |
 | `ACCOUNT_CODE_TAKEN` | the institution already has an internal account with that code → 409. `details.code` | no |
+| `PRICING_ACCOUNT_INVALID` | a rule names an account the institution has not opened, has closed, opened for something else, or in another currency → 422 | no |
 | `UNIT_CODE_TAKEN` | the tenant already has a unit with this code; codes never recycle → 409 | no — caller bug |
 | `PARENT_UNIT_NOT_FOUND` | the named parent unit does not exist, is another tenant's, or is closed → 422 | no |
 | `ASSIGNMENT_EXISTS` | the principal already holds a live assignment to this unit → 409 | no |
