@@ -74,14 +74,51 @@ public class SagaWorker {
             try {
                 resolve(sagaId);
             } catch (RuntimeException e) {
-                // One saga's failure must not stop the others being resolved.
+                // One saga's failure must not stop the others being resolved — but a failure that
+                // is only logged is a saga that loops on lease expiry forever, with no backoff and
+                // no escalation. That is how a zero-fee reversal once retried indefinitely without
+                // ever opening an ops case. Count the attempt, back off, and past the bound hand it
+                // to a human.
                 log.error("resolving saga {} failed", sagaId, e);
+                retryOrEscalate(sagaId, e);
             }
         }
     }
 
     /**
-     * Re-sends the original posting under its original key, and applies whatever the Ledger says.
+     * Unknown-shaped recovery for a failure inside Core itself.
+     *
+     * <p>A {@code RuntimeException} out of {@link #resolve} means the outcome was not determined —
+     * which is exactly what an unknown is, whether the cause was the network or our own defect. So
+     * it is treated identically: the attempt is recorded, the retry backs off, and the attempt
+     * ceiling escalates to an ops case rather than retrying a broken saga forever.
+     */
+    private void retryOrEscalate(UUID sagaId, RuntimeException failure) {
+        try {
+            SagaRecords.Pending pending = sagas.loadPending(sagaId);
+            if (pending == null) {
+                // Terminal after all, or gone. Either way there is nothing left to schedule.
+                return;
+            }
+            sagas.recordUnknownAttempt(
+                    pending.tenantId(), sagaId, "worker failure: " + failure.getClass().getSimpleName());
+            if (shouldEscalate(pending)) {
+                log.error("saga {} failing in the worker itself — raising an ops case", sagaId);
+                sagas.escalate(pending.tenantId(), sagaId);
+            } else {
+                claims.scheduleRetry(sagaId, workerId, backoffFor(pending.attempts()));
+            }
+        } catch (RuntimeException recoveryFailure) {
+            // Nothing more can be done here without risking the rest of the batch. The lease
+            // expiry re-offers the saga, and the attempt counter — if the record above got through
+            // — still converges on escalation.
+            log.error("scheduling retry for saga {} failed too", sagaId, recoveryFailure);
+        }
+    }
+
+    /**
+     * Re-sends the saga's original outbound step under its original key, and applies whatever the
+     * Ledger says.
      *
      * <p>Public so a test can drive one resolution deterministically rather than waiting on a
      * timer — the assertions are about what the worker does, not about when it happened to run.
@@ -95,14 +132,12 @@ public class SagaWorker {
 
         LedgerOutcome outcome;
         try {
-            outcome =
-                    ledger.post(
-                            pending.tenantId(), pending.postingUnder(IdempotencyKeys.forStep(sagaId, "post")));
+            outcome = attempt(sagaId, pending);
         } catch (SagaRecords.Unretryable e) {
             // Nothing was sent, and nothing will be. Park it for a human rather than retrying a
             // saga that cannot be built — the reservation stays held, because whether the original
             // attempt posted is still unknown.
-            log.error("saga {} cannot be rebuilt and will not be retried: {}", sagaId, e.getMessage());
+            log.error("saga {} cannot be re-driven and will not be retried: {}", sagaId, e.getMessage());
             sagas.escalate(pending.tenantId(), sagaId);
             return;
         }
@@ -133,6 +168,36 @@ public class SagaWorker {
                 }
             }
         }
+    }
+
+    /**
+     * The same outbound call the synchronous path made, under the same derived key.
+     *
+     * <p>The dispatch is the fix for a reversal that once looped forever: a REVERSAL saga's
+     * synchronous path called {@code ledger.reverse} under the {@code :reverse} key, but the worker
+     * rebuilt every claimed saga as a fresh posting under {@code :post} — a posting a reversal
+     * cannot be, because it names a transaction rather than accounts. The Ledger's registry only
+     * recognises a replay that repeats the original call, so anything else here is not recovery.
+     */
+    private LedgerOutcome attempt(UUID sagaId, SagaRecords.Pending pending) {
+        if (pending.reversal()) {
+            UUID target = pending.reversesLedgerTransactionId();
+            if (target == null) {
+                // A reversal of a transaction the ledger never confirmed has nothing to aim at,
+                // and no retry changes that. openReversal only accepts COMPLETED targets, so this
+                // is a state no code path writes today — but "cannot happen" is not a plan.
+                throw new SagaRecords.Unretryable(
+                        "REVERSAL saga targets a saga with no ledger transaction id");
+            }
+            return ledger.reverse(
+                    pending.tenantId(),
+                    target,
+                    IdempotencyKeys.forStep(sagaId, IdempotencyKeys.REVERSE_STEP),
+                    pending.initiatedBy());
+        }
+        return ledger.post(
+                pending.tenantId(),
+                pending.postingUnder(IdempotencyKeys.forStep(sagaId, IdempotencyKeys.POST_STEP)));
     }
 
     private boolean shouldEscalate(SagaRecords.Pending pending) {

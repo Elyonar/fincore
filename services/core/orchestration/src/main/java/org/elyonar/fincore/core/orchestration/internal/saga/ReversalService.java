@@ -25,8 +25,6 @@ import org.elyonar.fincore.core.orchestration.api.ErrorCode;
 @Service
 public class ReversalService {
 
-    private static final String REVERSE_STEP = "reverse";
-
     private final SagaRecords sagas;
     private final ApprovalRecords approvals;
     private final LedgerClient ledger;
@@ -72,7 +70,7 @@ public class ReversalService {
                 ledger.reverse(
                         tenantId,
                         original.ledgerTransactionId(),
-                        IdempotencyKeys.forStep(reversalSagaId, REVERSE_STEP),
+                        IdempotencyKeys.forStep(reversalSagaId, IdempotencyKeys.REVERSE_STEP),
                         initiatedBy);
 
         return switch (outcome) {

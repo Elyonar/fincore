@@ -36,7 +36,16 @@ public record ProductDecision(
         /** The product forbids this operation for this tier or channel. */
         OPERATION_NOT_PERMITTED,
         /** The amount alone exceeds the per-transaction limit. */
-        LIMIT_EXCEEDED
+        LIMIT_EXCEEDED,
+        /**
+         * The operation is priced, but not in this currency.
+         *
+         * <p>A refusal rather than free: "absent ⇒ free" is the right reading only when the
+         * operation has no fee rule at all. A version pricing a transfer in naira and asked about
+         * one in dollars has an answer — it is just not configured yet — and waiving the fee until
+         * somebody notices is a silent undercharge across every second currency.
+         */
+        CURRENCY_MISMATCH
     }
 
     public ProductDecision {

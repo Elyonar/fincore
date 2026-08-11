@@ -9,6 +9,7 @@ import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
+import org.elyonar.fincore.core.product.api.ProductCatalogue;
 import org.elyonar.fincore.core.product.api.ProductErrorCode;
 
 /**
@@ -23,7 +24,7 @@ import org.elyonar.fincore.core.product.api.ProductErrorCode;
  * new version, always. The database enforces it with a trigger; this class simply never asks.
  */
 @Repository
-public class ProductRecords {
+public class ProductRecords implements ProductCatalogue {
 
     private final JdbcTemplate jdbc;
 
@@ -65,6 +66,18 @@ public class ProductRecords {
             // The `type` CHECK. Surfaced as a caller error rather than a 500, because it is one.
             throw new IllegalArgumentException(ProductErrorCode.INVALID_PRODUCT_TYPE.code());
         }
+    }
+
+    /** The published existence check (see {@link ProductCatalogue} for why any version state counts). */
+    @Override
+    @Transactional(readOnly = true, transactionManager = "productTransactionManager")
+    public boolean exists(UUID tenantId, String productCode) {
+        scopeTo(tenantId);
+        Integer found = jdbc.query(
+                "SELECT 1 FROM product.products WHERE code = ?",
+                rs -> rs.next() ? 1 : null,
+                productCode);
+        return found != null;
     }
 
     /** Every product with its versions. The catalogue an administrator edits, not the one pricing reads. */

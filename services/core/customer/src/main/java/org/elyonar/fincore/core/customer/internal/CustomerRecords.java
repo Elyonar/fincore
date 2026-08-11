@@ -423,14 +423,15 @@ public class CustomerRecords implements CustomerAdministration {
      * security and would write nothing while appearing to succeed.
      */
     private String claim(UUID tenantId, String series) {
-        Long claimed = jdbc.query(
-                "UPDATE customer.numbering SET next_value = next_value + 1"
-                        + " WHERE tenant_id = ? AND series = ? RETURNING next_value - 1",
-                rs -> rs.next() ? rs.getLong(1) : null,
-                tenantId,
-                series);
+        Long claimed = nextFromExistingRow(tenantId, series);
         if (claimed == null) {
-            jdbc.update(
+            // First use: seed the row claiming number 1 for ourselves. ON CONFLICT DO NOTHING
+            // because two first users race to create it — and the loser must NOT also take
+            // number 1, which is exactly what returning unconditionally here once did: both
+            // claimants were told 1, and the second link collided on the unique index. The
+            // update count is the arbiter — 1 row means we seeded and own number 1, 0 rows
+            // means the winner's row exists now and the ordinary UPDATE claims from it.
+            int seeded = jdbc.update(
                     "INSERT INTO customer.numbering (tenant_id, series, prefix, width, next_value, updated_by)"
                             + " VALUES (?,?,?,?,?,?) ON CONFLICT DO NOTHING",
                     tenantId,
@@ -439,7 +440,14 @@ public class CustomerRecords implements CustomerAdministration {
                     DEFAULT_WIDTH,
                     2L,
                     "service:core");
-            return format(DEFAULT_PREFIX, DEFAULT_WIDTH, 1L);
+            if (seeded == 1) {
+                return format(DEFAULT_PREFIX, DEFAULT_WIDTH, 1L);
+            }
+            claimed = nextFromExistingRow(tenantId, series);
+            if (claimed == null) {
+                // The row we just conflicted with has vanished, and rows here are never deleted.
+                throw new IllegalStateException("numbering row for series " + series + " disappeared mid-claim");
+            }
         }
         String[] rule = jdbc.query(
                 "SELECT prefix, width FROM customer.numbering WHERE tenant_id = ? AND series = ?",
@@ -449,6 +457,16 @@ public class CustomerRecords implements CustomerAdministration {
         return rule == null
                 ? format(DEFAULT_PREFIX, DEFAULT_WIDTH, claimed)
                 : format(rule[0], Integer.parseInt(rule[1]), claimed);
+    }
+
+    /** The atomic take: {@code UPDATE … RETURNING} under the row lock, or null before first use. */
+    private Long nextFromExistingRow(UUID tenantId, String series) {
+        return jdbc.query(
+                "UPDATE customer.numbering SET next_value = next_value + 1"
+                        + " WHERE tenant_id = ? AND series = ? RETURNING next_value - 1",
+                rs -> rs.next() ? rs.getLong(1) : null,
+                tenantId,
+                series);
     }
 
     private static String format(String prefix, int width, long value) {
@@ -490,6 +508,18 @@ public class CustomerRecords implements CustomerAdministration {
     public CustomerAdministration.NumberSeries setNumbering(
             UUID tenantId, String series, String prefix, int width, long nextValue, String updatedBy) {
         scopeTo(tenantId);
+        // Forward only. Winding a series back re-issues numbers already carried by live accounts,
+        // which surfaces later as serial ACCOUNT_NUMBER_TAKEN collisions at the counter — one per
+        // opening, until the counter walks past the numbers already spent. The read locks the row,
+        // so a claim racing this cannot slip between the check and the write.
+        Long current = jdbc.query(
+                "SELECT next_value FROM customer.numbering WHERE tenant_id = ? AND series = ? FOR UPDATE",
+                rs -> rs.next() ? rs.getLong(1) : null,
+                tenantId,
+                series);
+        if (current != null && nextValue < current) {
+            throw new CustomerAdministration.NumberingRewind(nextValue, current);
+        }
         jdbc.update(
                 "INSERT INTO customer.numbering (tenant_id, series, prefix, width, next_value, updated_by)"
                         + " VALUES (?,?,?,?,?,?)"

@@ -8,6 +8,7 @@ import java.util.UUID;
 import org.elyonar.fincore.auth.Authorization;
 import org.elyonar.fincore.core.customer.api.CustomerAdministration;
 import org.elyonar.fincore.core.orchestration.api.InstitutionAccounts;
+import org.elyonar.fincore.core.product.api.ProductCatalogue;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -38,10 +39,13 @@ public class AccountOpeningController {
 
     private final CustomerAdministration customers;
     private final InstitutionAccounts accounts;
+    private final ProductCatalogue products;
 
-    public AccountOpeningController(CustomerAdministration customers, InstitutionAccounts accounts) {
+    public AccountOpeningController(
+            CustomerAdministration customers, InstitutionAccounts accounts, ProductCatalogue products) {
         this.customers = customers;
         this.accounts = accounts;
+        this.products = products;
     }
 
     /**
@@ -67,6 +71,15 @@ public class AccountOpeningController {
         String productCode = request.productCode() == null ? null : request.productCode().trim();
         if (productCode == null || productCode.isBlank()) {
             throw new OpeningRefused("productCode is required — an account is held under a product");
+        }
+
+        // And it must name a product the catalogue actually has. A typo'd code used to be accepted
+        // verbatim and surfaced only on the money path — PRODUCT_NOT_FOUND on every transaction,
+        // against a link whose product_code nothing can edit. This controller is where the check
+        // belongs: it is the composition point that may see Product, which Customer's own bare
+        // link route cannot (ADR 0006).
+        if (!products.exists(identity.tenantId(), productCode)) {
+            throw new UnknownProduct(productCode);
         }
 
         // The ledger holds no PII, so what identifies the account there is the institution's own
@@ -106,12 +119,17 @@ public class AccountOpeningController {
      *
      * <p>{@code nextValue} is settable for the reason staff numbering gives: an institution moving
      * onto this platform arrives with numbers already issued, and a counter that can only start at
-     * one would collide with every one of them.
+     * one would collide with every one of them. Settable <em>forward</em> only — the record layer
+     * refuses a rewind, because re-issuing spent numbers is a collision at every opening after.
+     *
+     * <p>{@code org:manage}, not {@code customers:create}: how the institution numbers its accounts
+     * is institution configuration, the same category as its organizational units — not something a
+     * teller-grade grant that can register customers should be able to move.
      */
     @PutMapping("/customer-numbering/{series}")
     public CustomerAdministration.NumberSeries setNumbering(
             @PathVariable String series, @RequestBody Numbering request) {
-        var identity = Authorization.require("customers:create");
+        var identity = Authorization.require("org:manage");
 
         String wanted = String.valueOf(series).trim().toUpperCase(Locale.ROOT);
         if (!wanted.equals("CUSTOMER") && !wanted.equals("ACCOUNT")) {
@@ -153,6 +171,23 @@ public class AccountOpeningController {
         }
     }
 
+    /**
+     * The named product is not in the catalogue.
+     *
+     * <p>Its own type rather than an {@code OpeningRefused}, because the remedy differs and so must
+     * the code: {@code ACCOUNT_NOT_OPENED} means fix the request, this means fix the product code —
+     * and it answers with the same {@code PRODUCT_NOT_FOUND} the money path would eventually have
+     * used, so a caller handles one code for one fact wherever it surfaces.
+     */
+    public static class UnknownProduct extends RuntimeException {
+        public final String productCode;
+
+        public UnknownProduct(String productCode) {
+            super("no product answers to code " + productCode);
+            this.productCode = productCode;
+        }
+    }
+
     /** Kept beside the controller: one refusal shape for one surface. */
     @org.springframework.web.bind.annotation.RestControllerAdvice(assignableTypes = AccountOpeningController.class)
     public static class Errors {
@@ -186,6 +221,36 @@ public class AccountOpeningController {
         public org.springframework.http.ResponseEntity<Map<String, Object>> alreadyHeld() {
             return org.springframework.http.ResponseEntity.status(org.springframework.http.HttpStatus.CONFLICT)
                     .body(Map.of("code", "ACCOUNT_ALREADY_HELD", "details", Map.of()));
+        }
+
+        /** The same code the money path uses for the same fact, caught before the account exists. */
+        @org.springframework.web.bind.annotation.ExceptionHandler(UnknownProduct.class)
+        public org.springframework.http.ResponseEntity<Map<String, Object>> unknownProduct(UnknownProduct e) {
+            return org.springframework.http.ResponseEntity.unprocessableEntity()
+                    .body(Map.of(
+                            "code", "PRODUCT_NOT_FOUND",
+                            "message", e.getMessage(),
+                            "details", Map.of("field", "productCode", "supplied", e.productCode)));
+        }
+
+        /**
+         * A series asked to wind backwards. {@code details.current} says where forward starts, so
+         * the client can render the refusal without a second read.
+         */
+        @org.springframework.web.bind.annotation.ExceptionHandler(
+                CustomerAdministration.NumberingRewind.class)
+        public org.springframework.http.ResponseEntity<Map<String, Object>> rewind(
+                CustomerAdministration.NumberingRewind e) {
+            return org.springframework.http.ResponseEntity.unprocessableEntity()
+                    .body(Map.of(
+                            "code", "COMMAND_INVALID",
+                            "message", e.getMessage(),
+                            // Counters as decimal strings, like every numeric fact this API emits.
+                            "details",
+                                    Map.of(
+                                            "field", "nextValue",
+                                            "supplied", Long.toString(e.supplied),
+                                            "current", Long.toString(e.current))));
         }
     }
 }

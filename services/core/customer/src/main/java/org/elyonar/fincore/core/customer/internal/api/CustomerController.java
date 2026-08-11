@@ -135,7 +135,17 @@ public class CustomerController {
                 identity.tenantId(), id, request.toTier(), request.reason(), Authorization.initiatedBy());
     }
 
-    /** Links a ledger account to this customer. */
+    /**
+     * Links a ledger account to this customer.
+     *
+     * <p>The product code is required non-blank here and validated against the catalogue only on
+     * {@code app}'s open path — deliberately, not as an oversight. Customer may not ask Product
+     * whether a code exists (ADR 0006), and moving this route into {@code app} to gain the check
+     * would move a Customer-owned record write out of the module that owns it. This bare link is
+     * the migration surface — an admin attaching a ledger account that already exists, quoting a
+     * product code from the book being imported — and the open path, which every ordinary opening
+     * uses, refuses an unknown code before the account is created.
+     */
     @PostMapping("/{id}/accounts")
     @ResponseStatus(HttpStatus.CREATED)
     public CustomerRecords.Link link(@PathVariable UUID id, @RequestBody LinkAccount request) {

@@ -1,5 +1,6 @@
 package org.elyonar.fincore.core.product.internal;
 
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.elyonar.fincore.core.product.api.ProductDecision;
@@ -69,6 +70,12 @@ public class JdbcProductDecisions implements ProductDecisions {
         }
 
         Fee fee = fee(versionId, request);
+        if (fee == null) {
+            // Fee rules exist for this operation, none in this currency. The operation is priced —
+            // just not for the money being moved — and "no rule in this currency ⇒ free" priced
+            // every second-currency transaction at zero against a version that charges for it.
+            return ProductDecision.refused(ProductDecision.Refusal.CURRENCY_MISMATCH, versionNumber);
+        }
         // The DAILY rule is stated here and enforced by Orchestration, which holds the day's
         // running total of reservations. Product cannot enforce it alone: two concurrent
         // transfers each pass a here-and-now check, which is the race reservations exist for.
@@ -101,35 +108,47 @@ public class JdbcProductDecisions implements ProductDecisions {
     }
 
     /**
-     * The fee for this operation. No rule means no fee — an absent price is free, which is the only
-     * reading that cannot silently overcharge.
+     * The fee for this operation, or null when the operation is priced but not in this currency.
+     *
+     * <p>No rule for the operation <em>at all</em> means no fee — an absent price is free, which is
+     * the only reading that cannot silently overcharge. But that reading used to be applied per
+     * currency: the query filtered on currency and treated an empty result as free, so a version
+     * with an NGN fee rule priced a USD withdrawal at zero. Free-by-omission and
+     * unpriced-in-this-currency are different facts, so both are read in one query and told apart
+     * here.
      */
     private Fee fee(Object versionId, ProductRequest request) {
-        record Row(String kind, long flat, int bps, long cap, UUID accountId) {}
-        Row rule =
+        record Row(String currency, String kind, long flat, int bps, long cap, UUID accountId) {}
+        List<Row> rules =
                 jdbc.query(
                         """
-                        SELECT kind, flat_minor, basis_points, cap_minor, fee_account_id
+                        SELECT currency, kind, flat_minor, basis_points, cap_minor, fee_account_id
                           FROM product.fee_rules
-                         WHERE product_version_id = ? AND operation = ? AND currency = ?
+                         WHERE product_version_id = ? AND operation = ?
                         """,
-                        rs -> {
-                            if (!rs.next()) {
-                                return null;
-                            }
-                            return new Row(
-                                    rs.getString("kind"),
-                                    rs.getObject("flat_minor") == null ? 0L : rs.getLong("flat_minor"),
-                                    rs.getObject("basis_points") == null ? 0 : rs.getInt("basis_points"),
-                                    rs.getObject("cap_minor") == null ? -1L : rs.getLong("cap_minor"),
-                                    rs.getObject("fee_account_id", UUID.class));
-                        },
+                        (rs, i) ->
+                                new Row(
+                                        rs.getString("currency"),
+                                        rs.getString("kind"),
+                                        rs.getObject("flat_minor") == null ? 0L : rs.getLong("flat_minor"),
+                                        rs.getObject("basis_points") == null ? 0 : rs.getInt("basis_points"),
+                                        rs.getObject("cap_minor") == null ? -1L : rs.getLong("cap_minor"),
+                                        rs.getObject("fee_account_id", UUID.class)),
                         versionId,
-                        request.operation().name(),
-                        request.currency());
+                        request.operation().name());
 
-        if (rule == null) {
+        if (rules.isEmpty()) {
+            // Genuinely free: the version prices nothing for this operation, in any currency.
             return new Fee(0L, null);
+        }
+        Row rule =
+                rules.stream()
+                        .filter(r -> request.currency().equals(r.currency()))
+                        .findFirst()
+                        .orElse(null);
+        if (rule == null) {
+            // Priced, but not in this currency. The caller refuses rather than waiving the charge.
+            return null;
         }
 
         long computed;

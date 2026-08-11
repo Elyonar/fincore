@@ -604,13 +604,19 @@ public class SagaRecords {
      */
     @Transactional(transactionManager = CoreProperties.Beans.WORKER_TX, readOnly = true)
     public Pending loadPending(UUID sagaId) {
+        // The self-join resolves what a REVERSAL saga needs and its own row deliberately does not
+        // carry: the ledger transaction its target posted. A reversal names no accounts — it names
+        // a transaction — so the worker re-drives it via `ledger.reverse`, and this is where the
+        // target comes from.
         return workerJdbc.query(
                 """
-                SELECT tenant_id, type, from_account_id, to_account_id, fee_account_id, amount_minor,
-                       fee_minor, currency, initiated_by, attempts,
-                       EXTRACT(EPOCH FROM (now() - created_at))::bigint AS age_seconds
-                  FROM orchestration.sagas
-                 WHERE id = ? AND state IN ('RECEIVED', 'POSTING')
+                SELECT s.tenant_id, s.type, s.from_account_id, s.to_account_id, s.fee_account_id,
+                       s.amount_minor, s.fee_minor, s.currency, s.initiated_by, s.attempts,
+                       EXTRACT(EPOCH FROM (now() - s.created_at))::bigint AS age_seconds,
+                       original.ledger_transaction_id AS reverses_ledger_transaction_id
+                  FROM orchestration.sagas s
+                  LEFT JOIN orchestration.sagas original ON original.id = s.reverses_saga_id
+                 WHERE s.id = ? AND s.state IN ('RECEIVED', 'POSTING')
                 """,
                 rs ->
                         rs.next()
@@ -625,7 +631,8 @@ public class SagaRecords {
                                         rs.getString("currency"),
                                         rs.getString("initiated_by"),
                                         rs.getInt("attempts"),
-                                        java.time.Duration.ofSeconds(rs.getLong("age_seconds")))
+                                        java.time.Duration.ofSeconds(rs.getLong("age_seconds")),
+                                        rs.getObject("reverses_ledger_transaction_id", UUID.class))
                                 : null,
                 sagaId);
     }
@@ -745,7 +752,13 @@ public class SagaRecords {
     public record Reversible(
             UUID id, long amountMinor, long feeMinor, String currency, UUID ledgerTransactionId) {}
 
-    /** Everything needed to re-send a saga's posting exactly as it was first sent. */
+    /**
+     * Everything needed to re-drive a saga's outbound step exactly as it was first sent.
+     *
+     * @param reversesLedgerTransactionId for a REVERSAL saga, the ledger transaction its target
+     *     posted — what {@code ledger.reverse} is aimed at. Null for every other type, and null for
+     *     a reversal whose target never recorded one, which is unresolvable and escalates.
+     */
     public record Pending(
             UUID tenantId,
             String type,
@@ -757,7 +770,15 @@ public class SagaRecords {
             String currency,
             String initiatedBy,
             int attempts,
-            java.time.Duration age) {
+            java.time.Duration age,
+            UUID reversesLedgerTransactionId) {
+
+        /** The saga type that is re-driven via {@code ledger.reverse}, never rebuilt as a posting. */
+        private static final String REVERSAL = "REVERSAL";
+
+        public boolean reversal() {
+            return REVERSAL.equals(type);
+        }
 
         /**
          * The identical posting, under the given key.
@@ -767,6 +788,14 @@ public class SagaRecords {
          * permanent one.
          */
         public org.elyonar.fincore.core.orchestration.api.LedgerPosting postingUnder(String key) {
+            if (reversal()) {
+                // A reversal targets a transaction, not a pair of accounts — its saga row
+                // deliberately names none, so "rebuilding" it fabricates entries with no accounts.
+                // The zero-fee case used to slip past every guard and NPE inside the client,
+                // outside every catch that could have scheduled a retry: the saga looped on lease
+                // expiry forever. Unretryable, because no retry of this construction can ever work.
+                throw new Unretryable("a REVERSAL saga is re-driven via ledger.reverse, never rebuilt as a posting");
+            }
             var entries =
                     Postings.entriesFor(
                             type, fromAccountId, toAccountId, feeAccountId, amountMinor, feeMinor, currency);

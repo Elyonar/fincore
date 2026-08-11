@@ -66,6 +66,24 @@ public interface CustomerAdministration {
         }
     }
 
+    /**
+     * A series was asked to wind backwards, below numbers it has already issued.
+     *
+     * <p>Refused rather than honoured, because the counter would then re-issue live numbers — a
+     * serial {@code ACCOUNT_NUMBER_TAKEN} at every opening until it walks past the spent range.
+     * Carries the current value so the refusal can say where forward starts.
+     */
+    class NumberingRewind extends RuntimeException {
+        public final long supplied;
+        public final long current;
+
+        public NumberingRewind(long supplied, long current) {
+            super("nextValue " + supplied + " is below the series' current " + current);
+            this.supplied = supplied;
+            this.current = current;
+        }
+    }
+
     OpenedAccount linkWithNumber(
             UUID tenantId,
             UUID customerId,

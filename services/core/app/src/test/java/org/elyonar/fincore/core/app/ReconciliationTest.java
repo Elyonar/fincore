@@ -41,6 +41,10 @@ class ReconciliationTest {
     @Autowired private TenantRegistry tenantRegistry;
     @Autowired private TransferService transfers;
     @Autowired private Reconciliation reconciliation;
+
+    // The owner datasource (primary; the one migrations run as), used to install and remove the
+    // injected failure — no restricted role may create triggers, which is as it should be.
+    @Autowired private javax.sql.DataSource ownerDataSource;
     @Autowired @Qualifier("workerJdbcTemplate") private JdbcTemplate workerDb;
     @Autowired @Qualifier("orchestrationJdbcTemplate") private JdbcTemplate orchestrationDb;
     @Autowired @Qualifier("orchestrationTransactionManager")
@@ -306,6 +310,54 @@ class ReconciliationTest {
         assertThat(reconciliation.run()).isZero();
         assertThat(count("reconciliation_findings", "LEDGER_MISSING")).isZero();
         assertThat(count("ops_cases", "RECONCILIATION_MISMATCH")).isZero();
+    }
+
+    /**
+     * The finding and its ops case are one write: both rows or neither.
+     *
+     * <p>They used to commit separately — {@code record} was {@code protected @Transactional} and
+     * self-invoked, so the annotation never applied — and a crash between the two inserts left a
+     * finding the duplicate guard then suppressed on every later run: a mismatch recorded forever
+     * in a table no operator queue surfaced. The injected failure here is a trigger on the second
+     * insert, which is exactly the crash window.
+     */
+    @Test
+    void a_failure_between_the_two_inserts_leaves_both_rows_or_neither() {
+        completeTransfer(50_000);
+        readStatus.set(404);
+        readBody.set("{\"code\":\"TRANSACTION_NOT_FOUND\"}");
+
+        // The owner installs the failure: any ops-case insert for this tenant raises.
+        org.springframework.jdbc.core.JdbcTemplate owner =
+                new org.springframework.jdbc.core.JdbcTemplate(ownerDataSource);
+        owner.execute(
+                """
+                CREATE OR REPLACE FUNCTION orchestration.fail_ops_case_insert() RETURNS trigger AS $$
+                BEGIN RAISE EXCEPTION 'injected failure between the two inserts'; END
+                $$ LANGUAGE plpgsql
+                """);
+        owner.execute(
+                ("CREATE TRIGGER inject_ops_case_failure BEFORE INSERT ON orchestration.ops_cases"
+                                + " FOR EACH ROW WHEN (NEW.tenant_id = '%s'::uuid)"
+                                + " EXECUTE FUNCTION orchestration.fail_ops_case_insert()")
+                        .formatted(tenantId));
+        try {
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> reconciliation.run())
+                    .isInstanceOf(RuntimeException.class);
+
+            // Neither row: the finding insert rolled back with its case, so nothing is orphaned.
+            assertThat(count("reconciliation_findings", "LEDGER_MISSING")).isZero();
+            assertThat(count("ops_cases", "RECONCILIATION_MISMATCH")).isZero();
+        } finally {
+            owner.execute("DROP TRIGGER inject_ops_case_failure ON orchestration.ops_cases");
+            owner.execute("DROP FUNCTION orchestration.fail_ops_case_insert()");
+        }
+
+        // And because neither row survived, the next run records the pair whole — the crash cost
+        // a delay, not the finding.
+        assertThat(reconciliation.run()).isEqualTo(1);
+        assertThat(count("reconciliation_findings", "LEDGER_MISSING")).isEqualTo(1);
+        assertThat(count("ops_cases", "RECONCILIATION_MISMATCH")).isEqualTo(1);
     }
 
     @Test

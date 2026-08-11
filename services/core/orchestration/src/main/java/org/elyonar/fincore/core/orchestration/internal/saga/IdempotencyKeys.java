@@ -27,6 +27,18 @@ public final class IdempotencyKeys {
     /** Namespace, so a key is legible in the Ledger's registry and cannot collide with a channel's. */
     private static final String PREFIX = "core";
 
+    /**
+     * The step names in use, named once (rule 10).
+     *
+     * <p>They live here rather than in each service because the worker must reconstruct the
+     * <em>same</em> key the synchronous path first used — a worker spelling "reverse" as "post"
+     * re-drives a reversal under a key the Ledger has never seen, which is how a retry becomes a
+     * second transaction. One constant per step makes that drift a compile error.
+     */
+    public static final String POST_STEP = "post";
+
+    public static final String REVERSE_STEP = "reverse";
+
     /** The Ledger caps keys at 200 characters. */
     private static final int MAX_LENGTH = 200;
 

@@ -57,6 +57,7 @@ class DailyLimitAndFeeConfigTest {
     private UUID customerId;
     private UUID fromAccount;
     private UUID configuredFeeAccount;
+    private UUID usdAccount;
 
     @BeforeAll
     static void startLedger() throws IOException {
@@ -101,6 +102,7 @@ class DailyLimitAndFeeConfigTest {
         customerId = UUID.randomUUID();
         fromAccount = UUID.randomUUID();
         configuredFeeAccount = UUID.randomUUID();
+        usdAccount = UUID.randomUUID();
 
         new TransactionTemplate(customerTx)
                 .executeWithoutResult(
@@ -115,6 +117,10 @@ class DailyLimitAndFeeConfigTest {
                                     "INSERT INTO customer.customer_accounts (tenant_id, customer_id,"
                                             + " ledger_account_id, currency, product_code) VALUES (?,?,?, 'NGN', 'P')",
                                     tenantId, customerId, fromAccount);
+                            customerDb.update(
+                                    "INSERT INTO customer.customer_accounts (tenant_id, customer_id,"
+                                            + " ledger_account_id, currency, product_code) VALUES (?,?,?, 'USD', 'P')",
+                                    tenantId, customerId, usdAccount);
                         });
 
         new TransactionTemplate(productTx)
@@ -143,6 +149,13 @@ class DailyLimitAndFeeConfigTest {
                                             + " channel, limit_type, max_amount_minor, currency)"
                                             + " VALUES (?,?, 'TIER_2', 'API', 'DAILY', 150000, 'NGN')",
                                     tenantId, versionId);
+                            // Dollar transactions are permitted by limit and deliberately priced by
+                            // no fee rule — the cross-currency cases below turn on exactly that.
+                            productDb.update(
+                                    "INSERT INTO product.limit_rules (tenant_id, product_version_id, kyc_tier,"
+                                            + " channel, limit_type, max_amount_minor, currency)"
+                                            + " VALUES (?,?, 'TIER_2', 'API', 'PER_TXN', 100000, 'USD')",
+                                    tenantId, versionId);
                             // ₦50 flat, credited to the account the *product* names.
                             productDb.update(
                                     "INSERT INTO product.fee_rules (tenant_id, product_version_id, operation,"
@@ -156,6 +169,29 @@ class DailyLimitAndFeeConfigTest {
                                     "UPDATE product.product_versions SET status = 'PUBLISHED',"
                                             + " published_by = 'user:publisher' WHERE tenant_id = ? AND id = ?",
                                     tenantId, versionId);
+
+                            // A second product with no fee rules at all — the genuinely-free case
+                            // that must stay free in every currency.
+                            UUID freeProductId =
+                                    productDb.queryForObject(
+                                            "INSERT INTO product.products (tenant_id, code, name, type)"
+                                                    + " VALUES (?, 'Q', 'Q', 'SAVINGS') RETURNING id",
+                                            UUID.class, tenantId);
+                            UUID freeVersionId =
+                                    productDb.queryForObject(
+                                            "INSERT INTO product.product_versions (tenant_id, product_id, version,"
+                                                    + " status, created_by, published_by)"
+                                                    + " VALUES (?,?,1,'DRAFT','user:author',NULL) RETURNING id",
+                                            UUID.class, tenantId, freeProductId);
+                            productDb.update(
+                                    "INSERT INTO product.limit_rules (tenant_id, product_version_id, kyc_tier,"
+                                            + " channel, limit_type, max_amount_minor, currency)"
+                                            + " VALUES (?,?, 'TIER_2', 'API', 'PER_TXN', 100000, 'USD')",
+                                    tenantId, freeVersionId);
+                            productDb.update(
+                                    "UPDATE product.product_versions SET status = 'PUBLISHED',"
+                                            + " published_by = 'user:publisher' WHERE tenant_id = ? AND id = ?",
+                                    tenantId, freeVersionId);
                         });
     }
 
@@ -217,6 +253,48 @@ class DailyLimitAndFeeConfigTest {
         transfers.transfer(command("fit-1", 90_000, null));
         // 90_050 reserved of 150_000; 50k + 50 fee still fits.
         assertThat(transfers.transfer(command("fit-2", 50_000, null)).state()).isEqualTo("COMPLETED");
+    }
+
+    /** A transfer from the given account, in the given currency. */
+    private TransferCommand commandFrom(String key, UUID payingAccount, long amountMinor, String currency) {
+        return new TransferCommand(
+                tenantId, key, "fp-" + key, customerId, payingAccount, UUID.randomUUID(), null,
+                amountMinor, currency, "P", "API", "test", "user:ada", "core", LAGOS);
+    }
+
+    @Test
+    void an_operation_priced_in_another_currency_refuses_rather_than_pricing_free() {
+        // The version charges ₦50 for a transfer and has no dollar rule. "No rule in this currency
+        // ⇒ free" priced this at zero — a silent undercharge on every second-currency transaction.
+        // Unpriced-in-this-currency is a configuration gap, and a gap refuses.
+        TransferService.TransferRefused refused =
+                catchThrowableOfType(
+                        TransferService.TransferRefused.class,
+                        () -> transfers.transfer(commandFrom("usd-fee", usdAccount, 10_000, "USD")));
+
+        assertThat(refused.errorCode()).isEqualTo(ErrorCode.CURRENCY_MISMATCH);
+    }
+
+    @Test
+    void an_operation_with_no_fee_rule_at_all_is_still_free_in_any_currency() {
+        // The contrast that keeps the refusal honest: product Q prices nothing for transfers, so
+        // an absent price is genuinely free — including in dollars.
+        UUID freeUsdAccount = UUID.randomUUID();
+        new TransactionTemplate(customerTx)
+                .executeWithoutResult(
+                        s -> {
+                            customerDb.queryForObject(
+                                    "SELECT set_config('app.tenant_id', ?, true)", String.class, tenantId.toString());
+                            customerDb.update(
+                                    "INSERT INTO customer.customer_accounts (tenant_id, customer_id,"
+                                            + " ledger_account_id, currency, product_code) VALUES (?,?,?, 'USD', 'Q')",
+                                    tenantId, customerId, freeUsdAccount);
+                        });
+
+        var result = transfers.transfer(commandFrom("usd-free", freeUsdAccount, 10_000, "USD"));
+
+        assertThat(result.state()).isEqualTo("COMPLETED");
+        assertThat(result.feeMinor()).isZero();
     }
 
     @Test

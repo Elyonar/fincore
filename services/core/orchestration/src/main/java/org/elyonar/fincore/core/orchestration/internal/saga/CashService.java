@@ -32,8 +32,6 @@ import org.elyonar.fincore.core.orchestration.api.ErrorCode;
 @Service
 public class CashService {
 
-    private static final String POST_STEP = "post";
-
     private final SagaRecords sagas;
     private final TillRecords tills;
     private final CustomerEligibility customers;
@@ -132,7 +130,7 @@ public class CashService {
         LedgerOutcome outcome =
                 ledger.post(
                         command.tenantId(),
-                        postingFor(command, decision, till, IdempotencyKeys.forStep(sagaId, POST_STEP)));
+                        postingFor(command, decision, till, IdempotencyKeys.forStep(sagaId, IdempotencyKeys.POST_STEP)));
 
         // ---- Phase C ---------------------------------------------------------
         return switch (outcome) {

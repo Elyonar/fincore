@@ -1,6 +1,6 @@
 # Core — API Surface (v1)
 
-**Status:** AGREED v2.1 (2026-08-11) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
+**Status:** AGREED v2.2 (2026-08-11) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
 
 REST/JSON. Every request carries a validated identity token — **the tenant comes
 from the token, never from a header**
@@ -41,9 +41,9 @@ the first place.
 | `GET  /v1/approvals/pending` | the checker's queue, oldest first | orchestration | `approvals:check` | supervisor |
 | `POST /v1/customers/{id}/tier` | change KYC tier (attributed, reason required) | customer | `customers:tier` | compliance, admin |
 | `POST /v1/customers/{id}/accounts` | link a ledger account to a customer | customer | `customers:link` | admin |
-| `POST /v1/customers/{customerId}/accounts/open` | open a ledger account for a customer, number it, and record the product it is held under | app (onboarding) | `customers:link` | admin, teller |
+| `POST /v1/customers/{customerId}/accounts/open` | open a ledger account for a customer, number it, and record the product it is held under — a code the catalogue does not know is refused (`PRODUCT_NOT_FOUND`) before the account exists | app (onboarding) | `customers:link` | admin, teller |
 | `GET  /v1/customer-numbering` | how customers and their accounts are numbered, and the next of each | app (onboarding) | `customers:read` | admin |
-| `PUT  /v1/customer-numbering/{series}` | change a series — prefix, width, next value | app (onboarding) | `customers:create` | admin |
+| `PUT  /v1/customer-numbering/{series}` | change a series — prefix, width, next value (forward only: a `nextValue` below the current one is refused, `COMMAND_INVALID`) | app (onboarding) | `org:manage` | admin |
 | `GET  /v1/customers/by-account/{ledgerAccountId}` | contact addresses, language and consent for the holder of an account — **no name, no tier** | customer | `customers:contact` | notification, API |
 | `POST /v1/customers/{id}/consent` | record what a customer agreed to, per category and channel | customer | `customers:consent` | admin, compliance |
 | `GET  /v1/products` | list products and their versions | product | `products:read` | teller, admin |
@@ -231,12 +231,12 @@ tenant renders its own string from `code`, `reason` and `details`.
 | `CUSTOMER_NOT_ACTIVE` | customer is dormant or closed | no |
 | `ACCOUNT_NOT_LINKED` | the account is not linked to this customer | no |
 | `ACCOUNT_HAS_NO_PRODUCT` | the account records no product, so nothing prices the transaction | no |
-| `PRODUCT_NOT_FOUND` | no product, or no published version in effect | no |
+| `PRODUCT_NOT_FOUND` | no product, or no published version in effect. Also at account opening, for a code the catalogue has never heard of → 422, `details.field` | no |
 | `OPERATION_NOT_PERMITTED` | the product forbids this operation for this tier or channel | no |
 | `LIMIT_EXCEEDED` | per-transaction or daily limit would be breached | no — new key after the window rolls |
 | `AMOUNT_INVALID` | zero, negative, or above the platform cap | no |
 | `COMMAND_INVALID` | a required field is absent or malformed — see reasons | no |
-| `CURRENCY_MISMATCH` | entry currency ≠ account currency | no |
+| `CURRENCY_MISMATCH` | entry currency ≠ account currency — or the product prices this operation only in other currencies, which refuses rather than pricing free | no |
 | `WASH_TRANSACTION` | source and destination are the same account | no |
 | `TILL_NOT_OPEN` | the teller's till is not open | no |
 | `FEE_EXCEEDS_DEPOSIT` | the fee would consume more than the deposit | no |

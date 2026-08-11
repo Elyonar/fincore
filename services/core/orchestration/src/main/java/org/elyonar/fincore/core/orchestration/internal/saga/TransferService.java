@@ -30,9 +30,6 @@ import org.elyonar.fincore.core.orchestration.api.ErrorCode;
 @Service
 public class TransferService {
 
-    /** The step name that, with the saga id, derives the Ledger idempotency key. */
-    private static final String POST_STEP = "post";
-
     private final SagaRecords sagas;
     private final CustomerEligibility customers;
     private final ProductDecisions products;
@@ -123,7 +120,7 @@ public class TransferService {
                         "daily:" + LocalDate.now(command.businessZone()));
 
         // ---- Phase B: call the Ledger, holding no transaction ----------------
-        String key = IdempotencyKeys.forStep(sagaId, POST_STEP);
+        String key = IdempotencyKeys.forStep(sagaId, IdempotencyKeys.POST_STEP);
         LedgerOutcome outcome = ledger.post(command.tenantId(), postingFor(command, decision, key));
 
         // ---- Phase C: record what happened, one local transaction ------------
