@@ -17,8 +17,9 @@ restart. That was a precondition for everything else, and it is done.
 
 **Landed as agreed-shaped design, not yet code:** ADR 0015 (control plane,
 Deferred), ADR 0016 (tenant manifest), ADR 0017 (tenant-defined roles),
-`tenant-bootstrap.md`, `bootstrap/tenants.json`, and the deferred
-`services/platform` design set.
+`tenant-bootstrap.md`, and `bootstrap/tenants.json`. The `services/platform`
+design set was removed with the 2026-08-11 MVP trim — the ADRs remain the
+record; the docs return with the deployable, if it returns.
 
 **Unchanged:** every backend gap the client-readiness analysis found. No API has
 been added this session. That is the honest starting line.
