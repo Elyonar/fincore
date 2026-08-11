@@ -118,13 +118,83 @@ jobs:
       # Core connects per module role (ADR 0006); the URL is the only thing shared,
       # and it is Core's database, never the ledger's.
       - name: Test — the Core deployable
-        run: ./mvnw --batch-mode verify -pl services/core/customer,services/core/product,services/core/organization,services/core/orchestration,services/core/app
+        run: ./mvnw --batch-mode verify -pl services/core/customer,services/core/product,services/core/organization,services/core/orchestration,services/core/admin,services/core/app
         env:
           SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/core
           SPRING_DATASOURCE_USERNAME: fincore
           SPRING_DATASOURCE_PASSWORD: fincore
           SPRING_FLYWAY_USER: fincore
           SPRING_FLYWAY_PASSWORD: fincore
+
+      # The Core↔Ledger contract suite (@Tag("contract"): LedgerContractTest, plus the
+      # deliberately loose LedgerBenchmarkTest) runs Core's ledger client against the *real*
+      # Ledger — our request shape against their validation, our outcome classification
+      # against their actual status and error codes. Each service's own suite is internally
+      # consistent and can be wrong about the other; on its first run this suite found two
+      # such defects. It is excluded from the default build (services/core/app's surefire
+      # config) because it needs a running Ledger and must fail loudly rather than pass
+      # vacuously when one is absent — which is exactly why it must run here, where a
+      # Ledger can be supplied, and not only on a laptop that remembers to.
+      #
+      # The Ledger is the jar "Build everything once" already produced, started against
+      # its own database so it cannot write into the one the ledger suite migrates and
+      # asserts against. header auth mode is the development stand-in, double-locked to a
+      # sanctioned profile; `local` sanctions it here — CI traffic on localhost, not a
+      # deployment. The `log` events broker delivers nothing, and nothing here consumes.
+      - name: Test — the Core↔Ledger contract suite
+        env:
+          PGPASSWORD: fincore
+        run: |
+          set -euo pipefail
+
+          psql -h localhost -U fincore -d ledger -v ON_ERROR_STOP=1 \
+            -c 'CREATE DATABASE ledger_contract;'
+
+          SPRING_DATASOURCE_URL=jdbc:postgresql://localhost:5432/ledger_contract \
+          SPRING_DATASOURCE_USERNAME=ledger_app \
+          SPRING_DATASOURCE_PASSWORD=ledger_app \
+          SPRING_FLYWAY_USER=fincore \
+          SPRING_FLYWAY_PASSWORD=fincore \
+          SPRING_DOCKER_COMPOSE_ENABLED=false \
+          SPRING_PROFILES_ACTIVE=local \
+          FINCORE_LEDGER_AUTH_MODE=header \
+          FINCORE_EVENTS_BROKER=log \
+          MANAGEMENT_HEALTH_RABBIT_ENABLED=false \
+          LEDGER_PORT=58080 \
+          java -jar services/ledger/target/ledger-*.jar > ledger-contract.log 2>&1 &
+          LEDGER_PID=$!
+          trap 'kill "$LEDGER_PID" 2>/dev/null || true' EXIT
+
+          # Flyway migrates on startup; the readiness probe gates the suite on a serving
+          # Ledger (the aggregate health endpoint would also poll brokers this run does
+          # not have), and a Ledger that dies fails the step with its log rather than
+          # timing out.
+          for i in $(seq 1 90); do
+            curl -fsS http://localhost:58080/actuator/health/readiness >/dev/null 2>&1 && break
+            if ! kill -0 "$LEDGER_PID" 2>/dev/null; then
+              echo '::error::the Ledger exited before becoming healthy'
+              cat ledger-contract.log
+              exit 1
+            fi
+            sleep 1
+          done
+          curl -fsS http://localhost:58080/actuator/health/readiness >/dev/null || {
+            echo '::error::the Ledger did not become healthy within 90s'
+            cat ledger-contract.log
+            exit 1
+          }
+
+          # The suite needs a registered ACTIVE tenant: row-level security isolates
+          # tenants but has nothing to say about whether one is real. The same insert
+          # the ledger's own HTTP tests seed with, as the owner role.
+          TENANT="$(uuidgen)"
+          psql -h localhost -U fincore -d ledger_contract -v ON_ERROR_STOP=1 \
+            -c "INSERT INTO tenants (id, name, created_by) VALUES ('$TENANT', 'ci contract tenant', 'ci');"
+
+          ./mvnw --batch-mode -pl services/core/app -Pcontract test \
+            -Dfincore.contract.ledger-url=http://localhost:58080 \
+            -Dfincore.contract.tenant-id="$TENANT" \
+            || { echo '── ledger log ──'; cat ledger-contract.log; exit 1; }
 
       # Notification is a deployable like the others and was not tested here at all: the module
       # built during "Build everything once" and then nothing ran it, so its 50 tests were green
