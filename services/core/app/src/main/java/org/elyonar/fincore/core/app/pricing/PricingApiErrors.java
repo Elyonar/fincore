@@ -2,6 +2,7 @@ package org.elyonar.fincore.core.app.pricing;
 
 import java.util.Map;
 import org.elyonar.fincore.core.product.api.ProductAuthoring;
+import org.elyonar.fincore.core.product.api.ProductErrorCode;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -45,12 +46,28 @@ public class PricingApiErrors {
                         "details", Map.of("version", e.version)));
     }
 
+    /**
+     * A draft dated before it existed.
+     *
+     * <p>Code only, no message. {@code EFFECTIVE_FROM_IN_THE_PAST} is already in api.md, already in
+     * admin-surface.md, and the portal already has a sentence for it — the whole contract survived
+     * the move of this route between controllers, and only the enforcement went missing.
+     */
+    @ExceptionHandler(PricingController.EffectiveFromInThePast.class)
+    public ResponseEntity<Map<String, Object>> backdated(PricingController.EffectiveFromInThePast e) {
+        return ResponseEntity.unprocessableEntity()
+                .body(Map.of(
+                        "code", ProductErrorCode.EFFECTIVE_FROM_IN_THE_PAST.code(),
+                        "message", "a version may not be dated before it existed",
+                        "details", Map.of()));
+    }
+
     /** A rule naming an account the institution has not opened, or has opened for something else. */
     @ExceptionHandler(PricingController.PricingRefused.class)
     public ResponseEntity<Map<String, Object>> refused(PricingController.PricingRefused e) {
         return ResponseEntity.unprocessableEntity()
                 .body(Map.of(
-                        "code", "PRICING_ACCOUNT_INVALID",
+                        "code", ProductErrorCode.PRICING_ACCOUNT_INVALID.code(),
                         "message", e.getMessage(),
                         "details", Map.of()));
     }

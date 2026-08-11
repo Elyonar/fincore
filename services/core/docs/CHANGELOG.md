@@ -8,6 +8,38 @@ entry first.
 
 ---
 
+## [1.24.0] — 2026-08-10 · MINOR
+
+**An account knows what it is.** `customer.customer_accounts` records the product an account is
+held under, and the cash path prices by it.
+
+- **The hole.** `POST /v1/deposits` and `/v1/withdrawals` took `productCode` from the request body,
+  and nothing associated an account with a product. So the fee charged and the ceiling applied came
+  from whatever the caller named: the same account could be priced under a savings product in the
+  morning and a current product in the afternoon, and a customer's limit depended on a teller's
+  dropdown rather than on the account they hold. This is the same correction V4 made for
+  `fee_rules.fee_account_id` — pricing is configuration, not a caller assertion — except this one
+  decides which rules apply at all, which is the larger of the two.
+- **Schema:** `customer/V8__accounts_know_their_product.sql` adds `product_code`, nullable. Rows
+  written before it have no honest value to backfill, and inventing one would assert a product an
+  account was never opened under.
+- **Write paths:** `POST /v1/customers/{id}/accounts/open` and `POST /v1/customers/{id}/accounts`
+  both require `productCode` (`PRODUCT_REQUIRED`, 422). Establishing it at opening is the only
+  moment somebody is present who knows the answer.
+- **Read path:** `CustomerEligibility.productOfHeldAccount` answers it under the same predicate
+  `holdsAccount` uses — one query, because two could disagree across an unlink and the money path
+  would then price against an account the customer no longer holds.
+- **Refusal, not fallback:** an account with no product is refused with `ACCOUNT_HAS_NO_PRODUCT`.
+  Falling back to the request body is how the hole stayed open.
+- **`CashRequest.productCode` is accepted and ignored,** like `feeAccountId` before it. It stays in
+  the idempotency fingerprint: a replay that changes it is a caller who has changed their mind, and
+  409 beats pretending the two requests were one.
+- **Still owed:** `POST /v1/transfers` takes `productCode` the same way and is unchanged here. A
+  transfer names two accounts and no customer, so resolving it needs a different read than this one
+  — the hazard is identical and the fix is not.
+
+---
+
 ## [1.23.1] — 2026-08-10 · PATCH
 
 **A scheduled moment is now a moment.**

@@ -86,6 +86,13 @@ public class CashController {
      * the same key used for a deposit and a withdrawal of the same amount is a caller bug, and it
      * must surface as one rather than replaying the wrong direction.
      */
+    /**
+     * @param productCode accepted and ignored, like {@code feeAccountId} before it. The product is
+     *     read from the account the money moves through, because a caller able to name it could
+     *     choose which fee and limit rules judged its own transaction. Still part of the
+     *     idempotency fingerprint: a replay that changes it is a caller who has changed their mind
+     *     about something, and answering 409 is better than pretending the two requests were one.
+     */
     public record CashRequest(
             String idempotencyKey,
             UUID customerId,

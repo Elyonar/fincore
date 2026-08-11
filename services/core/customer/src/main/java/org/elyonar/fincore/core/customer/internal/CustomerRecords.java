@@ -116,7 +116,7 @@ public class CustomerRecords implements CustomerAdministration {
         List<Link> links =
                 jdbc.query(
                         """
-                        SELECT ledger_account_id, currency, role, linked_at
+                        SELECT ledger_account_id, account_number, currency, role, product_code, linked_at
                           FROM customer.customer_accounts
                          WHERE customer_id = ? AND unlinked_at IS NULL
                          ORDER BY linked_at
@@ -124,8 +124,10 @@ public class CustomerRecords implements CustomerAdministration {
                         (rs, row) ->
                                 new Link(
                                         rs.getObject("ledger_account_id", UUID.class),
+                                        rs.getString("account_number"),
                                         rs.getString("currency"),
                                         rs.getString("role"),
+                                        rs.getString("product_code"),
                                         rs.getObject("linked_at", OffsetDateTime.class)),
                         customerId);
 
@@ -177,7 +179,13 @@ public class CustomerRecords implements CustomerAdministration {
      * hard rule 3). So this is deliberately a claim about ownership, not a verification of it.
      */
     @Transactional(transactionManager = "customerTransactionManager")
-    public Link link(UUID tenantId, UUID customerId, UUID ledgerAccountId, String currency, String role) {
+    public Link link(
+            UUID tenantId,
+            UUID customerId,
+            UUID ledgerAccountId,
+            String currency,
+            String role,
+            String productCode) {
         scopeTo(tenantId);
 
         Integer exists =
@@ -190,21 +198,23 @@ public class CustomerRecords implements CustomerAdministration {
             return jdbc.queryForObject(
                     """
                     INSERT INTO customer.customer_accounts
-                        (tenant_id, customer_id, ledger_account_id, currency, role)
-                    VALUES (?,?,?,?,?)
-                    RETURNING ledger_account_id, currency, role, linked_at
+                        (tenant_id, customer_id, ledger_account_id, currency, role, product_code)
+                    VALUES (?,?,?,?,?,?)
+                    RETURNING ledger_account_id, account_number, currency, role, product_code, linked_at
                     """,
                     (rs, row) ->
                             new Link(
                                     rs.getObject("ledger_account_id", UUID.class),
+                                    rs.getString("account_number"),
                                     rs.getString("currency"),
                                     rs.getString("role"),
+                                    rs.getString("product_code"),
                                     rs.getObject("linked_at", OffsetDateTime.class)),
-                    tenantId, customerId, ledgerAccountId, currency, role);
+                    tenantId, customerId, ledgerAccountId, currency, role, productCode);
         } catch (DuplicateKeyException e) {
             // `one_live_holder_per_account`. Two customers holding one account at once would make
             // CustomerEligibility.holdsAccount unanswerable, which the money path depends on.
-            throw new AccountAlreadyHeld();
+            throw new CustomerAdministration.AccountAlreadyHeld();
         }
     }
 
@@ -498,7 +508,13 @@ public class CustomerRecords implements CustomerAdministration {
     @Override
     @Transactional(transactionManager = "customerTransactionManager")
     public CustomerAdministration.OpenedAccount linkWithNumber(
-            UUID tenantId, UUID customerId, UUID ledgerAccountId, String currency, String role) {
+            UUID tenantId,
+            UUID customerId,
+            UUID ledgerAccountId,
+            String currency,
+            String role,
+            String productCode,
+            String accountNumber) {
         scopeTo(tenantId);
 
         Integer exists =
@@ -507,22 +523,40 @@ public class CustomerRecords implements CustomerAdministration {
             throw new NoSuchCustomer();
         }
 
-        String number = claim(tenantId, "ACCOUNT");
+        // Supplied or claimed, exactly as `external_ref` already works for the customer themselves.
+        // An institution moving its book onto this platform arrives with account numbers already
+        // printed on passbooks and already known to the settlement switch; a column that could only
+        // be generated would renumber every one of them on migration day.
+        String number =
+                accountNumber == null || accountNumber.isBlank() ? claim(tenantId, "ACCOUNT") : accountNumber.trim();
         try {
             jdbc.update(
                     "INSERT INTO customer.customer_accounts"
-                            + " (tenant_id, customer_id, ledger_account_id, currency, role, account_number)"
-                            + " VALUES (?,?,?,?,?,?)",
+                            + " (tenant_id, customer_id, ledger_account_id, currency, role, account_number,"
+                            + "  product_code)"
+                            + " VALUES (?,?,?,?,?,?,?)",
                     tenantId,
                     customerId,
                     ledgerAccountId,
                     currency,
                     role,
-                    number);
+                    number,
+                    productCode);
         } catch (DuplicateKeyException e) {
-            throw new AccountAlreadyHeld();
+            // Two unique constraints can raise this: one live holder per ledger account, and one
+            // account number per tenant. Told apart by which index Postgres names, because the
+            // remedies differ — the first means the account is already held, the second means the
+            // number belongs to somebody else.
+            //
+            // Read off the exception rather than by asking the database: the constraint violation
+            // has already aborted this transaction, so any query issued here fails as well and the
+            // refusal turns into a 500.
+            if (violated(e, "customer_accounts_number_per_tenant")) {
+                throw new CustomerAdministration.AccountNumberTaken(number);
+            }
+            throw new CustomerAdministration.AccountAlreadyHeld();
         }
-        return new CustomerAdministration.OpenedAccount(ledgerAccountId, number, currency, role);
+        return new CustomerAdministration.OpenedAccount(ledgerAccountId, number, currency, role, productCode);
     }
 
     @Override
@@ -535,7 +569,19 @@ public class CustomerRecords implements CustomerAdministration {
                 customerId);
     }
 
-    public record Link(UUID ledgerAccountId, String currency, String role, OffsetDateTime linkedAt) {}
+    /**
+     * @param accountNumber what the institution calls this account, and the only name a customer
+     *     will ever use for it. Null for accounts linked before the platform issued numbers — shown
+     *     as absent rather than replaced with an identifier nobody can read down a telephone.
+     * @param productCode what the account is held under; what prices every transaction on it.
+     */
+    public record Link(
+            UUID ledgerAccountId,
+            String accountNumber,
+            String currency,
+            String role,
+            String productCode,
+            OffsetDateTime linkedAt) {}
 
     public record TierChange(UUID customerId, String fromTier, String toTier) {}
 
@@ -551,10 +597,19 @@ public class CustomerRecords implements CustomerAdministration {
         }
     }
 
-    public static class AccountAlreadyHeld extends RuntimeException {
-        public AccountAlreadyHeld() {
-            super("that ledger account is already held by a customer");
+
+    /** Whether this violation names that index, anywhere down the cause chain. */
+    private static boolean violated(Throwable e, String index) {
+        for (Throwable at = e; at != null; at = at.getCause()) {
+            String message = at.getMessage();
+            if (message != null && message.contains(index)) {
+                return true;
+            }
+            if (at.getCause() == at) {
+                break;
+            }
         }
+        return false;
     }
     /**
      * The screen-opener (ui-runway.md §3): find customers by name or the tenant's own reference.

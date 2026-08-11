@@ -165,16 +165,14 @@ Verified by running the suites, not by reading the docs: **521 tests green** —
   - no performance, soak or disaster-recovery evidence exists
 
 - `services/core` — **design AGREED v1.20; implemented, merged, and running.**
-  One deployable holding six modules ([ADR 0006](docs/adr/0006-modular-core.md),
-  [ADR 0013](docs/adr/0013-lending-module-first.md)): `customer`, `product`,
-  `organization`, `orchestration`, `lending` and `app`, with a schema and a
-  database role each. Transfers, cash in and out, business reversal with
+  One deployable holding five modules ([ADR 0006](docs/adr/0006-modular-core.md)):
+  `customer`, `product`, `organization`, `orchestration` and `app`, with a schema
+  and a database role each. Transfers, cash in and out, business reversal with
   maker-checker approval, customer contact and consent, product versioning with
-  publish control, organizational units (ADR 0012), and lending — origination
-  through tiered approval to disbursement, schedules, repayment allocation,
-  daily accrual, the penalty engine, delinquency classification, and income
-  recognition on collection (v1.17). It has its own image and compose service,
-  and calls the ledger over HTTP.
+  publish control, and organizational units (ADR 0012). A sixth module, lending
+  ([ADR 0013](docs/adr/0013-lending-module-first.md)), was built and has been
+  withdrawn — out of scope for this build. It has its own image and compose
+  service, and calls the ledger over HTTP.
 
   The domain modules carry no unit tests of their own; all are covered by
   `app`'s integration suite (plus `ScheduleEngineTest`'s seeded sweep), which

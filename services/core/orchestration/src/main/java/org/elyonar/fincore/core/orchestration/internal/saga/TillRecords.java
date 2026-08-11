@@ -114,20 +114,31 @@ public class TillRecords {
      * a transaction is a no-op, which RLS would answer with silence, not an error.
      */
     @Transactional(readOnly = true)
+    /**
+     * @param businessZone the institution's own timezone, which decides where its day begins.
+     *     Comparing a {@code timestamptz} against a bare {@code ?::date} resolved the boundary in
+     *     the *database session's* timezone — which pgjdbc sets from whichever JVM happens to be
+     *     connected. A branch in Lagos on UTC servers would have its day cut at 01:00 local, and
+     *     an hour of cash would appear on the wrong day's till while its daily limits, which have
+     *     always used this zone, disagreed.
+     */
     public java.util.List<java.util.Map<String, Object>> dayActivity(
-            UUID tenantId, UUID accountId, String date) {
+            UUID tenantId, UUID accountId, String date, String businessZone) {
         scopeTo(tenantId);
         return jdbc.query(
                 """
-                SELECT id, type, state, amount_minor, from_account_id, created_at
+                SELECT id, reference, type, state, amount_minor, from_account_id, created_at
                   FROM orchestration.sagas
                  WHERE (from_account_id = ? OR to_account_id = ?)
-                   AND created_at >= ?::date AND created_at < (?::date + 1)
+                   AND created_at >= (?::date)::timestamp AT TIME ZONE ?
+                   AND created_at <  ((?::date) + 1)::timestamp AT TIME ZONE ?
                  ORDER BY created_at
                 """,
                 (rs, i) -> {
                     var row = new java.util.LinkedHashMap<String, Object>();
                     row.put("sagaId", rs.getObject("id", UUID.class).toString());
+                    // What the teller can read out. The id stays for the drawer to look up with.
+                    row.put("reference", rs.getString("reference"));
                     row.put("type", rs.getString("type"));
                     row.put("state", rs.getString("state"));
                     row.put("amountMinor", Long.toString(rs.getLong("amount_minor")));
@@ -136,7 +147,7 @@ public class TillRecords {
                     row.put("at", rs.getObject("created_at", java.time.OffsetDateTime.class).toString());
                     return row;
                 },
-                accountId, accountId, date, date);
+                accountId, accountId, date, businessZone, date, businessZone);
     }
 
     /** Closes a till. Cash cannot move through it afterwards. */

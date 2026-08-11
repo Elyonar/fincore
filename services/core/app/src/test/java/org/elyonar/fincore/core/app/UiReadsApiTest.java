@@ -14,6 +14,7 @@ import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -62,6 +63,9 @@ class UiReadsApiTest {
             "{\"accountId\":\"x\",\"period\":{\"from\":\"2026-08-01\",\"to\":\"2026-08-31\"},"
                     + "\"openingMinor\":\"0\",\"closingMinor\":\"100000\",\"interim\":true,\"lines\":[]}";
 
+    /** What the stubbed Ledger answers a statement read with. Reset per test. */
+    private static final AtomicReference<String> statementBody = new AtomicReference<>(STATEMENT_BODY);
+
     private UUID tenantId;
     private UUID customerId;
     private UUID customerAccount;
@@ -83,7 +87,7 @@ class UiReadsApiTest {
                         body = "{\"transactionId\":\"" + UUID.randomUUID() + "\"}";
                     } else if (path.endsWith("/entries")) {
                         status = entriesStatus.get();
-                        body = status == 200 ? STATEMENT_BODY : "{\"code\":\"NOT_FOUND\"}";
+                        body = status == 200 ? statementBody.get() : "{\"code\":\"NOT_FOUND\"}";
                     } else {
                         status = accountStatus.get();
                         body =
@@ -112,7 +116,6 @@ class UiReadsApiTest {
         registry.add("fincore.core.ledger.base-url", () -> "http://127.0.0.1:" + ledger.getAddress().getPort());
         registry.add("fincore.core.worker.interval-ms", () -> "3600000");
         registry.add("fincore.core.outbox.relay.interval-ms", () -> "3600000");
-        registry.add("fincore.core.lending.jobs.interval-ms", () -> "3600000");
         registry.add("fincore.test.context", () -> "ui-reads");
     }
 
@@ -138,7 +141,7 @@ class UiReadsApiTest {
                                     customerId, tenantId, "C-0001", "Ada Lovelace");
                             customerDb.update(
                                     "INSERT INTO customer.customer_accounts (tenant_id, customer_id,"
-                                            + " ledger_account_id, currency) VALUES (?,?,?, 'NGN')",
+                                            + " ledger_account_id, currency, product_code) VALUES (?,?,?, 'NGN', 'P')",
                                     tenantId, customerId, customerAccount);
                         });
 
@@ -289,15 +292,33 @@ class UiReadsApiTest {
 
     // ------------------------------------------------------------------ statement proxy
 
+    /**
+     * The statement is the Ledger's document, and everything a client depends on survives the trip:
+     * the period, the opening and closing figures, the interim label, the lines and their order,
+     * and an indistinguishable 404.
+     *
+     * <p>It is no longer byte-identical, and that is the one deliberate exception. Each line whose
+     * posting this institution originated gains a {@code reference} — the name on the customer's
+     * receipt — because without it a statement line and the reference somebody reads down the
+     * telephone are unrelated strings and the counter cannot get from one to the other. Nothing is
+     * removed and no figure is recomputed; a line we did not originate simply has no reference.
+     */
     @Test
-    void the_statement_passes_through_byte_for_byte_including_not_found() {
+    void the_statement_passes_through_intact_and_gains_our_reference() {
         var ok =
                 send(as("/v1/accounts/" + customerAccount + "/statement?from=2026-08-01&to=2026-08-31",
                                 ALL, "user:teller")
                         .GET()
                         .build());
         assertThat(ok.statusCode()).isEqualTo(200);
-        assertThat(ok.body()).isEqualTo(STATEMENT_BODY); // shape-preserving means byte-identical
+
+        var document = mapper.readTree(ok.body());
+        assertThat(document.get("openingMinor").asString()).isEqualTo("0");
+        assertThat(document.get("closingMinor").asString()).isEqualTo("100000");
+        assertThat(document.get("interim").asBoolean()).isTrue();
+        assertThat(document.get("period").get("from").asString()).isEqualTo("2026-08-01");
+        // No posting of ours is in this stub's lines, so nothing is annotated and the body stands.
+        assertThat(ok.body()).isEqualTo(STATEMENT_BODY);
 
         entriesStatus.set(404);
         assertThat(
@@ -307,6 +328,53 @@ class UiReadsApiTest {
                                 .build())
                                 .statusCode())
                 .isEqualTo(404);
+    }
+
+    /**
+     * A line whose posting we originated carries the reference from its receipt.
+     *
+     * <p>This is the join that makes a customer's question answerable: they read out
+     * {@code TXN-20260811-00001}, and the line on their statement says the same thing. Asserted
+     * against a posting actually made through the counter rather than a hand-written row, because
+     * the mapping is from the Ledger's transaction id to ours and a fixture proves nothing about it.
+     */
+    @Test
+    void a_statement_line_we_posted_carries_our_reference() {
+        String key = "stmt-" + UUID.randomUUID();
+        var deposit =
+                post(
+                        "/v1/deposits", "cash:transact", "user:teller-1",
+                        ("{\"idempotencyKey\":\"%s\",\"customerId\":\"%s\",\"customerAccountId\":\"%s\","
+                                        + "\"tillId\":\"%s\",\"feeAccountId\":\"%s\",\"amountMinor\":100000,"
+                                        + "\"currency\":\"NGN\",\"productCode\":\"P\",\"channel\":\"TELLER\","
+                                        + "\"description\":\"d\"}")
+                                .formatted(key, customerId, customerAccount, tillId, feeAccount));
+        assertThat(deposit.statusCode()).isEqualTo(201);
+        var posted = mapper.readTree(deposit.body());
+        String ledgerTransactionId = posted.get("ledgerTransactionId").asString();
+        String reference = posted.get("reference").asString();
+
+        statementBody.set(
+                ("{\"accountId\":\"x\",\"period\":{\"from\":\"2026-08-01\",\"to\":\"2026-08-31\"},"
+                                + "\"openingMinor\":\"0\",\"closingMinor\":\"100000\",\"interim\":true,"
+                                + "\"lines\":[{\"entryId\":\"e1\",\"transactionId\":\"%s\","
+                                + "\"direction\":\"CREDIT\",\"amountMinor\":\"100000\"}]}")
+                        .formatted(ledgerTransactionId));
+
+        var statement =
+                send(as("/v1/accounts/" + customerAccount + "/statement?from=2026-08-01&to=2026-08-31",
+                                ALL, "user:teller")
+                        .GET()
+                        .build());
+
+        assertThat(statement.statusCode()).isEqualTo(200);
+        var line = mapper.readTree(statement.body()).get("lines").get(0);
+        assertThat(line.get("reference").asString()).isEqualTo(reference);
+        // Everything the Ledger said about the line is still there, unchanged.
+        assertThat(line.get("amountMinor").asString()).isEqualTo("100000");
+        assertThat(line.get("direction").asString()).isEqualTo("CREDIT");
+
+        statementBody.set(STATEMENT_BODY);
     }
 
     // ------------------------------------------------------------------ till activity
@@ -349,77 +417,6 @@ class UiReadsApiTest {
         assertThat(queue.get("approvals").get(0).get("amountMinor").asString()).isEqualTo("250000");
     }
 
-    // ------------------------------------------------------------------ loan desk lists
-
-    @Test
-    void the_loan_desk_filters_by_state_and_by_awaiting_my_signature() throws Exception {
-        assertThat(
-                        post("/v1/lending/approval-tiers", ALL, "user:grace",
-                                        "{\"ceilingMinor\":100000000,\"approvalsRequired\":2}")
-                                .statusCode())
-                .isEqualTo(200);
-        var created =
-                post("/v1/loan-applications", ALL, "user:officer",
-                        "{\"customerId\":\"%s\",\"productCode\":\"AJO_LOAN\",\"amountMinor\":1000000,\"termMonths\":12}"
-                                .formatted(customerId));
-        assertThat(created.statusCode()).isEqualTo(201);
-        String appId = mapper.readTree(created.body()).get("id").asString();
-
-        assertThat(getJson("/v1/loan-applications?state=APPLIED", ALL, "user:grace").get("applications"))
-                .hasSize(1);
-        // The applicant's own queue is empty — the queue never lists what the sign button refuses.
-        assertThat(getJson("/v1/loan-applications?awaiting=me", ALL, "user:officer").get("applications"))
-                .isEmpty();
-        assertThat(getJson("/v1/loan-applications?awaiting=me", ALL, "user:bola").get("applications"))
-                .hasSize(1);
-
-        assertThat(post("/v1/loan-applications/" + appId + "/approve", ALL, "user:bola", "{}").statusCode())
-                .isEqualTo(200);
-        // Signed: bola's queue drains; grace still owes the second signature.
-        assertThat(getJson("/v1/loan-applications?awaiting=me", ALL, "user:bola").get("applications"))
-                .isEmpty();
-        assertThat(getJson("/v1/loan-applications?awaiting=me", ALL, "user:grace").get("applications"))
-                .hasSize(1);
-    }
-
-    @Test
-    void a_customers_loans_and_a_loans_repayments_read_back() throws Exception {
-        assertThat(
-                        post("/v1/lending/approval-tiers", ALL, "user:grace",
-                                        "{\"ceilingMinor\":100000000,\"approvalsRequired\":0}")
-                                .statusCode())
-                .isEqualTo(200);
-        var created =
-                post("/v1/loan-applications", ALL, "user:officer",
-                        "{\"customerId\":\"%s\",\"productCode\":\"AJO_LOAN\",\"amountMinor\":1000000,\"termMonths\":12}"
-                                .formatted(customerId));
-        String appId = mapper.readTree(created.body()).get("id").asString();
-        assertThat(post("/v1/loan-applications/" + appId + "/accept-offer", ALL, "user:ada", "{}").statusCode())
-                .isEqualTo(200);
-        assertThat(
-                        post("/v1/loan-applications/" + appId + "/disburse", ALL, "user:bola",
-                                        "{\"fundingAccountId\":\"%s\",\"destinationAccountId\":\"%s\"}"
-                                                .formatted(UUID.randomUUID(), customerAccount))
-                                .statusCode())
-                .isEqualTo(200);
-
-        JsonNode loans = getJson("/v1/customers/" + customerId + "/loans", ALL, "user:officer");
-        assertThat(loans.get("loans")).hasSize(1);
-        String loanId = loans.get("loans").get(0).get("loanId").asString();
-        assertThat(loans.get("loans").get(0).get("principalOutstandingMinor").asString()).isEqualTo("1000000");
-
-        assertThat(
-                        post("/v1/loans/" + loanId + "/repayments", ALL, "user:officer",
-                                        "{\"idempotencyKey\":\"r-%s\",\"amountMinor\":10000,\"sourceAccountId\":\"%s\"}"
-                                                .formatted(loanId, customerAccount))
-                                .statusCode())
-                .isEqualTo(201);
-        JsonNode history = getJson("/v1/loans/" + loanId + "/repayments", ALL, "user:officer");
-        assertThat(history.get("repayments")).hasSize(1);
-        assertThat(history.get("repayments").get(0).get("principalMinor").asString()).isEqualTo("10000");
-        assertThat(history.get("repayments").get(0).get("state").asString()).isEqualTo("ALLOCATED");
-    }
-
     // ------------------------------------------------------------------ the standing probes
 
     @Test
@@ -430,8 +427,6 @@ class UiReadsApiTest {
             {"/v1/accounts/" + customerAccount + "/statement?from=2026-08-01&to=2026-08-31", "customers:read"},
             {"/v1/tills/" + tillId + "/activity?date=2026-08-08", "customers:read"},
             {"/v1/approvals/pending", "approvals:make"},
-            {"/v1/loan-applications?state=APPLIED", "customers:read"},
-            {"/v1/customers/" + customerId + "/loans", "customers:read"},
         };
         for (String[] probe : probes) {
             assertThat(send(as(probe[0], probe[1], "user:x").GET().build()).statusCode())

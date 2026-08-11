@@ -3,6 +3,7 @@ package org.elyonar.fincore.core.orchestration.internal.api;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -12,6 +13,7 @@ import org.elyonar.fincore.core.orchestration.api.CoreException;
 import org.elyonar.fincore.core.orchestration.api.ErrorCode;
 import org.elyonar.fincore.core.orchestration.internal.approval.ApprovalRecords;
 import org.elyonar.fincore.core.orchestration.internal.ledger.LedgerClient;
+import org.elyonar.fincore.core.orchestration.internal.saga.SagaRecords;
 import org.elyonar.fincore.core.orchestration.internal.saga.TillRecords;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -42,17 +44,24 @@ public class ClientReadsController {
     private final LedgerClient ledger;
     private final TillRecords tills;
     private final ApprovalRecords approvals;
+    private final SagaRecords sagas;
     private final JsonMapper json = JsonMapper.builder().build();
+
+    private final org.elyonar.fincore.core.orchestration.internal.TenantZones zones;
 
     public ClientReadsController(
             CustomerEligibility customers,
             LedgerClient ledger,
             TillRecords tills,
-            ApprovalRecords approvals) {
+            ApprovalRecords approvals,
+            SagaRecords sagas,
+            org.elyonar.fincore.core.orchestration.internal.TenantZones zones) {
         this.customers = customers;
         this.ledger = ledger;
         this.tills = tills;
         this.approvals = approvals;
+        this.sagas = sagas;
+        this.zones = zones;
     }
 
     /** The customer-360 money view: held accounts with the ledger's balances joined on. */
@@ -71,8 +80,15 @@ public class ClientReadsController {
             }
             var row = new LinkedHashMap<String, Object>();
             row.put("ledgerAccountId", account.ledgerAccountId().toString());
+            // The account's own name. Every screen that had only the UUID showed the customer eight
+            // hexadecimal characters and called it an account.
+            row.put("accountNumber", account.accountNumber());
             row.put("currency", account.currency());
             row.put("role", account.role());
+            // What prices every transaction on this account. Null on accounts opened before the
+            // platform recorded it, and worth showing as null rather than omitting: a teller
+            // looking at a customer-360 should see that this one cannot take a deposit.
+            row.put("productCode", account.productCode());
             if (read.status() == 200) {
                 JsonNode parsed = json.readTree(read.body());
                 row.put("currentMinor", parsed.path("currentMinor").asString());
@@ -85,8 +101,18 @@ public class ClientReadsController {
     }
 
     /**
-     * The statement, passed through exactly as the ledger answers it. Status and body travel
-     * untouched — including 404's indistinguishability and the interim label.
+     * The statement as the Ledger answers it, with our reference added to each line.
+     *
+     * <p>Status and body still travel untouched in every respect a client depends on — the
+     * indistinguishable 404, the interim label, the opening and closing figures, the ordering, the
+     * cursor. Nothing is removed and nothing is recomputed. One field is <em>added</em> per line.
+     *
+     * <p>It is added because a statement is the Ledger's document and names the Ledger's
+     * transactions, while the customer holding a receipt has ours. Without the join, the line a
+     * customer is querying and the reference they are reading out are unrelated strings, and the
+     * teller has no way to get from one to the other. A line whose posting this institution did not
+     * originate — there are none today, but the Ledger is a general one — simply has no reference,
+     * which is the truth about it rather than a gap to be filled in.
      */
     @GetMapping("/accounts/{ledgerAccountId}/statement")
     public ResponseEntity<String> statement(
@@ -103,7 +129,54 @@ public class ClientReadsController {
         }
         return ResponseEntity.status(read.status())
                 .contentType(MediaType.APPLICATION_JSON)
-                .body(read.body());
+                .body(withReferences(identity.tenantId(), read));
+    }
+
+    /**
+     * Adds {@code reference} to each statement line, leaving everything else exactly as it arrived.
+     *
+     * <p>Anything unexpected — a non-200, an unparseable body, a shape without lines — returns the
+     * original untouched. A statement that could not be annotated is still a statement; one that
+     * failed to be served because the annotation threw would be a read broken by a convenience.
+     */
+    private String withReferences(UUID tenantId, LedgerClient.RawRead read) {
+        if (read.status() != 200 || read.body() == null) {
+            return read.body();
+        }
+        try {
+            JsonNode parsed = json.readTree(read.body());
+            JsonNode lines = parsed.path("lines");
+            if (!lines.isArray() || lines.isEmpty()) {
+                return read.body();
+            }
+
+            var ledgerTransactionIds = new LinkedHashSet<UUID>();
+            for (JsonNode line : lines) {
+                String id = line.path("transactionId").asString(null);
+                if (id != null) {
+                    try {
+                        ledgerTransactionIds.add(UUID.fromString(id));
+                    } catch (IllegalArgumentException notAUuid) {
+                        // The Ledger's own identifier shape is its business; skip what we cannot key on.
+                    }
+                }
+            }
+
+            Map<UUID, String> references = sagas.referencesForLedgerTransactions(tenantId, ledgerTransactionIds);
+            if (references.isEmpty()) {
+                return read.body();
+            }
+            for (JsonNode line : lines) {
+                String id = line.path("transactionId").asString(null);
+                String reference = id == null ? null : references.get(UUID.fromString(id));
+                if (reference != null && line.isObject()) {
+                    ((tools.jackson.databind.node.ObjectNode) line).put("reference", reference);
+                }
+            }
+            return json.writeValueAsString(parsed);
+        } catch (Exception annotationFailed) {
+            return read.body();
+        }
     }
 
     /** A till's day: every saga that touched its account on the date, with the net position. */
@@ -115,7 +188,12 @@ public class ClientReadsController {
         if (accountId == null) {
             throw new CoreException(ErrorCode.TILL_NOT_OPEN, "no such till");
         }
-        List<Map<String, Object>> movements = tills.dayActivity(identity.tenantId(), accountId, date);
+        List<Map<String, Object>> movements =
+                tills.dayActivity(
+                        identity.tenantId(),
+                        accountId,
+                        date,
+                        zones.businessZone(identity.tenantId()).getId());
         long in =
                 movements.stream()
                         .filter(m -> "IN".equals(m.get("direction")) && "COMPLETED".equals(m.get("state")))

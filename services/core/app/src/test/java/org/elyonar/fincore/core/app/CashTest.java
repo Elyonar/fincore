@@ -115,7 +115,7 @@ class CashTest {
                                     customerId, tenantId, "C-" + UUID.randomUUID(), "Ada");
                             customerDb.update(
                                     "INSERT INTO customer.customer_accounts (tenant_id, customer_id,"
-                                            + " ledger_account_id, currency) VALUES (?,?,?, 'NGN')",
+                                            + " ledger_account_id, currency, product_code) VALUES (?,?,?, 'NGN', 'P')",
                                     tenantId, customerId, customerAccount);
                         });
 
@@ -204,16 +204,43 @@ class CashTest {
 
     // --------------------------------------------------------------- withdrawal
 
+    /**
+     * ₦1,000 out, ₦50 fee: the customer is debited ₦1,000 and, separately, ₦50; the till pays out
+     * ₦1,000 and the fee account takes ₦50.
+     *
+     * <p>Two debits rather than one of ₦1,050, so the charge is a line of its own on the customer's
+     * statement instead of arithmetic they have to do themselves. Legal here — and not on a deposit
+     * — because both of the customer's entries are debits, so they never appear on both sides of
+     * one transaction, which the Ledger refuses as a wash.
+     */
     @Test
-    void a_withdrawal_debits_the_customer_for_amount_plus_fee_and_credits_the_till() {
-        // ₦1,000 out, ₦50 fee: the customer is debited ₦1,050, the till pays out ₦1,000, the fee
-        // account takes ₦50. The mirror of a deposit, and the direction that matters.
+    void a_withdrawal_debits_the_customer_separately_for_the_amount_and_the_fee() {
         TransferResult result = cash(CashCommand.Operation.WITHDRAWAL, 100_000, "cash-wd");
 
         assertThat(result.state()).isEqualTo("COMPLETED");
-        assertEntry(customerAccount, "DEBIT", 105_000);
+        assertEntry(customerAccount, "DEBIT", 100_000);
+        assertEntry(customerAccount, "DEBIT", 5_000);
         assertEntry(tillAccount, "CREDIT", 100_000);
         assertEntry(feeAccount, "CREDIT", 5_000);
+    }
+
+    /**
+     * A deposit's fee is netted, and this records why rather than treating it as the natural shape.
+     *
+     * <p>Crediting the customer the principal and debiting them the fee would put one account on
+     * both sides of one transaction, which the Ledger rejects outright. So the charge does not
+     * appear on a deposit statement, and cannot until a deposit posts two ledger transactions — the
+     * deposit and the charge — under one saga. Asserted so that whoever builds that finds a test
+     * telling them what changes rather than one quietly agreeing with either answer.
+     */
+    @Test
+    void a_deposit_fee_is_still_netted_because_the_ledger_refuses_a_wash() {
+        cash(CashCommand.Operation.DEPOSIT, 100_000, "cash-dep-netted");
+
+        String request = lastRequest.get();
+        int customerMentions = request.split("\"accountId\":\"" + customerAccount + "\"", -1).length - 1;
+        assertThat(customerMentions).isEqualTo(1);
+        assertEntry(customerAccount, "CREDIT", 95_000);
     }
 
     // ------------------------------------------------------------------- tills

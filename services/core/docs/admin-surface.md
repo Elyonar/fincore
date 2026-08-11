@@ -1,6 +1,6 @@
 # Core — The Administration Surface
 
-**Status:** AGREED v1.20 (2026-08-08) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
+**Status:** AGREED v1.24 (2026-08-10) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
 
 What a tenant's own administrator needs in order to turn a provisioned tenant
 into an institution that can transact. Three capabilities, designed as one batch
@@ -16,6 +16,15 @@ permission/role split §4 implements).
 `ApiSurfaceCatalogTest` fails a documented-but-unbuilt route in both directions,
 and that is a feature this document must not fight — the same rule
 [`ui-runway.md`](ui-runway.md) §3 works under.
+
+> **Amended v1.24 (2026-08-10).** §3 is built: all six product-authoring
+> endpoints are served and now appear in `api.md`. Building it corrected four
+> things this document committed to — the migration it said was unnecessary, the
+> module in which account verification is possible, the shape of a ledger that
+> cannot be asked, and five refusal reasons it did not name. Each is recorded in
+> [`CHANGELOG.md`](CHANGELOG.md) 1.24.0. **§4 (account opening) remains unbuilt**,
+> so the account columns a rule may name can still only hold ids obtained outside
+> this platform.
 
 ---
 
@@ -100,9 +109,28 @@ published version) · `RULES_INVALID` with reasons `UNKNOWN_KYC_TIER`,
 `ACCOUNT_WRONG_TYPE` · `LOAN_RULES_ON_NON_LOAN_PRODUCT` ·
 `EFFECTIVE_FROM_IN_THE_PAST`.
 
+> **Superseded by v1.24.** `VERSION_NOT_FOUND` duplicated the existing
+> `PRODUCT_VERSION_NOT_FOUND`, which stands. Five reasons were added that this
+> list did not name — `UNKNOWN_OPERATION`, `UNKNOWN_LIMIT_TYPE`,
+> `AMOUNT_MALFORMED`, `CURRENCY_INVALID`, `EFFECTIVE_FROM_INVALID` — and one code,
+> `LEDGER_UNREACHABLE`, for the case below. The current catalog is `api.md`'s,
+> which `ErrorCodeCatalogTest` holds to the enum.
+
 `ACCOUNT_WRONG_TYPE` matters more than it looks: a fee-income account that is
 actually a customer account routes fee revenue into somebody's savings, and
 nothing downstream would notice.
+
+Verifying it means asking the ledger, which Product may not do — hard rule 3
+forbids it an HTTP client, and the module graph runs Orchestration → Product,
+never the reverse. The port is therefore declared on the consumer's side as
+`product.api.LedgerAccounts` and implemented in Orchestration, which already
+holds the only ledger client on the platform and already depends on
+`product.api`. No module edge is added in either direction.
+
+That port answers `Known`, `Absent` or `Unreadable`, never a boolean. An account
+the ledger could not be asked about is `LEDGER_UNREACHABLE` and a 503, never
+`ACCOUNT_NOT_FOUND` — refusing a correctly-authored rule because the ledger was
+restarting is the read-side version of compensating an unknown outcome.
 
 ## 4. Account opening
 

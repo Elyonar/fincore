@@ -69,6 +69,27 @@ public class ProductController {
         return products.publish(identity.tenantId(), id, version, Authorization.initiatedBy());
     }
 
-    /** @param type SAVINGS or CURRENT */
+    // ---------------------------------------------------------------- version authoring
+    //
+    // Deliberately absent. Drafting a version, reading one, and writing its fee, limit and loan
+    // rules were all served from here as well as from `app`'s PricingController, under
+    // `/{id}/versions/...` against `/{productId}/versions/...`. Those are two spellings of one URI,
+    // and Spring does not pick between them: it matched both and threw `Ambiguous handler methods`,
+    // so every request on the pricing surface — every rule save, every version read — was a 500.
+    // The whole surface was dead, and no test noticed because none exercised it.
+    //
+    // The duplicate went here rather than there because api.md (§ admin surface) assigns all six
+    // routes to `app (pricing)` and the portal is written to that contract, down to the
+    // `productId`/`productCode`/`productType` fields only its response carries.
+    //
+    // What that costs is real and not yet repaid: these methods ran every rule through
+    // RuleValidation first, and PricingController checks only the accounts a rule names. The shape
+    // checks — a FLAT fee carrying basis points, a tier this platform has no customers in, inverted
+    // term bounds — now reach the database and come back as a constraint violation instead of a
+    // RULES_INVALID a client can render. RuleValidation is still here and still correct; it needs
+    // lifting into product.api before `app` is allowed to call it (ADR 0006), which is its own
+    // change with its own tests.
+
+    /** @param type SAVINGS, CURRENT or LOAN */
     public record CreateProduct(String code, String name, String type) {}
 }

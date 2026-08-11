@@ -1,6 +1,12 @@
 # ADR 0013 — Lending starts as a Core module, above Orchestration
 
-**Status:** Accepted · 2026-08-08
+**Status:** Withdrawn · 2026-08-11 — the module was built to this decision and has
+since been removed from the build. The core (money in and out, who owns it, and the
+setup for both) is being finished before another domain is stacked on it. Nothing
+here is disowned: if lending returns, it returns as this ADR describes, and the
+dependency order it amended is the order to amend again.
+
+**Originally accepted:** 2026-08-08
 **Supersedes:** nothing. Applies ADR 0006's packaging logic to the next domain,
 and amends the module dependency order it froze.
 

@@ -269,7 +269,7 @@ class CustomerApiTest {
                         as("/v1/customers/" + id + "/accounts", "customers:link")
                                 .POST(
                                         HttpRequest.BodyPublishers.ofString(
-                                                "{\"ledgerAccountId\":\"" + account + "\",\"currency\":\"NGN\"}"))
+                                                "{\"ledgerAccountId\":\"" + account + "\",\"currency\":\"NGN\",\"productCode\":\"P\"}"))
                                 .build());
 
         assertThat(linked.statusCode()).isEqualTo(201);
@@ -284,7 +284,7 @@ class CustomerApiTest {
         String first = field(createCustomer("CUST-" + UUID.randomUUID()).body(), "customerId");
         String second = field(createCustomer("CUST-" + UUID.randomUUID()).body(), "customerId");
         UUID account = UUID.randomUUID();
-        String body = "{\"ledgerAccountId\":\"" + account + "\",\"currency\":\"NGN\"}";
+        String body = "{\"ledgerAccountId\":\"" + account + "\",\"currency\":\"NGN\",\"productCode\":\"P\"}";
 
         assertThat(
                         send(
@@ -306,6 +306,32 @@ class CustomerApiTest {
         assertThat(clash.body()).contains("ACCOUNT_ALREADY_HELD");
     }
 
+    /**
+     * A customer with no name is a refusal, not a 500.
+     *
+     * <p>{@code full_name} is NOT NULL, so nothing nameless was ever written — the guard held. What
+     * did not hold was the answer: the request reached the database and the caller got an
+     * unexplained server error instead of the name of the field they had missed.
+     */
+    @Test
+    void registering_a_customer_with_no_name_is_refused_rather_than_a_500() {
+        HttpResponse<String> nameless =
+                send(
+                        as("/v1/customers", "customers:create")
+                                .POST(HttpRequest.BodyPublishers.ofString("{\"kycTier\":\"TIER_1\"}"))
+                                .build());
+        assertThat(nameless.statusCode()).isEqualTo(422);
+        assertThat(nameless.body()).contains("NAME_REQUIRED");
+
+        // Blank is the same as absent: a name of spaces names nobody.
+        HttpResponse<String> blank =
+                send(
+                        as("/v1/customers", "customers:create")
+                                .POST(HttpRequest.BodyPublishers.ofString("{\"fullName\":\"   \"}"))
+                                .build());
+        assertThat(blank.statusCode()).isEqualTo(422);
+    }
+
     @Test
     void linking_to_an_unknown_customer_is_a_404() {
         HttpResponse<String> linked =
@@ -314,7 +340,7 @@ class CustomerApiTest {
                                 .POST(
                                         HttpRequest.BodyPublishers.ofString(
                                                 "{\"ledgerAccountId\":\"" + UUID.randomUUID()
-                                                        + "\",\"currency\":\"NGN\"}"))
+                                                        + "\",\"currency\":\"NGN\",\"productCode\":\"P\"}"))
                                 .build());
 
         assertThat(linked.statusCode()).isEqualTo(404);

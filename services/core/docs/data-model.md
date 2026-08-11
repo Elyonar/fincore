@@ -1,6 +1,6 @@
 # Core — Data Model
 
-**Status:** AGREED v1.20 (2026-08-08) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
+**Status:** AGREED v1.24 (2026-08-10) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
 
 One database, three schemas, one database role per schema. Amounts are integer
 minor units (`BIGINT`), `tenant_id` on **every** row.
@@ -322,6 +322,14 @@ erDiagram
   the migration that added `created_by`, which had tried to backfill published
   rows with an `UPDATE`. A migration is exactly the privileged path that quietly
   edits signed-off configuration, and it was stopped like any other writer.
+- **So are a published version's rules** — `fee_rules`, `limit_rules` and
+  `loan_rules`, since `V7__published_rules_are_immutable.sql` (v1.24). The V2
+  trigger fired on `product_versions` alone, so for six migrations the header row
+  was immutable while the rows carrying the actual price were not. Nothing
+  exercised it because nothing outside the test suite wrote them; the rule-authoring
+  endpoints made it reachable. Java refuses these writes too, and the trigger is
+  what makes the refusal survive a refactor — the same reasoning as the row above,
+  applied one table down.
 - **The publisher of a version may not be its author** —
   `publisher_differs_from_author`, mirroring `checker_differs_from_maker` on
   `orchestration.approvals` because it is the same rule about a different

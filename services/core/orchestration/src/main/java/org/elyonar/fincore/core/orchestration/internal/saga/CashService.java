@@ -70,8 +70,24 @@ public class CashService {
                             ? ErrorCode.CUSTOMER_NOT_FOUND
                             : ErrorCode.CUSTOMER_NOT_ACTIVE);
         }
-        if (!customers.holdsAccount(command.tenantId(), command.customerId(), command.customerAccountId())) {
-            throw new TransferService.TransferRefused(ErrorCode.ACCOUNT_NOT_LINKED);
+        // The product comes from the account, never from the request. What a transaction is priced
+        // by — which fee it pays and which ceiling it is measured against — is a property of the
+        // account the customer holds, and a caller that could name it could choose the rules its
+        // own transaction was judged by. Same correction V4 made for the fee account; this one
+        // decides which rules apply at all, which is the larger of the two.
+        //
+        // One read answers both questions. A null means either that she does not hold the account
+        // or that the account predates the column, and both refuse — the second with its own code,
+        // because "you do not hold this" would be a lie about a real account.
+        String productCode =
+                customers.productOfHeldAccount(
+                        command.tenantId(), command.customerId(), command.customerAccountId());
+        if (productCode == null) {
+            throw new TransferService.TransferRefused(
+                    customers.holdsAccount(
+                                    command.tenantId(), command.customerId(), command.customerAccountId())
+                            ? ErrorCode.ACCOUNT_HAS_NO_PRODUCT
+                            : ErrorCode.ACCOUNT_NOT_LINKED);
         }
 
         TillRecords.Till till = tills.openTill(command.tenantId(), command.tillId());
@@ -88,7 +104,7 @@ public class CashService {
                 products.evaluate(
                         new ProductRequest(
                                 command.tenantId(),
-                                command.productCode(),
+                                productCode,
                                 command.operation() == CashCommand.Operation.DEPOSIT
                                         ? ProductRequest.Operation.DEPOSIT
                                         : ProductRequest.Operation.WITHDRAWAL,
@@ -109,7 +125,7 @@ public class CashService {
 
         UUID sagaId =
                 sagas.openCash(
-                        command, decision, till, eligibility.kycTier(),
+                        command, decision, till, eligibility.kycTier(), productCode,
                         "daily:" + LocalDate.now(command.businessZone()));
 
         // ---- Phase B ---------------------------------------------------------
@@ -148,34 +164,35 @@ public class CashService {
         long amount = command.amountMinor();
         long fee = decision.feeMinor();
 
-        List<LedgerPosting.Entry> entries;
-        if (command.operation() == CashCommand.Operation.DEPOSIT) {
-            // Cash in: the till takes the notes, the customer is credited what is left after the fee.
-            entries =
-                    new java.util.ArrayList<>(
-                            List.of(
-                                    entry(till.ledgerAccountId(), LedgerPosting.Direction.DEBIT, amount, command),
-                                    entry(command.customerAccountId(), LedgerPosting.Direction.CREDIT, amount - fee, command)));
-        } else {
-            // Cash out: the customer is debited the amount plus the fee, the till pays out the amount.
-            entries =
-                    new java.util.ArrayList<>(
-                            List.of(
-                                    entry(command.customerAccountId(), LedgerPosting.Direction.DEBIT, amount + fee, command),
-                                    entry(till.ledgerAccountId(), LedgerPosting.Direction.CREDIT, amount, command)));
-        }
-        if (fee > 0) {
-            // The product's account, and only that — see TransferService for why the caller's is no
-            // longer accepted now that pricing can name one.
-            if (decision.feeAccountId() == null) {
-                throw new CoreException(
-                        ErrorCode.FEE_ACCOUNT_NOT_CONFIGURED,
-                        null,
-                        "this product prices a fee and names no account to credit it to",
-                        Map.of());
-            }
-            entries.add(entry(decision.feeAccountId(), LedgerPosting.Direction.CREDIT, fee, command));
-        }
+        /*
+         * The entries come from Postings, which both this and the worker's retry path use. Two
+         * constructions of one posting is a drift waiting to happen, and it happened once already.
+         *
+         * A withdrawal debits the customer twice — the principal and the fee — so the charge reads
+         * as its own line on their statement. A deposit cannot do the same in one transaction: the
+         * customer would be credited the principal and debited the fee, which puts one account on
+         * both sides and the Ledger refuses it as a wash.
+         *
+         * So a deposit's fee is still netted into the credit, and a customer still cannot see it on
+         * their statement. Closing that needs a separate posting for the charge — the design is a
+         * second saga opened in the transaction that completes this one, so the two exist together
+         * or not at all — and it is not built. Deliberately not smuggled in here: it adds a state
+         * to the money path and wants its own tests.
+         */
+        boolean deposit = command.operation() == CashCommand.Operation.DEPOSIT;
+
+        UUID from = deposit ? till.ledgerAccountId() : command.customerAccountId();
+        UUID to = deposit ? command.customerAccountId() : till.ledgerAccountId();
+
+        List<LedgerPosting.Entry> entries =
+                Postings.entriesFor(
+                        deposit ? "DEPOSIT" : "WITHDRAWAL",
+                        from,
+                        to,
+                        decision.feeAccountId(),
+                        amount,
+                        fee,
+                        command.currency());
         return new LedgerPosting(key, command.initiatedBy(), command.description(), entries);
     }
 

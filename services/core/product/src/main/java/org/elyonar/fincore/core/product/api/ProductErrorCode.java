@@ -36,11 +36,47 @@ public enum ProductErrorCode {
     PUBLISHER_IS_AUTHOR,
 
     /**
-     * A rule names an account the institution has not opened, has closed, opened for another
-     * purpose, or holds in another currency.
+     * A write against a version that is already live.
      *
-     * <p>The check {@code V4__fee_account_configuration.sql} was written to make possible: a fee
-     * must credit a fee income account, not any account the caller can name.
+     * <p>Distinct from {@link #VERSION_ALREADY_PUBLISHED}, which answers an attempt to publish
+     * something published. This one answers an attempt to <em>edit</em> it, and the remedy differs:
+     * draft the next version rather than fetch a colleague.
+     */
+    VERSION_NOT_DRAFT,
+
+    /**
+     * A rule set this version cannot hold.
+     *
+     * <p>One code spanning many causes, so it carries a {@code reason}: {@code UNKNOWN_OPERATION},
+     * {@code UNKNOWN_FEE_BASIS}, {@code UNKNOWN_KYC_TIER}, {@code UNKNOWN_CHANNEL},
+     * {@code UNKNOWN_LIMIT_TYPE}, {@code UNKNOWN_SCHEDULE_KIND}, {@code BOUNDS_INVERTED},
+     * {@code RATE_OUT_OF_RANGE}, {@code AMOUNT_MALFORMED}, {@code CURRENCY_INVALID},
+     * {@code ACCOUNT_NOT_FOUND}, {@code ACCOUNT_WRONG_TYPE}, {@code EFFECTIVE_FROM_INVALID}.
+     */
+    RULES_INVALID,
+
+    /** Loan terms on a product that is not a LOAN. */
+    LOAN_RULES_ON_NON_LOAN_PRODUCT,
+
+    /** A draft dated to become effective before it existed. */
+    EFFECTIVE_FROM_IN_THE_PAST,
+
+    /**
+     * The ledger could not be asked whether a named account is usable.
+     *
+     * <p>Product's own constant rather than Orchestration's: the two modules may not share an enum
+     * (ADR 0006), and a duplicated name is cheaper than the dependency. A 503 — the configuration
+     * may be correct and the answer merely unavailable.
+     */
+    LEDGER_UNREACHABLE,
+
+    /**
+     * A rule names an account the institution has not opened, or has opened for something else.
+     *
+     * <p>Was a string literal at the one place that returned it, which made it invisible to
+     * {@code ErrorCodeCatalogTest} — {@code api.md} documented it and the test reported a phantom,
+     * because no constant answered to the name. Here it is reconciled like every other code
+     * (hard rule 10), and the handler returns the constant rather than a spelling of it.
      */
     PRICING_ACCOUNT_INVALID;
 

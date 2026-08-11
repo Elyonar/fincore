@@ -27,8 +27,8 @@ the first place.
 
 | Method & path | Purpose | Module | Permission | Caller |
 |---|---|---|---|---|
-| `POST /v1/deposits` | cash in: till → customer account | orchestration | `cash:transact` | teller, API |
-| `POST /v1/withdrawals` | cash out: customer account → till | orchestration | `cash:transact` | teller, API |
+| `POST /v1/deposits` | cash in: till → customer account; priced by the account's own product | orchestration | `cash:transact` | teller, API |
+| `POST /v1/withdrawals` | cash out: customer account → till; priced by the account's own product | orchestration | `cash:transact` | teller, API |
 | `POST /v1/transfers` | intra-tenant book transfer | orchestration | `transfers:create` | teller, API |
 | `GET  /v1/transactions/{id}` | saga state and the accounts it moved between — **non-mutating recovery read** | orchestration | `transfers:read` | teller, API, ops, consumers |
 | `POST /v1/transactions/{id}/reverse` | **business** reversal of a completed transaction — approval required | orchestration | `transfers:reverse` | ops, supervisor |
@@ -41,7 +41,7 @@ the first place.
 | `GET  /v1/approvals/pending` | the checker's queue, oldest first | orchestration | `approvals:check` | supervisor |
 | `POST /v1/customers/{id}/tier` | change KYC tier (attributed, reason required) | customer | `customers:tier` | compliance, admin |
 | `POST /v1/customers/{id}/accounts` | link a ledger account to a customer | customer | `customers:link` | admin |
-| `POST /v1/customers/{customerId}/accounts/open` | open a ledger account for a customer and number it | app (onboarding) | `customers:link` | admin, teller |
+| `POST /v1/customers/{customerId}/accounts/open` | open a ledger account for a customer, number it, and record the product it is held under | app (onboarding) | `customers:link` | admin, teller |
 | `GET  /v1/customer-numbering` | how customers and their accounts are numbered, and the next of each | app (onboarding) | `customers:read` | admin |
 | `PUT  /v1/customer-numbering/{series}` | change a series — prefix, width, next value | app (onboarding) | `customers:create` | admin |
 | `GET  /v1/customers/by-account/{ledgerAccountId}` | contact addresses, language and consent for the holder of an account — **no name, no tier** | customer | `customers:contact` | notification, API |
@@ -89,21 +89,6 @@ the first place.
 | `POST /v1/tills` | provision a till inside a validated branch | orchestration | `tills:manage` | admin |
 | `GET  /v1/tills` | the tenant's tills | orchestration | `tills:read` | admin, supervisor |
 | `POST /v1/tills/{id}/close` | close a till; cash cannot move through it afterwards | orchestration | `tills:manage` | admin |
-| `POST /v1/loan-applications` | apply against a loan product (ADR 0013) | lending | `loans:apply` | loan officer, API |
-| `GET  /v1/loan-applications/{id}` | state, chain progress, offer economics | lending | `loans:read` | loan officer, supervisor |
-| `POST /v1/loan-applications/{id}/approve` | one signature in the tiered chain — approver from the token | lending | `loans:approve` | supervisor |
-| `POST /v1/loan-applications/{id}/reject` | terminal, reason required | lending | `loans:approve` | supervisor |
-| `POST /v1/loan-applications/{id}/accept-offer` | customer acceptance, attributed | lending | `loans:offer` | loan officer, API |
-| `POST /v1/loan-applications/{id}/disburse` | opens the funding saga; idempotent per application | lending | `loans:disburse` | supervisor |
-| `GET  /v1/loans/{id}` | balances: outstanding, accrued, penalty due, recognized, payoff | lending | `loans:read` | loan officer, API |
-| `GET  /v1/loans/{id}/schedule` | the installment rows | lending | `loans:read` | loan officer, API |
-| `GET  /v1/loan-applications` | applications by state or awaiting my signature, keyset-paged (`state`, `awaiting`, `page`) | lending | `loans:read` | loan officer, supervisor |
-| `GET  /v1/customers/{id}/loans` | a customer's loans with payoff — the 360 view's lending panel | lending | `loans:read` | loan officer, API |
-| `GET  /v1/loans/{id}/repayments` | repayment history with the component split | lending | `loans:read` | loan officer, API |
-| `POST /v1/loans/{id}/repayments` | intake: opens the repayment saga, allocates on completion | lending | `loans:repay` | loan officer, API |
-| `GET  /v1/portfolio/par` | PAR by bucket × product × officer × unit | lending | `loans:portfolio` | admin, ops |
-| `POST /v1/lending/approval-tiers` | set a tier: ceiling → approvals required, zero permitted | lending | `loans:tiers` | admin |
-| `GET  /v1/lending/approval-tiers` | the tenant's tiers | lending | `loans:tiers` | admin |
 
 **The channel is permission-gated, never free-asserted.** The channel a
 transfer names selects which limit rules apply, which makes it an authorization
@@ -237,6 +222,7 @@ tenant renders its own string from `code`, `reason` and `details`.
 | `CUSTOMER_NOT_FOUND` | unknown customer, or another tenant's | no |
 | `CUSTOMER_NOT_ACTIVE` | customer is dormant or closed | no |
 | `ACCOUNT_NOT_LINKED` | the account is not linked to this customer | no |
+| `ACCOUNT_HAS_NO_PRODUCT` | the account records no product, so nothing prices the transaction | no |
 | `PRODUCT_NOT_FOUND` | no product, or no published version in effect | no |
 | `OPERATION_NOT_PERMITTED` | the product forbids this operation for this tier or channel | no |
 | `LIMIT_EXCEEDED` | per-transaction or daily limit would be breached | no — new key after the window rolls |
@@ -252,31 +238,27 @@ tenant renders its own string from `code`, `reason` and `details`.
 | `PRICING_ACCOUNT_INVALID` | a rule names an account the institution has not opened, has closed, opened for something else, or in another currency → 422 | no |
 | `ACCOUNT_NOT_OPENED` | the customer account could not be opened as asked — unknown customer, bad currency, or the ledger refused → 422 | no |
 | `UNIT_CODE_TAKEN` | the tenant already has a unit with this code; codes never recycle → 409 | no — caller bug |
+| `UNIT_CODE_INVALID` | the code is not lowercase letters, digits and single hyphens between them, 1–100 characters → 422. The code is copied verbatim into the `units` claim and is permanent, so it is refused rather than stored and tidied later | no — caller bug |
 | `PARENT_UNIT_NOT_FOUND` | the named parent unit does not exist, is another tenant's, or is closed → 422 | no |
 | `ASSIGNMENT_EXISTS` | the principal already holds a live assignment to this unit → 409 | no |
 | `ASSIGNMENT_NOT_FOUND` | no live assignment ties this principal to this unit → 404 | no |
-| `LOAN_NOT_FOUND` | unknown loan or application, or another tenant's → 404 | no |
-| `APPLICATION_STATE_INVALID` | the transition is not legal from the current state → 422 | no |
-| `PRODUCT_NOT_LENDABLE` | no published LOAN version in effect for that code → 422 | no |
-| `AMOUNT_OUT_OF_BOUNDS` | outside the product version's amount bounds → 422 | no |
-| `TERM_OUT_OF_BOUNDS` | outside the product version's term bounds → 422 | no |
-| `APPROVAL_SEQUENCE_INVALID` | duplicate approver, the applicant approving, or a tier already satisfied → 422 | no |
-| `OFFER_EXPIRED` | the acceptance window passed; the application is now EXPIRED → 422 | no |
-| `REPAYMENT_EXCEEDS_PAYOFF` | more than the loan's payoff; refused at intake, never parked → 422 | no |
-| `LOAN_NOT_ACTIVE` | the loan is closed or written off → 422 | no |
 | `INSUFFICIENT_FUNDS` | relayed from the Ledger; the account would go available < 0 | no — new key after funding |
 | `IDEMPOTENCY_KEY_REUSED` | same key, different payload fingerprint | no — caller bug |
 | `TRANSACTION_NOT_FOUND` | unknown saga, or another tenant's | no |
 | `NOT_REVERSIBLE` | target is not `COMPLETED`, or is itself a reversal | no |
 | `APPROVAL_REQUIRED` | reversal without a valid maker-checker approval reference | no — obtain approval |
 | `APPROVAL_INVALID` | the approval is unapproved, already spent, or bound to a different target or amount → 403 | no — obtain approval |
+| `CHECKER_IS_MAKER` | the person checking an approval is the person who raised it → 403 | no — ask somebody else |
 | `ALREADY_REVERSED` | a reversal exists; the response carries its id | converge on the returned id |
 | `LEDGER_REFUSED` | the Ledger refused for a reason Core does not model; its code is in `details.ledgerCode` | no |
 | `LEDGER_UNREACHABLE` | the connection was refused — nothing was sent, so this is definite | yes — after backoff |
 | `OUTCOME_UNKNOWN` | the outcome is not known; 503, and the saga id is returned to poll | **yes — same key** |
 | `EXTERNAL_REF_TAKEN` | the tenant already numbered a customer with this reference → 409 | no — caller bug |
 | `ACCOUNT_ALREADY_HELD` | that ledger account is already live-linked to a customer → 409 | no |
+| `ACCOUNT_NUMBER_TAKEN` | the supplied account number is already carried by a live account → 409 | no — caller bug |
 | `REASON_REQUIRED` | a tier change carried no reason → 422 | no |
+| `NAME_REQUIRED` | a customer was registered with no name → 422 | no — caller bug |
+| `PRODUCT_REQUIRED` | an account was linked or opened without naming its product → 422 | no — caller bug |
 | `TIER_UNCHANGED` | the customer already holds that tier → 422 | no |
 | `CONSENT_INCOMPLETE` | a consent record omitted its category, channel or answer → 422 | no |
 | `PRODUCT_CODE_TAKEN` | the tenant already has a product with this code → 409 | no — caller bug |
@@ -284,6 +266,10 @@ tenant renders its own string from `code`, `reason` and `details`.
 | `PRODUCT_VERSION_NOT_FOUND` | no such version, or another tenant's → 404 | no |
 | `VERSION_ALREADY_PUBLISHED` | that version is live already → 409 | no |
 | `PUBLISHER_IS_AUTHOR` | the principal wrote this version and may not publish it → 403 | no — a colleague must publish |
+| `VERSION_NOT_DRAFT` | a write against a version that is already live → 409 | no — draft the next version |
+| `RULES_INVALID` | a rule set this version cannot hold; `reason` names which → 422 | no — caller bug |
+| `LOAN_RULES_ON_NON_LOAN_PRODUCT` | loan terms on a product that is not a LOAN → 422 | no |
+| `EFFECTIVE_FROM_IN_THE_PAST` | a draft dated to become effective before it existed → 422 | no |
 
 `NOT_REVERSIBLE` is checked **before** the approval is examined. A transaction
 that has already been reversed is refused no matter what authority accompanies

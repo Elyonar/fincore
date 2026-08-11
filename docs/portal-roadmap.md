@@ -73,12 +73,6 @@ workaround.
   return Spring's default body with no `code`. A null `idempotencyKey` hits a
   `NOT NULL` constraint and surfaces as a 500 — which under Core's own retry rule
   instructs the client to retry the same key forever.
-- **Money is encoded two ways.** `GET /v1/loan-applications/{id}` returns
-  `amountMinor` as a JSON number; the list endpoint returns the same field as a
-  string. `api.md` says decimal strings; roughly half the surface disagrees.
-- **Nine lending endpoints return `Map<String,Object>`**, so the generated
-  OpenAPI renders them as untyped `object`. A frontend team gets a route list
-  rather than a contract for most of the loan desk.
 - **Statement proxy drops `limit` and `after`**, capping statements at the
   ledger's 500-line default and returning a `nextCursor` the client cannot use.
 - **Money-path responses carry no timestamp and no balance-after** — both are on
@@ -116,17 +110,10 @@ Real work, none of it blocking the portal.
   check proposed role names against. Code and realm agree exactly today; nothing
   keeps them that way.
 - **No real integration lane in CI.** `ui-runway.md` §2 claims a compose-profile
-  Keycloak lane driving a money path and a lending path; what exists is
+  Keycloak lane driving a money path; what exists is
   `JwtEndToEndTest`, an in-JVM JWKS stub with a stubbed ledger, no Keycloak, no
   realm template, no edge. Every provisioning defect found this session is one CI
   is structurally incapable of catching.
-- **`LendingJobs` has no `@Transactional`** while using `FOR UPDATE SKIP LOCKED`,
-  so the row locks release at statement end and two Core instances can both
-  advance the same loan's accrued interest. Single-instance deployments are
-  unaffected, which is why no test catches it.
-- **Repayments orphan on an unknown funding outcome** — the row stays `PENDING`
-  with a null saga id, the convergence pass only selects non-null, and
-  `failRepayment` is dead code with no call sites.
 - **Edge hardening** — origin-reflecting CORS with no `Vary`, no `Max-Age`,
   methods limited to GET/POST/OPTIONS, `listen 80` with no TLS config, no rate
   limits.

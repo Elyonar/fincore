@@ -39,8 +39,8 @@ public class OpsCases {
         scopeTo(tenantId);
         return jdbc.query(
                 """
-                SELECT c.id, c.saga_id, c.kind, c.opened_at, s.state, s.amount_minor, s.currency,
-                       s.attempts, s.last_error
+                SELECT c.id, c.saga_id, s.reference, c.kind, c.opened_at, s.state, s.amount_minor,
+                       s.currency, s.attempts, s.last_error
                   FROM orchestration.ops_cases c
                   JOIN orchestration.sagas s ON s.id = c.saga_id
                  WHERE c.status = 'OPEN'
@@ -50,6 +50,8 @@ public class OpsCases {
                     var out = new java.util.LinkedHashMap<String, Object>();
                     out.put("caseId", rs.getString("id"));
                     out.put("transactionId", rs.getString("saga_id"));
+                    // The name the rest of the platform, and anybody on the telephone, uses.
+                    out.put("reference", rs.getString("reference"));
                     out.put("kind", rs.getString("kind"));
                     out.put("state", rs.getString("state"));
                     // Decimal string, like every monetary field this platform emits.

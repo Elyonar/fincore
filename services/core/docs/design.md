@@ -1,6 +1,6 @@
 # Core — Design Index & Decision Log
 
-**Status:** AGREED v1.20 (2026-08-08) — implemented from here; amendments via
+**Status:** AGREED v1.24 (2026-08-10) — implemented from here; amendments via
 [`CHANGELOG.md`](CHANGELOG.md) and the [design-change convention](../../../docs/conventions/design-changes.md).
 **Source:** platform PRD §4.2 (Customer), §4.3 (Product), §4.4 (Orchestration),
 §3 (constitution), §5 (communication map), §6 (security), §7 (NFRs), §8
@@ -53,9 +53,8 @@ rejected for v1.** The v1 flow set is small, closed, and request-scoped. A
 workflow cluster brings its own datastore, its own operational burden and its
 own programming model, against a codebase whose established idiom is reviewable
 SQL in Postgres — the same idiom that made the ledger auditable. Revisit when
-workflows become genuinely long-running (loan schedules spanning months) or when
-workflow versioning becomes the dominant cost; that would be an ADR, because
-Lending will inherit the choice.
+workflows become genuinely long-running (schedules spanning months) or when
+workflow versioning becomes the dominant cost; that would be an ADR.
 
 **v1 places no holds.** A hold reserves funds across an external call whose
 outcome is not yet known. Every v1 flow is a single atomic ledger posting with
@@ -325,12 +324,11 @@ design: the operational tree can be reorganized without a migration touching
 money. Vault movements and teller assignment still arrive with the teller
 application, on a Branch that now exists.
 
-**Lending → the fifth module, designed apart (ADR 0013,
-[`lending.md`](lending.md)).** It sits above Orchestration in the dependency
-order — the one amendment to "nothing asks Orchestration" — because a loan's
-every money movement is a saga, and a module that decided *and* posted would be
-a second path to the Ledger wearing a domain's name. Implementation follows
-that document's agreement, not this paragraph.
+**Lending is out of scope for this build.** It was designed and built as a fifth
+module above Orchestration (ADR 0013) and has been withdrawn to keep the core —
+taking money in and out, knowing whose it is, and setting the institution up to
+do both — finished before anything is stacked on it. The dependency order it
+amended is back to its original form: nothing asks Orchestration but the app.
 
 **The publisher adapters are duplicated with the ledger's, deliberately, for
 now.** Both services now carry Kafka and logging publishers, so the `libs/`

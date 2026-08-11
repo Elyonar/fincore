@@ -1,6 +1,6 @@
 # Core — Architecture & Boundaries
 
-**Status:** AGREED v1.20 (2026-08-08) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
+**Status:** AGREED v1.24 (2026-08-10) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
 
 ## The shape
 
@@ -112,7 +112,6 @@ two different shapes, which is the divergence CHANGELOG v1.5 closed.
 | `transfer.failed` | orchestration | Definite failure, compensated |
 | `transfer.reversal_initiated` | orchestration | Reversal saga accepted — nothing is published today when it confirms; the reversal's own `transfer.completed` carries that, and a dedicated confirmation event is an open follow-up |
 | `cash.deposit_initiated`, `cash.withdrawal_initiated` | orchestration | Cash saga accepted |
-| `loan.application_received`, `loan.approved`, `loan.disbursed`, `loan.repayment_allocated`, `loan.delinquent`, `loan.recovered`, `loan.penalty_applied` (v1.17), `loan.closed` | lending | Lending's own outbox (v1.16); the shared relay polls it |
 | `customer.created`, `customer.kyc_tier_changed`, `customer.status_changed` | customer | **Planned** — no outbox in `customer` yet |
 | `product.published`, `pricing.changed` | product | **Planned** — no outbox in `product` yet |
 
@@ -128,7 +127,7 @@ arrive — and that is when consumer-side deduplication and epoch fencing get
 built. Saying "none, in v1" rather than "none, ever" is deliberate: the ledger's
 boundary is permanent, Core's is a scope statement.
 
-**One relay reads each emitting module's outbox** (orchestration's and lending's),
+**One relay reads each emitting module's outbox**,
 running in `app` under a role granted on the outbox tables only. The relay contract is the platform's: poll
 `FOR UPDATE SKIP LOCKED` on unpublished rows ordered by id, never a watermark,
 mark published in the transaction that records the broker acknowledgement, alert
@@ -154,7 +153,7 @@ ledger is. That asymmetry sets the posture:
 ## Never in this deployable
 
 External connectors. Channel-specific API shapes or UI logic. Balance
-computation or storage. Interest accrual. Lending workflows. Report generation.
+computation or storage. Interest accrual. Report generation.
 Anything that writes to another deployable's database.
 
 ## Non-functional targets

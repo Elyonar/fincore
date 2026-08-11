@@ -110,8 +110,8 @@ class SagaWorkerTest {
                                             + " VALUES (?,?,?,?, 'TIER_2')",
                                     customerId, tenantId, "C-" + UUID.randomUUID(), "Ada");
                             customerDb.update(
-                                    "INSERT INTO customer.customer_accounts (tenant_id, customer_id, ledger_account_id, currency)"
-                                            + " VALUES (?,?,?, 'NGN')",
+                                    "INSERT INTO customer.customer_accounts (tenant_id, customer_id, ledger_account_id, currency,"
+                                            + " product_code) VALUES (?,?,?, 'NGN', 'P')",
                                     tenantId, customerId, fromAccount);
                         });
 
@@ -136,9 +136,9 @@ class SagaWorkerTest {
                                             + " limit_type, max_amount_minor, currency)"
                                             + " VALUES (?,?, 'TIER_2', 'TELLER', 'PER_TXN', 5000000, 'NGN')",
                                     tenantId, versionId);
-                            // Published last, because pricing for a live version is immutable (V7):
-                            // a rule added after publish would change what an already-decided transaction
-                            // was priced under, and the database refuses it.
+                            // Published last: a live version's rules are immutable, so seeding the row
+                            // as PUBLISHED and then inserting rules is the same write in the wrong
+                            // order and the trigger refuses it.
                             productDb.update(
                                     "UPDATE product.product_versions SET status = 'PUBLISHED',"
                                             + " published_by = 'admin' WHERE tenant_id = ? AND id = ?",

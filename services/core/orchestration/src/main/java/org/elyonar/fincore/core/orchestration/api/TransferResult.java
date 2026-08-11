@@ -15,12 +15,19 @@ import java.util.UUID;
  * these two fields there is no path from "a transfer happened" to "whose account moved", which is
  * the first question any notifier, statement or compliance consumer asks.
  *
+ * <p>The {@code reference} is the same posting said out loud: {@code TXN-20260811-00042}. The
+ * {@code transactionId} remains the identifier every other record points at; the reference exists
+ * because a customer on the telephone and a teller reading a printed receipt cannot work with a
+ * UUID. Both name the same posting and either can be handed back to {@code GET /v1/transactions}.
+ *
+ * @param reference the customer-facing handle, unique and quotable
  * @param fromAccountId debited. Null on a reversal, which targets a transaction rather than a pair
  *     of accounts
  * @param toAccountId credited. Null on a reversal, for the same reason
  */
 public record TransferResult(
         UUID transactionId,
+        String reference,
         String state,
         long amountMinor,
         long feeMinor,

@@ -135,7 +135,6 @@ class JwtEndToEndTest {
         registry.add("fincore.core.ledger.service-token", () -> serviceToken);
         registry.add("fincore.core.worker.interval-ms", () -> "3600000");
         registry.add("fincore.core.outbox.relay.interval-ms", () -> "3600000");
-        registry.add("fincore.core.lending.jobs.interval-ms", () -> "3600000");
         registry.add("fincore.test.context", () -> "jwt-e2e");
     }
 
@@ -182,7 +181,7 @@ class JwtEndToEndTest {
                                     customerId, tenantId, "C-" + UUID.randomUUID(), "Ada");
                             customerDb.update(
                                     "INSERT INTO customer.customer_accounts (tenant_id, customer_id,"
-                                            + " ledger_account_id, currency) VALUES (?,?,?, 'NGN')",
+                                            + " ledger_account_id, currency, product_code) VALUES (?,?,?, 'NGN', 'P')",
                                     tenantId, customerId, customerAccount);
                         });
         new TransactionTemplate(productTx)
@@ -193,7 +192,7 @@ class JwtEndToEndTest {
                             UUID productId =
                                     productDb.queryForObject(
                                             "INSERT INTO product.products (tenant_id, code, name, type)"
-                                                    + " VALUES (?, 'AJO_LOAN', 'Ajo Loan', 'LOAN') RETURNING id",
+                                                    + " VALUES (?, 'P', 'Savings', 'SAVINGS') RETURNING id",
                                             UUID.class, tenantId);
                             UUID versionId =
                                     productDb.queryForObject(
@@ -203,17 +202,13 @@ class JwtEndToEndTest {
                                                     + " RETURNING id",
                                             UUID.class, tenantId, productId);
                             productDb.update(
-                                    """
-                                    INSERT INTO product.loan_rules
-                                        (tenant_id, product_version_id, interest_rate_bp, schedule_kind,
-                                         min_amount_minor, max_amount_minor, min_term_months, max_term_months,
-                                         currency)
-                                    VALUES (?,?, 2400, 'FLAT', 10000, 100000000, 1, 36, 'NGN')
-                                    """,
+                                    "INSERT INTO product.limit_rules (tenant_id, product_version_id, kyc_tier,"
+                                            + " channel, limit_type, max_amount_minor, currency)"
+                                            + " VALUES (?,?, 'TIER_2', 'TELLER', 'PER_TXN', 5000000, 'NGN')",
                                     tenantId, versionId);
                             // Published last, because pricing for a live version is immutable (V7):
-                            // a rule added after publish would change what an already-decided transaction
-                            // was priced under, and the database refuses it.
+                            // a rule added after publish would change what an already-decided
+                            // transaction was priced under, and the database refuses it.
                             productDb.update(
                                     "UPDATE product.product_versions SET status = 'PUBLISHED',"
                                             + " published_by = 'user:publisher' WHERE tenant_id = ? AND id = ?",
@@ -263,47 +258,36 @@ class JwtEndToEndTest {
         assertThat(call("GET", "/v1/customers?q=Ada", token, null).statusCode()).isEqualTo(403);
     }
 
+    /**
+     * A money path on real tokens, with the outbound side asserted too.
+     *
+     * <p>Was the lending disbursement until lending left this build; the property under test never
+     * had anything to do with loans. It is that a request authenticated by a real token reaches the
+     * Ledger carrying <em>two</em> identities — Core's own service credential, and the originating
+     * user's token forwarded so attribution is a verified fact rather than a claim in a payload
+     * (ADR 0014). A deposit exercises the same path.
+     */
     @Test
-    void the_lending_path_runs_on_real_tokens_and_propagates_identity_to_the_ledger() throws Exception {
-        String officer =
-                userToken(
-                        "officer",
-                        List.of("loans:apply", "loans:read", "loans:offer", "loans:disburse", "loans:tiers"));
-        assertThat(
-                        call("POST", "/v1/lending/approval-tiers", officer,
-                                        "{\"ceilingMinor\":100000000,\"approvalsRequired\":0}")
-                                .statusCode())
-                .isEqualTo(200);
+    void a_money_path_runs_on_real_tokens_and_propagates_identity_to_the_ledger() throws Exception {
+        String teller =
+                userToken("teller", List.of("transfers:create", "channel:teller"));
 
-        var created =
-                call("POST", "/v1/loan-applications", officer,
-                        "{\"customerId\":\"%s\",\"productCode\":\"AJO_LOAN\",\"amountMinor\":1000000,\"termMonths\":12}"
-                                .formatted(customerId));
-        assertThat(created.statusCode()).isEqualTo(201);
-        String appId = mapper.readTree(created.body()).get("id").asString();
-        assertThat(mapper.readTree(created.body()).get("state").asString()).isEqualTo("OFFERED");
-
-        String ada = userToken("ada", List.of("loans:offer"));
-        assertThat(call("POST", "/v1/loan-applications/" + appId + "/accept-offer", ada, "{}").statusCode())
-                .isEqualTo(200);
-
-        var disbursed =
-                call("POST", "/v1/loan-applications/" + appId + "/disburse", officer,
-                        "{\"fundingAccountId\":\"%s\",\"destinationAccountId\":\"%s\"}"
-                                .formatted(UUID.randomUUID(), customerAccount));
-        assertThat(disbursed.statusCode()).isEqualTo(200);
-        assertThat(mapper.readTree(disbursed.body()).get("state").asString()).isEqualTo("ACTIVE");
+        var posted =
+                call(
+                        "POST",
+                        "/v1/transfers",
+                        teller,
+                        ("{\"idempotencyKey\":\"jwt-%s\",\"fingerprint\":\"fp\",\"customerId\":\"%s\","
+                                        + "\"fromAccountId\":\"%s\",\"toAccountId\":\"%s\","
+                                        + "\"amountMinor\":100000,\"currency\":\"NGN\","
+                                        + "\"channel\":\"TELLER\",\"description\":\"d\"}")
+                                .formatted(UUID.randomUUID(), customerId, customerAccount, UUID.randomUUID()));
+        assertThat(posted.statusCode()).isEqualTo(201);
+        assertThat(mapper.readTree(posted.body()).get("state").asString()).isEqualTo("COMPLETED");
 
         // The outbound side of the runway: the ledger received Core's service credential AND the
-        // originating officer's own token — attribution as a verified fact (ADR 0014).
+        // originating teller's own token — attribution as a verified fact (ADR 0014).
         assertThat(ledgerAuthHeader.get()).isEqualTo("Bearer " + serviceToken);
-        assertThat(ledgerForwardedHeader.get()).isEqualTo("Bearer " + officer);
-
-        // And the user-facing read works on the same credential.
-        var loan =
-                call("GET", "/v1/customers/" + customerId + "/loans",
-                        userToken("officer", List.of("loans:read")), null);
-        assertThat(loan.statusCode()).isEqualTo(200);
-        assertThat(mapper.readTree(loan.body()).get("loans")).hasSize(1);
+        assertThat(ledgerForwardedHeader.get()).isEqualTo("Bearer " + teller);
     }
 }

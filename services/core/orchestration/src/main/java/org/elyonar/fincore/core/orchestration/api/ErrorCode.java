@@ -21,6 +21,14 @@ public enum ErrorCode {
     CUSTOMER_NOT_ACTIVE,
     /** The account is not linked to this customer. */
     ACCOUNT_NOT_LINKED,
+    /**
+     * The account records no product, so there is nothing to price this transaction against.
+     *
+     * <p>Only reachable for accounts linked before {@code customer_accounts.product_code} existed.
+     * A refusal rather than a fallback to the request body deliberately: the fallback is what let a
+     * caller choose which fee and limit rules judged its own transaction.
+     */
+    ACCOUNT_HAS_NO_PRODUCT,
 
     // ---- product --------------------------------------------------------------------
     /** No product, or no published version in effect. */
@@ -82,6 +90,15 @@ public enum ErrorCode {
      * valid approval must look like.
      */
     APPROVAL_INVALID,
+    /**
+     * The person checking an approval is the person who raised it.
+     *
+     * <p>Its own code rather than {@code APPROVAL_INVALID}, because it is the one refusal on this
+     * surface a caller can act on: find somebody else. The database enforces it —
+     * {@code checker_differs_from_maker} — so this is the constraint given a sentence rather than a
+     * second opinion about it.
+     */
+    CHECKER_IS_MAKER,
 
     // ---- the outcome protocol -------------------------------------------------------
     /**

@@ -50,6 +50,7 @@ class TransferEndToEndTest {
     private static final AtomicReference<String> lastIdempotencyKey = new AtomicReference<>();
 
     @Autowired private TransferService transfers;
+    @Autowired private org.elyonar.fincore.core.orchestration.internal.saga.SagaRecords sagas;
     @Autowired @Qualifier("customerJdbcTemplate") private JdbcTemplate customerDb;
     @Autowired @Qualifier("productJdbcTemplate") private JdbcTemplate productDb;
     @Autowired @Qualifier("orchestrationJdbcTemplate") private JdbcTemplate orchestrationDb;
@@ -137,8 +138,8 @@ class TransferEndToEndTest {
                                     + " VALUES (?,?,?,?, 'TIER_2')",
                             customerId, tenantId, "CUST-" + UUID.randomUUID(), "Ada Okafor");
                     customerDb.update(
-                            "INSERT INTO customer.customer_accounts (tenant_id, customer_id, ledger_account_id, currency)"
-                                    + " VALUES (?,?,?, 'NGN')",
+                            "INSERT INTO customer.customer_accounts (tenant_id, customer_id, ledger_account_id, currency,"
+                                    + " product_code) VALUES (?,?,?, 'NGN', 'AJO_DAILY')",
                             tenantId, customerId, fromAccount);
                 });
 
@@ -158,17 +159,16 @@ class TransferEndToEndTest {
                                     UUID.class, tenantId, productId);
                     // 2.50% capped at ₦500 — integer basis points throughout.
                     productDb.update(
-                            "INSERT INTO product.fee_rules (tenant_id, product_version_id, operation, kind,"
-                                    + " basis_points, cap_minor, currency, fee_account_id)"
+                            "INSERT INTO product.fee_rules (tenant_id, product_version_id, operation, kind, basis_points, cap_minor, currency, fee_account_id)"
                                     + " VALUES (?,?, 'TRANSFER', 'PERCENT', 250, 50000, 'NGN', ?)",
                             tenantId, versionId, feeAccount);
                     productDb.update(
                             "INSERT INTO product.limit_rules (tenant_id, product_version_id, kyc_tier, channel, limit_type, max_amount_minor, currency)"
                                     + " VALUES (?,?, 'TIER_2', 'TELLER', 'PER_TXN', 5000000, 'NGN')",
                             tenantId, versionId);
-                    // Published last, because pricing for a live version is immutable (V7):
-                    // a rule added after publish would change what an already-decided transaction
-                    // was priced under, and the database refuses it.
+                    // Published last: a live version's rules are immutable, so seeding the row as
+                    // PUBLISHED and then inserting rules is the same write in the wrong order, and
+                    // the trigger refuses it.
                     productDb.update(
                             "UPDATE product.product_versions SET status = 'PUBLISHED',"
                                     + " published_by = 'user:admin' WHERE tenant_id = ? AND id = ?",
@@ -200,11 +200,85 @@ class TransferEndToEndTest {
         assertThat(lastIdempotencyKey.get()).isEqualTo("core:" + result.transactionId() + ":post");
     }
 
+    /**
+     * The reference is issued by the database, not by any caller — so there is no path that posts
+     * money and leaves it unnamed, and no two postings can share one.
+     */
+    @Test
+    void every_posting_gets_a_reference_a_person_can_read_out() {
+        TransferResult first = transfers.transfer(aTransfer(100_000, "key-ref-a"));
+        TransferResult second = transfers.transfer(aTransfer(100_000, "key-ref-b"));
+
+        assertThat(first.reference()).matches("TXN-\\d{8}-\\d{5,}");
+        assertThat(second.reference()).isNotEqualTo(first.reference());
+    }
+
+    /**
+     * Both names reach the same posting. A teller holding a receipt and a system holding a stored
+     * id are asking the same question, and the read cannot make them convert first.
+     */
+    @Test
+    void a_transaction_is_found_by_its_id_or_by_its_reference() {
+        TransferResult posted = transfers.transfer(aTransfer(100_000, "key-ref-find"));
+
+        assertThat(sagas.find(tenantId, posted.transactionId().toString()))
+                .isEqualTo(sagas.find(tenantId, posted.reference()))
+                .isNotNull();
+        // Lower case, the way somebody types it rather than the way it is stored.
+        assertThat(sagas.find(tenantId, posted.reference().toLowerCase()).transactionId())
+                .isEqualTo(posted.transactionId());
+    }
+
+    /**
+     * A name that matches nothing is absent, not an error. Mistyping a character is the ordinary
+     * way to arrive here and the caller has to be able to tell the two apart.
+     */
+    @Test
+    void a_name_that_matches_nothing_is_simply_absent() {
+        assertThat(sagas.find(tenantId, "TXN-20200101-99999")).isNull();
+        assertThat(sagas.find(tenantId, UUID.randomUUID().toString())).isNull();
+        assertThat(sagas.find(tenantId, "not an identifier at all")).isNull();
+    }
+
     @Test
     void the_reservation_is_consumed_when_the_posting_commits() {
         TransferResult result = transfers.transfer(aTransfer(100_000, "key-consume"));
 
         assertThat(reservationStatusFor(result.transactionId())).isEqualTo("CONSUMED");
+    }
+
+    /**
+     * The product is the paying account's, whatever the caller says it is.
+     *
+     * A caller able to name the product is a caller choosing which fee and which limits judge its
+     * own transaction — the cheapest product in the institution is a body field away. So the code in
+     * the command is accepted and ignored, and the account's own product decides. Asserted through
+     * the fee, because the fee is the visible consequence: a transfer claiming a product that does
+     * not exist is still priced by the real one rather than refused or priced at zero.
+     */
+    @Test
+    void the_caller_cannot_choose_which_product_prices_its_own_transfer() {
+        TransferCommand claimingAnotherProduct =
+                new TransferCommand(
+                        tenantId, "key-product-claim", "fp-claim", customerId, fromAccount, toAccount,
+                        feeAccount, 500_000, "NGN", "NO-SUCH-PRODUCT", "TELLER", "transfer to Tobi",
+                        "user:ada.o@branch-01", "core", ZoneId.of("Africa/Lagos"));
+
+        TransferResult result = transfers.transfer(claimingAnotherProduct);
+
+        assertThat(result.state()).isEqualTo("COMPLETED");
+        assertThat(result.feeMinor()).isEqualTo(12_500);
+
+        // And the saga records what actually judged it, not what was asked for — otherwise "why was
+        // this fee charged" is answered with the caller's claim.
+        assertThat(
+                        readInTenant(
+                                () ->
+                                        orchestrationDb.queryForObject(
+                                                "SELECT product_code FROM orchestration.sagas WHERE id = ?",
+                                                String.class,
+                                                result.transactionId())))
+                .isEqualTo("AJO_DAILY");
     }
 
     @Test

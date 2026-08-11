@@ -6,6 +6,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import org.elyonar.fincore.auth.Authorization;
+import org.elyonar.fincore.core.orchestration.api.TransactionDetail;
 import org.elyonar.fincore.core.orchestration.api.TransferCommand;
 import org.elyonar.fincore.core.orchestration.api.TransferResult;
 import org.elyonar.fincore.core.orchestration.internal.TenantZones;
@@ -78,11 +79,28 @@ public class TransferController {
      * What state a transaction is in — without changing it.
      *
      * <p>Exists so a crashed caller can ask what happened rather than mutating to find out.
+     *
+     * <p>{@code id} is either the transaction's UUID or the reference from its receipt
+     * ({@code TXN-20260811-00042}) — the same posting under the name the caller happens to hold. A
+     * teller taking a telephone call has the second and never the first.
+     *
+     * <p>Answers with more than a posting's own acknowledgement did: when it happened, who asked for
+     * it, what priced it, and whether it has since been reversed. That is the difference between a
+     * receipt and the record somebody investigates — see {@link TransactionDetail}, which also says
+     * what is deliberately withheld.
+     *
+     * <p>A name that matches nothing is 404 and not 500: mistyping one character of an identifier
+     * is the ordinary way to arrive here, and a client cannot distinguish "no such transaction"
+     * from "this service is broken" if both arrive as a server error.
      */
     @GetMapping("/transactions/{id}")
-    public TransferResult status(@PathVariable UUID id) {
+    public TransactionDetail status(@PathVariable String id) {
         var identity = Authorization.require("transfers:read");
-        return sagas.read(identity.tenantId(), id);
+        TransactionDetail found = sagas.detail(identity.tenantId(), id);
+        if (found == null) {
+            throw new CoreException(ErrorCode.TRANSACTION_NOT_FOUND, "no transaction is named " + id);
+        }
+        return found;
     }
 
     /**
