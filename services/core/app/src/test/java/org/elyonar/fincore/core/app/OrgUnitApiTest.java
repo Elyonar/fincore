@@ -101,6 +101,22 @@ class OrgUnitApiTest {
         assertThat(orphan.body()).contains("PARENT_UNIT_NOT_FOUND");
     }
 
+    /**
+     * A unit code reaches token consumers verbatim through the {@code units} claim and is never
+     * renamed, so a malformed one is permanent. The schema only bounds length, which admitted
+     * codes carrying spaces and punctuation until the record layer began refusing them.
+     */
+    @Test
+    void a_malformed_code_is_refused_rather_than_stored() throws Exception {
+        for (String malformed : new String[] {"HEAD OFFICE 2!!", "Branch_01", "-branch", "branch-", "br--anch"}) {
+            HttpResponse<String> refused = create(tenantId, malformed, "BRANCH", null);
+            assertThat(refused.statusCode()).as("code %s", malformed).isEqualTo(422);
+            assertThat(refused.body()).contains("UNIT_CODE_INVALID");
+        }
+
+        assertThat(create(tenantId, "branch-2b", "BRANCH", null).statusCode()).isEqualTo(201);
+    }
+
     @Test
     void codes_never_recycle_even_after_a_close() throws Exception {
         JsonNode unit = mapper.readTree(create(tenantId, "branch-04", "BRANCH", null).body());

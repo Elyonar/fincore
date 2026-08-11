@@ -229,6 +229,10 @@ name describes the boundary of responsibility, not the boundary of deployment.
 
 ### 4.5 Lending Service
 
+> **Not in the current build.** Lending was implemented as a Core module and has
+> been withdrawn (see [ADR 0013](adr/0013-lending-module-first.md)) so the core
+> banking path is finished first. This section remains the product intent.
+
 **Owns:** loan applications, schedules, disbursement instructions, repayments tracking, delinquency, restructuring.
 
 **Requirements:**

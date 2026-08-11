@@ -110,6 +110,67 @@ class ApiSurfaceCatalogTest {
         return found;
     }
 
+    /**
+     * No two controllers serve the same route.
+     *
+     * <p>The two catalog directions above cannot see this, and the reason is worth stating because
+     * it is the same shape as the bug they were written for. Both sides are normalised — a path
+     * variable becomes {@code {}} so the document may spell it {@code {v}} where the code spells it
+     * {@code {version}} — and then collected into a set. Two controllers mapping the same route
+     * under different variable names produce two distinct OpenAPI paths that normalise to one
+     * entry, and the set quietly keeps one. Both directions pass, and the document looks honest.
+     *
+     * <p>That is not hypothetical. {@code PricingController} mapped
+     * {@code /v1/products/{productId}/versions} and {@code ProductController} later mapped
+     * {@code /v1/products/{id}/versions} over the top of it, six routes deep. Spring registered
+     * both, because the patterns differ as strings — and then refused to choose between them at
+     * request time, since neither is more specific than the other. Every call on the pricing
+     * surface raised {@code IllegalStateException: Ambiguous handler methods} and came back a 500:
+     * not one controller winning, but both losing. Drafting a version, reading one, and writing its
+     * fee, limit and loan rules were dead on a running platform, and the document looked complete
+     * the whole time.
+     *
+     * <p>What let it live that long is that nothing exercised those six routes. The catalogue tests
+     * check that a route is <em>declared</em>, which a 500-on-every-call route still is.
+     *
+     * <p>So this asserts on the raw paths, before normalisation, and is the only test here that
+     * does.
+     */
+    @Test
+    void no_two_controllers_serve_the_same_route() throws Exception {
+        HttpResponse<String> spec =
+                http.send(
+                        HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/v3/api-docs")).GET().build(),
+                        HttpResponse.BodyHandlers.ofString());
+
+        JsonNode paths = JsonMapper.builder().build().readTree(spec.body()).get("paths");
+
+        // normalised "METHOD /v1/path" -> the raw paths that produced it.
+        var byRoute = new java.util.TreeMap<String, Set<String>>();
+        for (String path : paths.propertyNames()) {
+            if (!path.startsWith("/v1/")) {
+                continue;
+            }
+            for (String method : paths.get(path).propertyNames()) {
+                String route = method.toUpperCase(java.util.Locale.ROOT) + " " + normalise(path);
+                byRoute.computeIfAbsent(route, key -> new TreeSet<>()).add(path);
+            }
+        }
+
+        List<String> collisions = byRoute.entrySet().stream()
+                .filter(entry -> entry.getValue().size() > 1)
+                .map(entry -> entry.getKey() + " ← " + entry.getValue())
+                .toList();
+
+        assertThat(collisions)
+                .as(
+                        "two controllers map the same route under different path-variable names. "
+                            + "Spring registers both and picks one by pattern specificity, so the "
+                            + "other is unreachable — but it still appears in the OpenAPI document, "
+                            + "so the surface reads as agreed while half of it never runs.")
+                .isEmpty();
+    }
+
     @Test
     void every_documented_endpoint_is_built() throws Exception {
         Set<String> documented = documentedEndpoints();

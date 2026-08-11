@@ -62,14 +62,25 @@ public class ApprovalRecords {
     public void check(
             UUID tenantId, UUID approvalId, boolean approved, String checkedBy, String checkedInUnit) {
         scopeTo(tenantId);
-        int updated =
-                jdbc.update(
-                        """
-                        UPDATE orchestration.approvals
-                           SET status = ?, checked_by = ?, checked_in_unit = ?, checked_at = now()
-                         WHERE id = ? AND status = 'PENDING'
-                        """,
-                        approved ? "APPROVED" : "REJECTED", checkedBy, checkedInUnit, approvalId);
+        int updated;
+        try {
+            updated =
+                    jdbc.update(
+                            """
+                            UPDATE orchestration.approvals
+                               SET status = ?, checked_by = ?, checked_in_unit = ?, checked_at = now()
+                             WHERE id = ? AND status = 'PENDING'
+                            """,
+                            approved ? "APPROVED" : "REJECTED", checkedBy, checkedInUnit, approvalId);
+        } catch (org.springframework.dao.DataIntegrityViolationException e) {
+            // `checker_differs_from_maker` is the whole control, and it lived only in the database:
+            // checking your own request came back a 500, so the one refusal a checker can act on
+            // arrived as the one answer a client cannot render.
+            if (String.valueOf(e.getMessage()).contains("checker_differs_from_maker")) {
+                throw new SelfCheck();
+            }
+            throw e;
+        }
         if (updated == 0) {
             throw new ApprovalRejected("approval is not pending");
         }
@@ -124,6 +135,13 @@ public class ApprovalRecords {
                     row.put("madeAt", rs.getObject("made_at", java.time.OffsetDateTime.class).toString());
                     return row;
                 });
+    }
+
+    /** The checker is the maker. A second signature by the same hand is not a second signature. */
+    public static class SelfCheck extends RuntimeException {
+        public SelfCheck() {
+            super("checker is the maker");
+        }
     }
 
     public static class ApprovalRejected extends RuntimeException {

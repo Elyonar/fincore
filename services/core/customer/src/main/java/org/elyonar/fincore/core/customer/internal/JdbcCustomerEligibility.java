@@ -104,7 +104,7 @@ public class JdbcCustomerEligibility implements CustomerEligibility {
         jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenantId.toString());
         return jdbc.query(
                 """
-                SELECT ledger_account_id, currency, role, product_code
+                SELECT ledger_account_id, account_number, currency, role, product_code
                   FROM customer.customer_accounts
                  WHERE customer_id = ? AND unlinked_at IS NULL
                  ORDER BY linked_at
@@ -112,6 +112,7 @@ public class JdbcCustomerEligibility implements CustomerEligibility {
                 (rs, i) ->
                         new HeldAccount(
                                 rs.getObject("ledger_account_id", java.util.UUID.class),
+                                rs.getString("account_number"),
                                 rs.getString("currency"),
                                 rs.getString("role"),
                                 rs.getString("product_code")),

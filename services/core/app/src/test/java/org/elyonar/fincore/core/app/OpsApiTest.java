@@ -129,7 +129,12 @@ class OpsApiTest {
                                 .POST(HttpRequest.BodyPublishers.ofString("{\"approved\":true}"))
                                 .build());
 
-        assertThat(selfChecked.statusCode()).isNotEqualTo(200);
+        // Asserted as a *coded refusal*, not merely as "not 200". The looser assertion is what let
+        // this pass for so long while the endpoint actually returned a 500: the control held — the
+        // database refused — but the answer was one no client could render, so the one refusal a
+        // checker can act on arrived as an unexplained server error.
+        assertThat(selfChecked.statusCode()).isEqualTo(403);
+        assertThat(selfChecked.body()).contains("CHECKER_IS_MAKER");
     }
 
     @Test

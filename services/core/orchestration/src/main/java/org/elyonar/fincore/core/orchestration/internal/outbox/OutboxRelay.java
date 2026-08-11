@@ -31,12 +31,15 @@ public class OutboxRelay {
     private static final Logger log = LoggerFactory.getLogger(OutboxRelay.class);
 
     /**
-     * The outbox tables this relay serves — one per emitting module (ADR 0013 brought the
-     * second). A module absent from this list is a module whose events never leave the building,
-     * so the list lives here, greppable, rather than discovered per table.
+     * The outbox tables this relay serves — one per emitting module. A module absent from this list
+     * is a module whose events never leave the building, so the list lives here, greppable, rather
+     * than discovered per table.
+     *
+     * <p>Lending's was the second (ADR 0013) and went with the module. A name left here for a table
+     * that no longer exists is not harmless: the relay reads every entry on every tick, so one
+     * missing table fails the whole sweep and no module's events leave at all.
      */
-    private static final List<String> OUTBOXES =
-            List.of("orchestration.outbox_events", "lending.outbox_events");
+    private static final List<String> OUTBOXES = List.of("orchestration.outbox_events");
 
     private final JdbcTemplate jdbc;
     private final EventPublisher publisher;

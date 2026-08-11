@@ -30,10 +30,29 @@ public class UnitRecords {
         jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenantId.toString());
     }
 
+    /**
+     * A well-formed unit code: lowercase letters, digits and hyphens, starting and ending with a
+     * letter or digit.
+     *
+     * <p>The schema only bounds the length, which let {@code "HEAD OFFICE 2!!"} through. That is
+     * worth refusing at the edge rather than tidying afterwards, because the code is copied
+     * verbatim into the {@code units} token claim and is permanent — there is no rename, so a
+     * malformed code is a permanently malformed claim value.
+     *
+     * <p>Enforced here rather than as a CHECK constraint because the rule must apply to new rows
+     * without invalidating rows that predate it; a constraint added to this table would refuse to
+     * install wherever a malformed code already exists.
+     */
+    private static final java.util.regex.Pattern WELL_FORMED_CODE =
+            java.util.regex.Pattern.compile("[a-z0-9]+(-[a-z0-9]+)*");
+
     /** Creates a unit, optionally under a parent named by code. */
     @Transactional(transactionManager = OrganizationBeans.TRANSACTION_MANAGER)
     public Unit create(
             UUID tenantId, String code, String name, String unitType, String parentCode, String createdBy) {
+        if (code == null || code.length() > 100 || !WELL_FORMED_CODE.matcher(code).matches()) {
+            throw new MalformedCode();
+        }
         scopeTo(tenantId);
 
         UUID parentId = null;
@@ -196,6 +215,9 @@ public class UnitRecords {
     public static class NoSuchParent extends RuntimeException {}
 
     public static class CodeTaken extends RuntimeException {}
+
+    /** The proposed code is not one the {@code units} claim can carry. */
+    public static class MalformedCode extends RuntimeException {}
 
     public static class AlreadyAssigned extends RuntimeException {}
 

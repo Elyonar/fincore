@@ -90,6 +90,15 @@ public enum ErrorCode {
      * valid approval must look like.
      */
     APPROVAL_INVALID,
+    /**
+     * The person checking an approval is the person who raised it.
+     *
+     * <p>Its own code rather than {@code APPROVAL_INVALID}, because it is the one refusal on this
+     * surface a caller can act on: find somebody else. The database enforces it —
+     * {@code checker_differs_from_maker} — so this is the constraint given a sentence rather than a
+     * second opinion about it.
+     */
+    CHECKER_IS_MAKER,
 
     // ---- the outcome protocol -------------------------------------------------------
     /**

@@ -69,15 +69,39 @@ public class TransferService {
                             ? ErrorCode.CUSTOMER_NOT_FOUND
                             : ErrorCode.CUSTOMER_NOT_ACTIVE);
         }
-        if (!customers.holdsAccount(command.tenantId(), command.customerId(), command.fromAccountId())) {
-            throw new TransferRefused(ErrorCode.ACCOUNT_NOT_LINKED);
+        /*
+         * The product comes from the paying account, never from the request.
+         *
+         * It used to be `command.productCode()` — whatever the caller put in the body — which is the
+         * hole the cash path closed and this one kept: the product decides the fee charged and the
+         * limits applied, so a caller able to name it is a caller choosing which rules judge its own
+         * transaction. Naming a cheaper product, or one with a higher ceiling, was a body field
+         * away. The Cash path resolves it from the account and accepts-and-ignores the field; a
+         * transfer is judged the same way now.
+         *
+         * The practical effect was worse than theoretical: the portal sends no product code at all,
+         * because there is nothing legitimate for it to send — so every transfer from the counter
+         * was refused with PRODUCT_NOT_FOUND while deposits on the same account went through.
+         *
+         * One read answers both questions. Null means either that the customer does not hold the
+         * paying account or that the account predates the column; both refuse, the second with its
+         * own code, because "you do not hold this" would be a lie about a real account.
+         */
+        String productCode =
+                customers.productOfHeldAccount(
+                        command.tenantId(), command.customerId(), command.fromAccountId());
+        if (productCode == null) {
+            throw new TransferRefused(
+                    customers.holdsAccount(command.tenantId(), command.customerId(), command.fromAccountId())
+                            ? ErrorCode.ACCOUNT_HAS_NO_PRODUCT
+                            : ErrorCode.ACCOUNT_NOT_LINKED);
         }
 
         ProductDecision decision =
                 products.evaluate(
                         new ProductRequest(
                                 command.tenantId(),
-                                command.productCode(),
+                                productCode,
                                 ProductRequest.Operation.TRANSFER,
                                 eligibility.kycTier(),
                                 command.channel(),
@@ -92,6 +116,7 @@ public class TransferService {
                         command,
                         decision,
                         eligibility.kycTier(),
+                        productCode,
                         // Calendar day in the tenant's business timezone — regulatory tier limits
                         // mean calendar days, and a customer understands a limit that resets at
                         // midnight (design.md).
@@ -125,50 +150,25 @@ public class TransferService {
     /**
      * Principal and fee as entries of one transaction.
      *
-     * <p>Debit the sender principal + fee; credit the recipient the principal; credit fee income
-     * the fee. Balanced by construction, atomic for free, and reversing the transfer reverses its
-     * fee — which is what a customer and a regulator both expect.
+     * <p>Debit the sender the principal; credit the recipient the principal; debit the sender the
+     * fee; credit fee income the fee. Balanced by construction, atomic for free, and reversing the
+     * transfer reverses its fee — which is what a customer and a regulator both expect.
+     *
+     * <p><strong>The fee is its own entry.</strong> It used to be folded into the sender's debit, so
+     * a ₦2,500 transfer charged ₦50 appeared on their statement as a single ₦2,550 debit with
+     * nothing to say why. The books balanced either way; what did not work was the document the
+     * customer is handed. A charge they cannot see is a charge they cannot query.
      */
     private LedgerPosting postingFor(TransferCommand command, ProductDecision decision, String key) {
-        long principal = command.amountMinor();
-        long fee = decision.feeMinor();
-
         var entries =
-                new java.util.ArrayList<>(
-                        List.of(
-                                new LedgerPosting.Entry(
-                                        command.fromAccountId(),
-                                        LedgerPosting.Direction.DEBIT,
-                                        principal + fee,
-                                        command.currency()),
-                                new LedgerPosting.Entry(
-                                        command.toAccountId(),
-                                        LedgerPosting.Direction.CREDIT,
-                                        principal,
-                                        command.currency())));
-        if (fee > 0) {
-            if (decision.feeAccountId() == null) {
-                throw new CoreException(
-                        ErrorCode.FEE_ACCOUNT_NOT_CONFIGURED,
-                        null,
-                        "this product prices a fee and names no account to credit it to",
-                        Map.of());
-            }
-            entries.add(
-                    new LedgerPosting.Entry(
-                            // The product's configured fee-income account, and only that.
-                            //
-                            // The caller-supplied account used to stand in when a published version
-                            // predated the configuration column, which is the hole V4 was written
-                            // to close and could not while nothing could write the column. Pricing
-                            // is authorable now, so the fallback is gone: a caller naming the
-                            // account its own fee lands in is a caller choosing where the
-                            // institution's income goes.
-                            decision.feeAccountId(),
-                            LedgerPosting.Direction.CREDIT,
-                            fee,
-                            command.currency()));
-        }
+                Postings.entriesFor(
+                        "TRANSFER",
+                        command.fromAccountId(),
+                        command.toAccountId(),
+                        decision.feeAccountId(),
+                        command.amountMinor(),
+                        decision.feeMinor(),
+                        command.currency());
         return new LedgerPosting(key, command.initiatedBy(), command.description(), entries);
     }
 

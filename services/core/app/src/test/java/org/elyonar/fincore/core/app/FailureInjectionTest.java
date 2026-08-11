@@ -288,6 +288,6 @@ class FailureInjectionTest {
     private UUID openWithoutDriving(String key) {
         var decision =
                 org.elyonar.fincore.core.product.api.ProductDecision.permitted(0, null, 5_000_000, null, 1);
-        return sagas.open(command(key, 30_000), decision, "TIER_2", "daily:2026-08-08");
+        return sagas.open(command(key, 30_000), decision, "TIER_2", "AJO_DAILY", "daily:2026-08-08");
     }
 }

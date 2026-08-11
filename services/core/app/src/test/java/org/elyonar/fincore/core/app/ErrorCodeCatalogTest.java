@@ -19,7 +19,6 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.elyonar.fincore.core.customer.api.CustomerErrorCode;
 import org.elyonar.fincore.core.organization.api.OrganizationErrorCode;
-import org.elyonar.fincore.core.lending.api.LendingErrorCode;
 import org.elyonar.fincore.core.product.api.ProductDecision;
 import org.elyonar.fincore.core.product.api.ProductErrorCode;
 import org.elyonar.fincore.core.product.api.ProductErrorReason;
@@ -149,8 +148,7 @@ class ErrorCodeCatalogTest {
                         ErrorCode.values(),
                         CustomerErrorCode.values(),
                         ProductErrorCode.values(),
-                        OrganizationErrorCode.values(),
-                        LendingErrorCode.values())
+                        OrganizationErrorCode.values())
                 .flatMap(Arrays::stream)
                 .map(Enum::name)
                 .collect(Collectors.toCollection(TreeSet::new));

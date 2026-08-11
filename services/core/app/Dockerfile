@@ -38,7 +38,6 @@ COPY services/core/pom.xml services/core/pom.xml
 COPY services/core/customer/pom.xml services/core/customer/pom.xml
 COPY services/core/product/pom.xml services/core/product/pom.xml
 COPY services/core/organization/pom.xml services/core/organization/pom.xml
-COPY services/core/lending/pom.xml services/core/lending/pom.xml
 COPY services/core/orchestration/pom.xml services/core/orchestration/pom.xml
 COPY services/core/app/pom.xml services/core/app/pom.xml
 COPY services/notification/pom.xml services/notification/pom.xml
@@ -50,7 +49,6 @@ COPY libs/events/src libs/events/src
 COPY services/core/customer/src services/core/customer/src
 COPY services/core/product/src services/core/product/src
 COPY services/core/organization/src services/core/organization/src
-COPY services/core/lending/src services/core/lending/src
 COPY services/core/orchestration/src services/core/orchestration/src
 COPY services/core/app/src services/core/app/src
 RUN ./mvnw -B -pl services/core/app -am clean package -DskipTests \

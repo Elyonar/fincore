@@ -2,6 +2,7 @@ package org.elyonar.fincore.core.orchestration.internal.saga;
 
 import java.util.UUID;
 import org.elyonar.fincore.core.orchestration.api.TransferCommand;
+import org.elyonar.fincore.core.orchestration.api.TransactionDetail;
 import org.elyonar.fincore.core.orchestration.api.TransferResult;
 import org.elyonar.fincore.core.product.api.ProductDecision;
 import org.elyonar.fincore.core.orchestration.internal.outbox.OutboxWriter;
@@ -127,13 +128,31 @@ public class SagaRecords {
         }
     }
 
+    /**
+     * One saga row as the caller's view of it. Shared by both reads — by id and by reference — so
+     * the two can never drift into disagreeing about the same posting.
+     */
+    private static final org.springframework.jdbc.core.RowMapper<TransferResult> SAGA_AS_RESULT =
+            (rs, row) ->
+                    new TransferResult(
+                            rs.getObject("id", UUID.class),
+                            rs.getString("reference"),
+                            rs.getString("state"),
+                            rs.getLong("amount_minor"),
+                            rs.getLong("fee_minor"),
+                            rs.getString("currency"),
+                            rs.getInt("product_version"),
+                            rs.getObject("ledger_transaction_id", UUID.class),
+                            rs.getObject("from_account_id", UUID.class),
+                            rs.getObject("to_account_id", UUID.class));
+
     /** A saga already recorded under this key, or null. */
     @Transactional(readOnly = true)
     public Existing findByKey(UUID tenantId, String idempotencyKey) {
         scopeTo(tenantId);
         return jdbc.query(
                 """
-                SELECT id, request_fingerprint, state, amount_minor, fee_minor, currency,
+                SELECT id, reference, request_fingerprint, state, amount_minor, fee_minor, currency,
                        product_version, ledger_transaction_id, from_account_id, to_account_id
                   FROM orchestration.sagas
                  WHERE channel_idempotency_key = ?
@@ -146,6 +165,7 @@ public class SagaRecords {
                             rs.getString("request_fingerprint"),
                             new TransferResult(
                                     rs.getObject("id", UUID.class),
+                                    rs.getString("reference"),
                                     rs.getString("state"),
                                     rs.getLong("amount_minor"),
                                     rs.getLong("fee_minor"),
@@ -168,8 +188,20 @@ public class SagaRecords {
      * <p>The saga is persisted <em>before</em> any outbound call, so a crash in the window between
      * "call the Ledger" and "record that we called" is recoverable rather than an orphan posting.
      */
+    /**
+     * @param productCode the product this transfer was <em>judged</em> by, resolved from the paying
+     *     account. Deliberately a parameter rather than {@code command.productCode()}: the command
+     *     carries whatever the caller sent, which is accepted and ignored, and a saga row recording
+     *     that instead of the resolved one would answer "why was this fee charged" with the
+     *     caller's claim rather than the institution's rule. Same correction the cash path made.
+     */
     @Transactional
-    public UUID open(TransferCommand command, ProductDecision decision, String kycTier, String windowKey) {
+    public UUID open(
+            TransferCommand command,
+            ProductDecision decision,
+            String kycTier,
+            String productCode,
+            String windowKey) {
         scopeTo(command.tenantId());
 
         UUID sagaId =
@@ -188,7 +220,7 @@ public class SagaRecords {
                         command.idempotencyKey(),
                         command.fingerprint(),
                         command.customerId(),
-                        command.productCode(),
+                        productCode,
                         decision.productVersion(),
                         decisionSnapshot(decision, command.channel(), kycTier),
                         command.amountMinor(),
@@ -276,11 +308,18 @@ public class SagaRecords {
      * posting without knowing anything the saga does not carry.
      */
     @Transactional
+    /**
+     * @param productCode the product resolved from the account the money moves through — not the
+     *     one the caller named. A cash request's own {@code productCode} is accepted and ignored,
+     *     so persisting that would record a blank, and the saga would say a transaction was priced
+     *     by "version 1" without saying version 1 of what.
+     */
     public UUID openCash(
             org.elyonar.fincore.core.orchestration.api.CashCommand command,
             ProductDecision decision,
             TillRecords.Till till,
             String kycTier,
+            String productCode,
             String windowKey) {
         scopeTo(command.tenantId());
 
@@ -307,7 +346,7 @@ public class SagaRecords {
                         command.idempotencyKey(),
                         command.fingerprint(),
                         command.customerId(),
-                        command.productCode(),
+                        productCode,
                         decision.productVersion(),
                         decisionSnapshot(decision, command.channel(), kycTier),
                         command.amountMinor(),
@@ -423,12 +462,161 @@ public class SagaRecords {
                 sagaId);
     }
 
+    /**
+     * The references for a set of ledger transactions, as a map.
+     *
+     * <p>A statement is the Ledger's document and names its own transactions; a customer holds a
+     * receipt that names ours. Without this the two cannot be joined, so a statement line and the
+     * reference a customer reads down the telephone are unrelated strings — and the counter cannot
+     * find the line they are asking about.
+     *
+     * <p>One query for a whole page rather than one per line: a hundred-line statement is a hundred
+     * round trips otherwise, on a read somebody waits for.
+     */
+    @Transactional(readOnly = true)
+    public java.util.Map<UUID, String> referencesForLedgerTransactions(
+            UUID tenantId, java.util.Collection<UUID> ledgerTransactionIds) {
+        if (ledgerTransactionIds.isEmpty()) {
+            return java.util.Map.of();
+        }
+        scopeTo(tenantId);
+        // A placeholder per id rather than an array parameter: array binding depends on the driver
+        // mapping UUID[] to uuid[], and this is a read on the customer-facing path — it should work
+        // the same way the rest of this class's SQL does.
+        String placeholders = String.join(",", java.util.Collections.nCopies(ledgerTransactionIds.size(), "?"));
+        var references = new java.util.HashMap<UUID, String>();
+        org.springframework.jdbc.core.RowCallbackHandler collect =
+                rs -> references.put(rs.getObject(1, UUID.class), rs.getString(2));
+        jdbc.query(
+                "SELECT ledger_transaction_id, reference FROM orchestration.sagas"
+                        + " WHERE ledger_transaction_id IN ("
+                        + placeholders
+                        + ")",
+                collect,
+                ledgerTransactionIds.toArray());
+        return references;
+    }
+
     /** The saga as a caller sees it. */
     @Transactional(readOnly = true)
     public TransferResult read(UUID tenantId, UUID sagaId) {
         scopeTo(tenantId);
         return readScoped(sagaId);
     }
+
+    /**
+     * The same saga, named either way.
+     *
+     * <p>A caller holds one of two things: the {@code transactionId} another system stored, or the
+     * {@code reference} printed on a receipt and read out over the telephone. Both name exactly one
+     * posting, so both resolve here rather than forcing a channel to know which kind of string it
+     * is holding before it can ask. Anything that does not parse as a UUID is tried as a reference —
+     * references are unique per tenant and cannot collide with UUID text.
+     */
+    @Transactional(readOnly = true)
+    public TransferResult find(UUID tenantId, String handle) {
+        scopeTo(tenantId);
+        String trimmed = handle == null ? "" : handle.trim();
+        UUID asId;
+        try {
+            asId = UUID.fromString(trimmed);
+        } catch (IllegalArgumentException notAUuid) {
+            // References are stored upper-case, and somebody reading one off a receipt into a
+            // search box should not have to reproduce that.
+            return first(BY_REFERENCE, trimmed.toUpperCase());
+        }
+        return first(BY_ID, asId);
+    }
+
+    private TransferResult first(String sql, Object argument) {
+        return jdbc.query(sql, SAGA_AS_RESULT, argument).stream().findFirst().orElse(null);
+    }
+
+    private static final String SAGA_COLUMNS =
+            """
+            SELECT id, reference, state, amount_minor, fee_minor, currency, product_version,
+                   ledger_transaction_id, from_account_id, to_account_id
+              FROM orchestration.sagas
+            """;
+
+    private static final String BY_ID = SAGA_COLUMNS + " WHERE id = ?";
+
+    private static final String BY_REFERENCE = SAGA_COLUMNS + " WHERE reference = ?";
+
+    /**
+     * One posting in full, for somebody investigating it rather than posting it.
+     *
+     * <p>The self-joins answer the two questions a reversal raises and the row alone cannot: what
+     * did this undo, and has this already been undone. Both are left joins because most postings
+     * are neither, and both are resolved here rather than by the caller making two more round trips
+     * to discover that the answer is usually "nothing".
+     *
+     * <p>{@code channel} comes out of the decision snapshot, which is the record of what was decided
+     * at the time — not today's configuration. Nothing else from that snapshot is exposed; see
+     * {@link TransactionDetail} for why.
+     */
+    @Transactional(readOnly = true)
+    public TransactionDetail detail(UUID tenantId, String handle) {
+        scopeTo(tenantId);
+        String trimmed = handle == null ? "" : handle.trim();
+        try {
+            return firstDetail(DETAIL_BY_ID, UUID.fromString(trimmed));
+        } catch (IllegalArgumentException notAUuid) {
+            return firstDetail(DETAIL_BY_REFERENCE, trimmed.toUpperCase());
+        }
+    }
+
+    private TransactionDetail firstDetail(String sql, Object argument) {
+        return jdbc.query(sql, DETAIL_AS_RESULT, argument).stream().findFirst().orElse(null);
+    }
+
+    private static final String DETAIL_COLUMNS =
+            """
+            SELECT s.id, s.reference, s.type, s.state, s.amount_minor, s.fee_minor, s.currency,
+                   s.decision ->> 'channel' AS channel, s.product_code, s.product_version,
+                   s.subject_customer_id, s.from_account_id, s.to_account_id, s.fee_account_id,
+                   s.till_id, s.ledger_transaction_id, s.initiated_by, s.created_at, s.terminal_at,
+                   s.reverses_saga_id, undone.reference AS reverses_reference,
+                   undoing.id AS reversed_by_id, undoing.reference AS reversed_by_reference,
+                   s.approval_id
+              FROM orchestration.sagas s
+              LEFT JOIN orchestration.sagas undone  ON undone.id = s.reverses_saga_id
+              LEFT JOIN orchestration.sagas undoing ON undoing.reverses_saga_id = s.id
+                                                  AND undoing.state = 'COMPLETED'
+            """;
+
+    private static final String DETAIL_BY_ID = DETAIL_COLUMNS + " WHERE s.id = ?";
+
+    private static final String DETAIL_BY_REFERENCE = DETAIL_COLUMNS + " WHERE s.reference = ?";
+
+    private static final org.springframework.jdbc.core.RowMapper<TransactionDetail>
+            DETAIL_AS_RESULT =
+                    (rs, row) ->
+                            new TransactionDetail(
+                                    rs.getObject("id", UUID.class),
+                                    rs.getString("reference"),
+                                    rs.getString("type"),
+                                    rs.getString("state"),
+                                    rs.getLong("amount_minor"),
+                                    rs.getLong("fee_minor"),
+                                    rs.getString("currency"),
+                                    rs.getString("channel"),
+                                    rs.getString("product_code"),
+                                    rs.getObject("product_version", Integer.class),
+                                    rs.getObject("subject_customer_id", UUID.class),
+                                    rs.getObject("from_account_id", UUID.class),
+                                    rs.getObject("to_account_id", UUID.class),
+                                    rs.getObject("fee_account_id", UUID.class),
+                                    rs.getObject("till_id", UUID.class),
+                                    rs.getObject("ledger_transaction_id", UUID.class),
+                                    rs.getString("initiated_by"),
+                                    rs.getObject("created_at", java.time.OffsetDateTime.class),
+                                    rs.getObject("terminal_at", java.time.OffsetDateTime.class),
+                                    rs.getObject("reverses_saga_id", UUID.class),
+                                    rs.getString("reverses_reference"),
+                                    rs.getObject("reversed_by_id", UUID.class),
+                                    rs.getString("reversed_by_reference"),
+                                    rs.getObject("approval_id", UUID.class));
 
     /**
      * The same read, for callers already inside a scoped transaction.
@@ -441,21 +629,11 @@ public class SagaRecords {
     private TransferResult readScoped(UUID sagaId) {
         return jdbc.queryForObject(
                 """
-                SELECT id, state, amount_minor, fee_minor, currency, product_version,
+                SELECT id, reference, state, amount_minor, fee_minor, currency, product_version,
                        ledger_transaction_id, from_account_id, to_account_id
                   FROM orchestration.sagas WHERE id = ?
                 """,
-                (rs, row) ->
-                        new TransferResult(
-                                rs.getObject("id", UUID.class),
-                                rs.getString("state"),
-                                rs.getLong("amount_minor"),
-                                rs.getLong("fee_minor"),
-                                rs.getString("currency"),
-                                rs.getInt("product_version"),
-                                rs.getObject("ledger_transaction_id", UUID.class),
-                                rs.getObject("from_account_id", UUID.class),
-                                rs.getObject("to_account_id", UUID.class)),
+                SAGA_AS_RESULT,
                 sagaId);
     }
 
@@ -630,48 +808,9 @@ public class SagaRecords {
          * permanent one.
          */
         public org.elyonar.fincore.core.orchestration.api.LedgerPosting postingUnder(String key) {
-            // The shapes differ per operation, and a retry that rebuilt the wrong one would be
-            // rejected as key reuse — turning a recoverable unknown into a permanent one.
-            long debit;
-            long credit;
-            if ("DEPOSIT".equals(type)) {
-                // Cash in: the till takes the notes; the customer is credited net of the fee.
-                debit = amountMinor;
-                credit = amountMinor - feeMinor;
-            } else {
-                // Transfers and withdrawals alike: the payer covers the amount and the fee.
-                debit = amountMinor + feeMinor;
-                credit = amountMinor;
-            }
             var entries =
-                    new java.util.ArrayList<>(
-                            java.util.List.of(
-                                    new org.elyonar.fincore.core.orchestration.api.LedgerPosting.Entry(
-                                            fromAccountId,
-                                            org.elyonar.fincore.core.orchestration.api.LedgerPosting.Direction.DEBIT,
-                                            debit,
-                                            currency),
-                                    new org.elyonar.fincore.core.orchestration.api.LedgerPosting.Entry(
-                                            toAccountId,
-                                            org.elyonar.fincore.core.orchestration.api.LedgerPosting.Direction.CREDIT,
-                                            credit,
-                                            currency)));
-            if (feeMinor > 0 && feeAccountId == null) {
-                // Unbuildable, and no amount of retrying changes that. Raised as its own type so
-                // the worker can tell "try again later" from "this will never work" — otherwise it
-                // loops forever on a saga it cannot possibly complete, which is what a real
-                // deployment did until this was added.
-                throw new Unretryable(
-                        "saga carries a fee of " + feeMinor + " but names no fee account");
-            }
-            if (feeMinor > 0) {
-                entries.add(
-                        new org.elyonar.fincore.core.orchestration.api.LedgerPosting.Entry(
-                                feeAccountId,
-                                org.elyonar.fincore.core.orchestration.api.LedgerPosting.Direction.CREDIT,
-                                feeMinor,
-                                currency));
-            }
+                    Postings.entriesFor(
+                            type, fromAccountId, toAccountId, feeAccountId, amountMinor, feeMinor, currency);
             return new org.elyonar.fincore.core.orchestration.api.LedgerPosting(
                     key, initiatedBy, "retry", entries);
         }

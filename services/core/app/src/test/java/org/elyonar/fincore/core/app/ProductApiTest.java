@@ -267,4 +267,88 @@ class ProductApiTest {
                                 .statusCode())
                 .isEqualTo(401);
     }
+
+    // ------------------------------------------------------------------ pricing, over HTTP
+
+    /**
+     * A version can be drafted, priced and read back.
+     *
+     * <p>Thin on assertions and load-bearing anyway, because the thing it catches is not a wrong
+     * answer but no answer at all. Two controllers mapped these six routes under different path
+     * variable names — {@code {id}} against {@code {productId}} — and Spring, unable to call either
+     * more specific, refused to choose and raised {@code Ambiguous handler methods} on every
+     * request. The whole pricing surface returned 500 on a platform whose tests were green, because
+     * every test here stopped at create and publish and nothing ever called these.
+     *
+     * <p>{@code ApiSurfaceCatalogTest.no_two_controllers_serve_the_same_route} now fails on the
+     * collision directly. This is the other half: a route that is declared, and mapped exactly once,
+     * and still cannot serve a request is a route nobody has tested.
+     */
+    @Test
+    void a_version_can_be_drafted_priced_and_read_back() {
+        String id = field(createProduct("SAV-" + UUID.randomUUID(), "user:author").body(), "productId");
+
+        HttpResponse<String> drafted =
+                send(
+                        as("/v1/products/" + id + "/versions", "products:create", "user:author")
+                                .POST(HttpRequest.BodyPublishers.ofString("{\"copyFrom\":null}"))
+                                .build());
+        assertThat(drafted.statusCode()).isEqualTo(201);
+        assertThat(drafted.body()).contains("\"version\":2");
+
+        // A per-transaction rule, because the evaluator denies by default: a version carrying no
+        // PER_TXN rule is published, signed off, and refuses every transaction under it.
+        HttpResponse<String> priced =
+                send(
+                        as("/v1/products/" + id + "/versions/2/limit-rules", "products:create", "user:author")
+                                .PUT(
+                                        HttpRequest.BodyPublishers.ofString(
+                                                "{\"rules\":[{\"kycTier\":\"TIER_1\",\"channel\":\"TELLER\","
+                                                        + "\"limitType\":\"PER_TXN\",\"maxAmountMinor\":5000000,"
+                                                        + "\"currency\":\"NGN\"}]}"))
+                                .build());
+        assertThat(priced.statusCode()).isEqualTo(200);
+
+        HttpResponse<String> read =
+                send(as("/v1/products/" + id + "/versions/2", "products:read", "user:author").GET().build());
+        assertThat(read.statusCode()).isEqualTo(200);
+        assertThat(read.body()).contains("\"limitType\":\"PER_TXN\"").contains("\"maxAmountMinor\":5000000");
+    }
+
+    /**
+     * A version may be dated forward and never backward.
+     *
+     * <p>The saga records which version priced a transfer. A version dated to 2020 — before the
+     * product it belongs to existed — makes every one of those records unreconstructible, and
+     * reconciliation has no way to notice, because the date it is checking against is the lie.
+     *
+     * <p>Both halves are asserted here on purpose. The forward case failing would be a guard that
+     * refuses ordinary work, which is how a guard gets switched off.
+     */
+    @Test
+    void a_version_may_be_dated_forward_and_never_backward() {
+        String id = field(createProduct("SAV-" + UUID.randomUUID(), "user:author").body(), "productId");
+
+        HttpResponse<String> backdated =
+                send(
+                        as("/v1/products/" + id + "/versions/1", "products:create", "user:author")
+                                .method(
+                                        "PATCH",
+                                        HttpRequest.BodyPublishers.ofString(
+                                                "{\"effectiveFrom\":\"2020-01-01T00:00:00Z\"}"))
+                                .build());
+        assertThat(backdated.statusCode()).isEqualTo(422);
+        assertThat(backdated.body()).contains("EFFECTIVE_FROM_IN_THE_PAST");
+
+        HttpResponse<String> scheduled =
+                send(
+                        as("/v1/products/" + id + "/versions/1", "products:create", "user:author")
+                                .method(
+                                        "PATCH",
+                                        HttpRequest.BodyPublishers.ofString(
+                                                "{\"effectiveFrom\":\"2099-01-01T00:00:00Z\"}"))
+                                .build());
+        assertThat(scheduled.statusCode()).isEqualTo(200);
+        assertThat(scheduled.body()).contains("2099-01-01");
+    }
 }

@@ -41,6 +41,12 @@ public class CustomerController {
     @ResponseStatus(HttpStatus.CREATED)
     public CustomerRecords.Profile create(@RequestBody CreateCustomer request) {
         var identity = Authorization.require("customers:create");
+        // Checked here, as the neighbouring surfaces check theirs. Without it the request reached
+        // the database and came back a 500 from a not-null constraint — the guard held, but the
+        // caller was told nothing they could fix.
+        if (request.fullName() == null || request.fullName().isBlank()) {
+            throw new IllegalArgumentException(CustomerErrorCode.NAME_REQUIRED.code());
+        }
         return customers.create(
                 identity.tenantId(),
                 request.externalRef(),

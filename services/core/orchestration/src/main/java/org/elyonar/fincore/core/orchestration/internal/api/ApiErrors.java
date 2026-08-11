@@ -127,6 +127,19 @@ public class ApiErrors {
      * that the authority was insufficient, because naming the discrepancy tells a prober what a
      * valid approval would have to look like.
      */
+    /**
+     * Checking your own request.
+     *
+     * <p>Named plainly, unlike {@code APPROVAL_INVALID}: there is nothing here for a prober to
+     * learn — they already know who they are — and it is the one refusal on this surface with an
+     * obvious remedy, which is to ask somebody else.
+     */
+    @ExceptionHandler(ApprovalRecords.SelfCheck.class)
+    public ResponseEntity<ApiError> selfCheck() {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(ApiError.of(ErrorCode.CHECKER_IS_MAKER.code(), "the checker may not be the maker"));
+    }
+
     @ExceptionHandler(ApprovalRecords.ApprovalRejected.class)
     public ResponseEntity<ApiError> approvalRejected(ApprovalRecords.ApprovalRejected e) {
         log.debug("approval refused: {}", e.getMessage());

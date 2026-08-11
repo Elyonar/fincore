@@ -23,8 +23,20 @@ public enum CustomerErrorCode {
     /** That ledger account is already live-linked to a customer. */
     ACCOUNT_ALREADY_HELD,
 
+    /** The institution supplied an account number another live account already carries. */
+    ACCOUNT_NUMBER_TAKEN,
+
     /** A tier change carried no reason. Tier movements are audited, so the reason is required. */
     REASON_REQUIRED,
+
+    /**
+     * A customer was registered with no name.
+     *
+     * <p>Refused here rather than left to the {@code NOT NULL} on {@code full_name}. The column
+     * held — nothing nameless was ever written — but the caller met a 500 instead of being told
+     * which field was missing, and a constraint violation is not an answer anybody can act on.
+     */
+    NAME_REQUIRED,
 
     /**
      * An account was linked or opened without naming the product it is held under.
