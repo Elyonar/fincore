@@ -59,6 +59,14 @@ public enum ProductErrorCode {
     EFFECTIVE_FROM_IN_THE_PAST,
 
     /**
+     * Two drafts of the same next version, concurrently; the unique index picked the winner.
+     *
+     * <p>409, remedy is retry. Distinct from {@link #VERSION_ALREADY_PUBLISHED}: nothing here is
+     * live — the caller lost a race, not an argument.
+     */
+    DRAFT_CONFLICT,
+
+    /**
      * The ledger could not be asked whether a named account is usable.
      *
      * <p>Product's own constant rather than Orchestration's: the two modules may not share an enum

@@ -1,6 +1,6 @@
 # Core — API Surface (v1)
 
-**Status:** AGREED v2.0 (2026-08-11) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
+**Status:** AGREED v2.1 (2026-08-11) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
 
 REST/JSON. Every request carries a validated identity token — **the tenant comes
 from the token, never from a header**
@@ -130,6 +130,15 @@ regardless. This is the same rule as `checker_differs_from_maker` on
 that table, both because it may not depend on Orchestration and because an
 approval there is bound to a saga id and an amount, neither of which a product
 version has.
+
+Two consequences of taking that control seriously: a draft records its
+*caller* as author — never an inferred or inherited name — because the
+comparison at publish is only as honest as that field; and publish holds the
+version row locked while it re-checks what it is signing, so a rule write
+racing the publish waits its turn and then meets the trigger, rather than
+landing unsigned in a live version. Publish also refuses a version whose fee
+rules name no fee account (`PRICING_ACCOUNT_INVALID`) — that row would
+otherwise surface on the money path, one stranded transaction at a time.
 
 **There is no endpoint for a compensating reversal, deliberately.** A saga
 undoing its own posting after a downstream `DEFINITE_FAILURE` is automated and
@@ -268,6 +277,7 @@ tenant renders its own string from `code`, `reason` and `details`.
 | `VERSION_NOT_DRAFT` | a write against a version that is already live → 409 | no — draft the next version |
 | `RULES_INVALID` | a rule set this version cannot hold; `reason` names which → 422 | no — caller bug |
 | `EFFECTIVE_FROM_IN_THE_PAST` | a draft dated to become effective before it existed → 422 | no |
+| `DRAFT_CONFLICT` | another draft of the same next version was created concurrently → 409 | yes — the retry drafts the version after the winner's |
 
 `NOT_REVERSIBLE` is checked **before** the approval is examined. A transaction
 that has already been reversed is refused no matter what authority accompanies

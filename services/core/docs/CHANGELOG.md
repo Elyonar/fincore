@@ -8,6 +8,40 @@ entry first.
 
 ---
 
+## [2.1.0] — 2026-08-11 · MINOR
+
+**Authoring stops trusting the author.** Four holes in the pricing surface, all found by audit on
+the day the surface shipped, all closed while the code is hot. Tightenings, so MINOR — a caller
+doing the right thing sees no difference; several wrong things stop being possible.
+
+- **A draft records its caller as author.** It used to inherit the *previous* version's author,
+  which inverted maker-checker from version 2 on: whoever drafted next could publish their own
+  pricing, and the person the record blamed was refused. `draftNextVersion` now takes the
+  initiator, and refuses a blank one.
+- **Shape validation is live again** — rescued from the stack that died with lending, into
+  `ProductAuthoringRecords`, where the tables live. Basis points above 10,000 (a fee above 100%),
+  unknown operations/kinds/tiers/channels/limit types, malformed currencies and negative amounts
+  are refused as 422 `RULES_INVALID` with a `reason`. The database backs each with a CHECK
+  (`basis_points <= 10000`; closed vocabularies on `kyc_tier`, `channel`), because a limit rule
+  that never matches under deny-by-default evaluation silently refuses the tier its author meant
+  to serve.
+- **The backdating guard is the authority now.** It used to wave through any spelling Java could
+  not parse, on the theory the `timestamptz` cast would judge it — but the cast accepts spellings
+  Java refuses (`2020-01-01`, a space for the `T`), so writing the date the way Postgres likes it
+  backdated freely. Unparseable is now refused (`RULES_INVALID`/`EFFECTIVE_FROM_INVALID`), and
+  what goes downstream is the guard's own normalised instant.
+- **Publish signs what it reads.** The version row is locked (`FOR UPDATE`) across the publish
+  check, and every rule write takes the same lock — so a rule write racing a publish waits, then
+  meets the trigger, rather than landing unsigned in a live version. Publish also refuses a
+  version whose fee rules name no fee account (`PRICING_ACCOUNT_INVALID`): the API can no longer
+  author such a row, and rows from before it couldn't must not reach the money path.
+- **Races answer in the contract, not in stack traces.** Concurrent drafts of the same next
+  version: the loser gets 409 `DRAFT_CONFLICT` (new code; retry drafts the version after the
+  winner's). Concurrent internal-account opens on one code: the loser gets the same 409
+  `ACCOUNT_CODE_TAKEN` the sequential path gives.
+- All of it under `PricingAuthoringApiTest` — attribution, both backdating spellings, the 500%
+  fee, the typo'd tier, publish-vs-edit under real concurrency, and the draft race.
+
 ## [2.0.0] — 2026-08-11 · MAJOR
 
 **Lending is withdrawn, and the money path tells the customer what happened.** The largest entry

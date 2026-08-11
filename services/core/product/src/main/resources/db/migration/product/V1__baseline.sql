@@ -108,7 +108,9 @@ CREATE TABLE product.fee_rules (
     cap_minor bigint,
     currency character(3) NOT NULL,
     fee_account_id uuid,
-    CONSTRAINT fee_rules_basis_points_check CHECK (((basis_points IS NULL) OR (basis_points >= 0))),
+    -- 10,000 basis points is 100%. The Java layer says this in a sentence (RATE_OUT_OF_RANGE);
+    -- this is the thing that actually holds when some future surface forgets to.
+    CONSTRAINT fee_rules_basis_points_check CHECK (((basis_points IS NULL) OR ((basis_points >= 0) AND (basis_points <= 10000)))),
     CONSTRAINT fee_rules_cap_minor_check CHECK (((cap_minor IS NULL) OR (cap_minor >= 0))),
     CONSTRAINT fee_rules_flat_minor_check CHECK (((flat_minor IS NULL) OR (flat_minor >= 0))),
     CONSTRAINT fee_rules_kind_check CHECK ((kind = ANY (ARRAY['FLAT'::text, 'PERCENT'::text]))),
@@ -131,6 +133,11 @@ CREATE TABLE product.limit_rules (
     limit_type text NOT NULL,
     max_amount_minor bigint NOT NULL,
     currency character(3) NOT NULL,
+    -- Closed vocabularies, not free text: a limit rule for a tier or channel that never matches
+    -- is a limit that silently never applies, and the evaluator denies by default — so a typo
+    -- here would refuse every transaction for the tier its author meant to serve.
+    CONSTRAINT limit_rules_channel_check CHECK ((channel = ANY (ARRAY['TELLER'::text, 'API'::text]))),
+    CONSTRAINT limit_rules_kyc_tier_check CHECK ((kyc_tier = ANY (ARRAY['TIER_1'::text, 'TIER_2'::text, 'TIER_3'::text]))),
     CONSTRAINT limit_rules_limit_type_check CHECK ((limit_type = ANY (ARRAY['PER_TXN'::text, 'DAILY'::text]))),
     CONSTRAINT limit_rules_max_amount_minor_check CHECK ((max_amount_minor > 0))
 );

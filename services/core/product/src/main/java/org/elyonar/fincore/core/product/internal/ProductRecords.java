@@ -141,6 +141,7 @@ public class ProductRecords {
                         """
                         SELECT status, created_by FROM product.product_versions
                          WHERE product_id = ? AND version = ?
+                           FOR UPDATE
                         """,
                         rs -> rs.next() ? new String[] {rs.getString("status"), rs.getString("created_by")} : null,
                         productId, version);
@@ -154,6 +155,30 @@ public class ProductRecords {
         }
         if (publishedBy.equals(found[1])) {
             throw new PublisherIsAuthor();
+        }
+
+        // The checker signs the rules as they stand at this instant. The FOR UPDATE above is what
+        // makes "as they stand" true: rule writes lock the same row, so none can slide in between
+        // this read and the commit. Without it, a write racing this publish could pass its own
+        // DRAFT check and land after the checker's review — a published version whose rules nobody
+        // signed.
+
+        // And what stands must be postable. A fee rule with no account was authorable until the
+        // caller-supplied fallback was removed; rows from that era (or written past the API) would
+        // otherwise surface only on the money path, one stranded transaction at a time.
+        String unpostable =
+                jdbc.query(
+                        """
+                        SELECT operation FROM product.fee_rules
+                         WHERE product_version_id = (SELECT id FROM product.product_versions
+                                                      WHERE product_id = ? AND version = ?)
+                           AND fee_account_id IS NULL
+                         LIMIT 1
+                        """,
+                        rs -> rs.next() ? rs.getString("operation") : null,
+                        productId, version);
+        if (unpostable != null) {
+            throw new FeeRuleUnpostable(unpostable);
         }
 
         jdbc.update(
@@ -222,6 +247,17 @@ public class ProductRecords {
     public static class PublisherIsAuthor extends RuntimeException {
         public PublisherIsAuthor() {
             super("the publisher of a version may not be its author");
+        }
+    }
+
+    /** A fee rule that prices money with nowhere to put it. Refused at publish, not on the money path. */
+    public static class FeeRuleUnpostable extends RuntimeException {
+        public final String operation;
+
+        public FeeRuleUnpostable(String operation) {
+            super("the " + operation + " fee rule names no fee account; publishing it would strand"
+                    + " every " + operation.toLowerCase(java.util.Locale.ROOT) + " it prices");
+            this.operation = operation;
         }
     }
 }

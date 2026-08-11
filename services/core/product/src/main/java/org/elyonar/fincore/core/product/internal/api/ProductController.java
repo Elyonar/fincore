@@ -82,14 +82,12 @@ public class ProductController {
     // routes to `app (pricing)` and the portal is written to that contract, down to the
     // `productId`/`productCode`/`productType` fields only its response carries.
     //
-    // What that costs is real and not yet repaid: these methods ran every rule through a
-    // RuleValidation component first, and PricingController checks only the accounts a rule names.
-    // The shape checks — a FLAT fee carrying basis points, a tier this platform has no customers
-    // in — now reach the database and come back as a constraint violation instead of a
-    // RULES_INVALID a client can render. RuleValidation itself is gone: a validator no request
-    // could reach was dead code, and it left with the withdrawn lending module (ADR 0013).
-    // Restoring the shape checks means rebuilding them in product.api, where `app` is allowed to
-    // call them (ADR 0006) — its own change with its own tests.
+    // The shape checks those routes used to run through a RuleValidation component (dead code,
+    // left with the withdrawn lending module) have been rescued into ProductAuthoringRecords —
+    // the module that owns the tables — so every rule write is judged before it is stored and a
+    // malformed rule comes back as a RULES_INVALID a client can render, with the database CHECKs
+    // as the backstop that actually holds. PricingController still checks only the accounts a
+    // rule names, because it is the one place that can see Orchestration (ADR 0006).
 
     /** @param type SAVINGS or CURRENT */
     public record CreateProduct(String code, String name, String type) {}

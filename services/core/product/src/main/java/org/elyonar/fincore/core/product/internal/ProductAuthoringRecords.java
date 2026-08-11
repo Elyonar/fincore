@@ -2,9 +2,13 @@ package org.elyonar.fincore.core.product.internal;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import org.elyonar.fincore.core.product.api.ProductAuthoring;
+import org.elyonar.fincore.core.product.api.ProductErrorReason;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
@@ -36,11 +40,21 @@ public class ProductAuthoringRecords implements ProductAuthoring {
         jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenantId.toString());
     }
 
-    /** The version row's id, refusing when it is absent or live. */
+    /**
+     * The version row's id, refusing when it is absent or live — and <b>locked</b>.
+     *
+     * <p>{@code FOR UPDATE} is what makes the status check mean anything under concurrency. Without
+     * it, a rule write could read DRAFT while a publish of the same version was in flight: the
+     * publish's non-key UPDATE does not conflict with the rule INSERTs' foreign-key locks, both
+     * would commit, and the result would be a PUBLISHED version whose rules differ from what the
+     * checker signed. Holding the row lock serialises every rule write and reschedule against
+     * publish, which takes the same lock.
+     */
     private UUID draftVersionId(UUID tenantId, UUID productId, int version) {
         String[] found = jdbc.query(
                 "SELECT id::text, status FROM product.product_versions"
-                        + " WHERE tenant_id = ? AND product_id = ? AND version = ?",
+                        + " WHERE tenant_id = ? AND product_id = ? AND version = ?"
+                        + " FOR UPDATE",
                 rs -> rs.next() ? new String[] {rs.getString(1), rs.getString(2)} : null,
                 tenantId,
                 productId,
@@ -56,8 +70,13 @@ public class ProductAuthoringRecords implements ProductAuthoring {
 
     @Override
     @Transactional(transactionManager = "productTransactionManager")
-    public int draftNextVersion(UUID tenantId, UUID productId, Integer copyFrom) {
+    public int draftNextVersion(UUID tenantId, UUID productId, Integer copyFrom, String author) {
         scopeTo(tenantId);
+        if (author == null || author.isBlank()) {
+            // Attribution is what maker-checker compares at publish. Recording a blank here would
+            // let anyone publish this draft — or no one — depending on how the comparison fell.
+            throw new IllegalArgumentException("a draft must record who drafted it");
+        }
 
         Integer highest = jdbc.queryForObject(
                 "SELECT max(version) FROM product.product_versions WHERE tenant_id = ? AND product_id = ?",
@@ -70,16 +89,22 @@ public class ProductAuthoringRecords implements ProductAuthoring {
         }
         int next = highest + 1;
 
-        UUID newVersionId = jdbc.queryForObject(
-                "INSERT INTO product.product_versions (tenant_id, product_id, version, status, created_by)"
-                        + " VALUES (?,?,?,'DRAFT',?) RETURNING id",
-                UUID.class,
-                tenantId,
-                productId,
-                next,
-                // Attribution matters at publish, where maker-checker compares it. A draft's author
-                // is recorded here so that comparison has something to compare against.
-                authorOf(tenantId, productId, highest));
+        UUID newVersionId;
+        try {
+            newVersionId = jdbc.queryForObject(
+                    "INSERT INTO product.product_versions (tenant_id, product_id, version, status, created_by)"
+                            + " VALUES (?,?,?,'DRAFT',?) RETURNING id",
+                    UUID.class,
+                    tenantId,
+                    productId,
+                    next,
+                    author);
+        } catch (DuplicateKeyException raced) {
+            // Two administrators drafted "the next version" at once and the unique index picked a
+            // winner. Retrying inside this transaction is not possible — the violation poisoned it —
+            // so the loser is told, as a 409, and their retry drafts the version after the winner's.
+            throw new DraftConflict();
+        }
 
         if (copyFrom != null) {
             UUID source = jdbc.query(
@@ -95,18 +120,6 @@ public class ProductAuthoringRecords implements ProductAuthoring {
             copyRules(tenantId, source, newVersionId);
         }
         return next;
-    }
-
-    /** Who drafted the version we are following. Falls back to the platform when there is nobody. */
-    private String authorOf(UUID tenantId, UUID productId, int version) {
-        String author = jdbc.query(
-                "SELECT created_by FROM product.product_versions"
-                        + " WHERE tenant_id = ? AND product_id = ? AND version = ?",
-                rs -> rs.next() ? rs.getString(1) : null,
-                tenantId,
-                productId,
-                version);
-        return author == null ? "system:core" : author;
     }
 
     private void copyRules(UUID tenantId, UUID sourceVersionId, UUID targetVersionId) {
@@ -131,9 +144,101 @@ public class ProductAuthoringRecords implements ProductAuthoring {
                 sourceVersionId);
     }
 
+    // ---------------------------------------------------------------- shape validation
+    //
+    // Rescued from the withdrawn authoring stack's RuleValidation, which died with lending while
+    // the surviving controller called none of it — leaving a 500% fee storable and publishable.
+    // The checks live here, not in the controller, because this is the module that owns the tables:
+    // a second authoring surface would inherit them by construction instead of by remembering.
+    // Account checks stay in the controller, which is the only place that can see Orchestration.
+
+    private static final Set<String> OPERATIONS = Set.of("DEPOSIT", "WITHDRAWAL", "TRANSFER");
+    private static final Set<String> FEE_KINDS = Set.of("FLAT", "PERCENT");
+    private static final Set<String> LIMIT_TYPES = Set.of("PER_TXN", "DAILY");
+
+    /**
+     * Mirrored vocabularies, and deliberately so.
+     *
+     * <p>The channel set lives in Orchestration's transfer surface (ADR 0012), which Product may
+     * not import; the KYC tiers are the CBN three that {@code customer.customers.kyc_tier}'s own
+     * default comes from. A divergence here refuses a value the money path would accept — the safe
+     * direction to be wrong in, because a limit rule for a tier or channel that never matches is a
+     * limit that silently never applies, and the evaluator denies by default.
+     */
+    private static final Set<String> CHANNELS = Set.of("TELLER", "API");
+
+    private static final Set<String> KYC_TIERS = Set.of("TIER_1", "TIER_2", "TIER_3");
+
+    private static void checkFeeShape(ProductAuthoring.FeeRule rule) {
+        if (!OPERATIONS.contains(rule.operation())) {
+            throw new RulesInvalid(
+                    ProductErrorReason.UNKNOWN_OPERATION,
+                    Map.of("operation", String.valueOf(rule.operation()), "permitted", OPERATIONS.toString()));
+        }
+        if (!FEE_KINDS.contains(rule.kind())) {
+            throw new RulesInvalid(
+                    ProductErrorReason.UNKNOWN_FEE_BASIS,
+                    Map.of("kind", String.valueOf(rule.kind()), "permitted", FEE_KINDS.toString()));
+        }
+        // The database says the same in `fee_shape`. This says it in a sentence.
+        if ("FLAT".equals(rule.kind()) && (rule.flatMinor() == null || rule.basisPoints() != null)) {
+            throw new RulesInvalid(
+                    ProductErrorReason.UNKNOWN_FEE_BASIS, Map.of("kind", "FLAT", "expects", "flatMinor, and no basisPoints"));
+        }
+        if ("PERCENT".equals(rule.kind()) && (rule.basisPoints() == null || rule.flatMinor() != null)) {
+            throw new RulesInvalid(
+                    ProductErrorReason.UNKNOWN_FEE_BASIS,
+                    Map.of("kind", "PERCENT", "expects", "basisPoints, and no flatMinor"));
+        }
+        if (rule.basisPoints() != null && (rule.basisPoints() < 0 || rule.basisPoints() > 10_000)) {
+            // 10,000 basis points is 100%. A fee above the amount is a typed zero too many.
+            throw new RulesInvalid(
+                    ProductErrorReason.RATE_OUT_OF_RANGE, Map.of("basisPoints", rule.basisPoints(), "max", 10_000));
+        }
+        if ((rule.flatMinor() != null && rule.flatMinor() < 0) || (rule.capMinor() != null && rule.capMinor() < 0)) {
+            throw new RulesInvalid(
+                    ProductErrorReason.BOUNDS_INVERTED, Map.of("field", "flatMinor/capMinor", "reason", "negative"));
+        }
+        checkCurrency(rule.currency());
+    }
+
+    private static void checkLimitShape(ProductAuthoring.LimitRule rule) {
+        if (!KYC_TIERS.contains(rule.kycTier())) {
+            throw new RulesInvalid(
+                    ProductErrorReason.UNKNOWN_KYC_TIER,
+                    Map.of("kycTier", String.valueOf(rule.kycTier()), "permitted", KYC_TIERS.toString()));
+        }
+        if (!CHANNELS.contains(rule.channel())) {
+            throw new RulesInvalid(
+                    ProductErrorReason.UNKNOWN_CHANNEL,
+                    Map.of("channel", String.valueOf(rule.channel()), "permitted", CHANNELS.toString()));
+        }
+        if (!LIMIT_TYPES.contains(rule.limitType())) {
+            throw new RulesInvalid(
+                    ProductErrorReason.UNKNOWN_LIMIT_TYPE,
+                    Map.of("limitType", String.valueOf(rule.limitType()), "permitted", LIMIT_TYPES.toString()));
+        }
+        if (rule.maxAmountMinor() <= 0) {
+            throw new RulesInvalid(
+                    ProductErrorReason.BOUNDS_INVERTED, Map.of("field", "maxAmountMinor", "reason", "must be above zero"));
+        }
+        checkCurrency(rule.currency());
+    }
+
+    private static void checkCurrency(String currency) {
+        if (currency == null || currency.length() != 3 || !currency.equals(currency.toUpperCase(java.util.Locale.ROOT))) {
+            throw new RulesInvalid(
+                    ProductErrorReason.CURRENCY_INVALID,
+                    Map.of("currency", String.valueOf(currency), "expects", "an uppercase ISO 4217 code"));
+        }
+    }
+
     @Override
     @Transactional(transactionManager = "productTransactionManager")
     public void setFeeRules(UUID tenantId, UUID productId, int version, List<ProductAuthoring.FeeRule> rules) {
+        for (ProductAuthoring.FeeRule rule : rules) {
+            checkFeeShape(rule);
+        }
         scopeTo(tenantId);
         UUID versionId = draftVersionId(tenantId, productId, version);
 
@@ -161,6 +266,9 @@ public class ProductAuthoringRecords implements ProductAuthoring {
     @Override
     @Transactional(transactionManager = "productTransactionManager")
     public void setLimitRules(UUID tenantId, UUID productId, int version, List<ProductAuthoring.LimitRule> rules) {
+        for (ProductAuthoring.LimitRule rule : rules) {
+            checkLimitShape(rule);
+        }
         scopeTo(tenantId);
         UUID versionId = draftVersionId(tenantId, productId, version);
 

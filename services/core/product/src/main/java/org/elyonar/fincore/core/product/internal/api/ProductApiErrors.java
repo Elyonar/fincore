@@ -43,5 +43,18 @@ public class ProductApiErrors {
         return ResponseEntity.status(HttpStatus.FORBIDDEN).body(new Error(ProductErrorCode.PUBLISHER_IS_AUTHOR.code()));
     }
 
+    /**
+     * A fee rule with no fee account, caught where the checker is looking.
+     *
+     * <p>422 with {@code PRICING_ACCOUNT_INVALID} — the same code the authoring surface uses for a
+     * wrong account, because "no account" is the degenerate case of "wrong account" and the remedy
+     * is the same screen. Publish is the last gate before the money path, where this row would
+     * otherwise surface one stranded transaction at a time.
+     */
+    @ExceptionHandler(ProductRecords.FeeRuleUnpostable.class)
+    public ResponseEntity<Error> feeRuleUnpostable(ProductRecords.FeeRuleUnpostable e) {
+        return ResponseEntity.unprocessableEntity().body(new Error(ProductErrorCode.PRICING_ACCOUNT_INVALID.code()));
+    }
+
     public record Error(String code) {}
 }

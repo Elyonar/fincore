@@ -11,6 +11,7 @@ import java.util.UUID;
 import org.elyonar.fincore.auth.Authorization;
 import org.elyonar.fincore.core.orchestration.api.InstitutionAccounts;
 import org.elyonar.fincore.core.product.api.ProductAuthoring;
+import org.elyonar.fincore.core.product.api.ProductErrorReason;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -70,7 +71,11 @@ public class PricingController {
     public Map<String, Object> draft(@PathVariable UUID productId, @RequestBody(required = false) Draft request) {
         var identity = Authorization.require("products:create");
         Integer copyFrom = request == null ? null : request.copyFrom();
-        int version = authoring.draftNextVersion(identity.tenantId(), productId, copyFrom);
+        // The caller is the author — never inferred, never copied from the previous version.
+        // Maker-checker at publish compares against exactly this value; recording anyone else
+        // here decides who may publish, which is a money control, not bookkeeping.
+        int version = authoring.draftNextVersion(
+                identity.tenantId(), productId, copyFrom, Authorization.initiatedBy());
         return Map.of("version", version, "status", "DRAFT");
     }
 
@@ -123,22 +128,28 @@ public class PricingController {
     public ProductAuthoring.VersionDetail schedule(
             @PathVariable UUID productId, @PathVariable int version, @RequestBody Schedule request) {
         var identity = Authorization.require("products:create");
-        requireNotBackdated(request.effectiveFrom());
-        authoring.setEffectiveFrom(identity.tenantId(), productId, version, request.effectiveFrom());
+        String normalised = parseAndRequireNotBackdated(request.effectiveFrom());
+        authoring.setEffectiveFrom(identity.tenantId(), productId, version, normalised);
         return authoring.read(identity.tenantId(), productId, version);
     }
 
     /**
-     * Refuses a moment already past.
+     * Refuses a moment already past — and refuses a moment it cannot read.
      *
-     * <p>A string this cannot parse is left alone rather than guessed at: the column is a
-     * {@code timestamptz} and the cast is the authority on what is a date, so inventing a second
-     * opinion here would refuse values the database accepts. Only a moment that parses <em>and</em>
-     * is behind us is refused.
+     * <p>This guard used to wave through any string Java's ISO parsers refused, on the theory that
+     * the {@code timestamptz} cast downstream was the authority on what is a date. But the cast
+     * accepts formats these parsers do not — {@code "2020-01-01"}, a space where the {@code T}
+     * belongs — so "unparseable here" did not mean "unparseable there", and a caller who wrote the
+     * date the way Postgres likes it backdated freely through the exact gap this method exists to
+     * close. Now the guard is the authority: what it cannot read, it refuses, and what it passes
+     * downstream is its own normalised UTC instant, so the database never sees a spelling this
+     * method has not judged.
+     *
+     * @return the normalised ISO instant, or null for "as soon as somebody publishes it"
      */
-    private static void requireNotBackdated(String effectiveFrom) {
+    private static String parseAndRequireNotBackdated(String effectiveFrom) {
         if (effectiveFrom == null || effectiveFrom.isBlank()) {
-            return;
+            return null;
         }
         Instant moment;
         try {
@@ -147,12 +158,15 @@ public class PricingController {
             try {
                 moment = Instant.parse(effectiveFrom);
             } catch (DateTimeParseException notAnInstant) {
-                return;
+                throw new ProductAuthoring.RulesInvalid(
+                        ProductErrorReason.EFFECTIVE_FROM_INVALID,
+                        Map.of("effectiveFrom", effectiveFrom, "expects", "an ISO-8601 instant, e.g. 2026-09-01T00:00:00Z"));
             }
         }
         if (moment.isBefore(Instant.now())) {
             throw new EffectiveFromInThePast();
         }
+        return moment.toString();
     }
 
     /**

@@ -183,18 +183,27 @@ public class InternalAccounts implements InstitutionAccounts {
             throw new LedgerRefused(opened.failure());
         }
 
-        UUID id = jdbc.queryForObject(
-                "INSERT INTO orchestration.internal_accounts"
-                        + " (tenant_id, ledger_account_id, code, name, purpose, currency, opened_by)"
-                        + " VALUES (?,?,?,?,?,?,?) RETURNING id",
-                UUID.class,
-                tenantId,
-                opened.accountId(),
-                cleanCode,
-                cleanName,
-                purpose.name(),
-                cleanCurrency,
-                openedBy);
+        UUID id;
+        try {
+            id = jdbc.queryForObject(
+                    "INSERT INTO orchestration.internal_accounts"
+                            + " (tenant_id, ledger_account_id, code, name, purpose, currency, opened_by)"
+                            + " VALUES (?,?,?,?,?,?,?) RETURNING id",
+                    UUID.class,
+                    tenantId,
+                    opened.accountId(),
+                    cleanCode,
+                    cleanName,
+                    purpose.name(),
+                    cleanCurrency,
+                    openedBy);
+        } catch (org.springframework.dao.DuplicateKeyException raced) {
+            // Two opens raced past the byCode check above; internal_accounts_code_per_tenant picked
+            // the winner. The loser gets the same 409 the check would have given a moment later —
+            // not a 500 for a race they could not see. The ledger open above was idempotent on the
+            // derived key, so both racers were handed the same ledger account and nothing leaks.
+            throw new CodeTaken(cleanCode);
+        }
 
         return new InternalAccount(
                 id,
