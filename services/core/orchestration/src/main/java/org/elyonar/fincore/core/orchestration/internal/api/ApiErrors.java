@@ -9,6 +9,7 @@ import org.elyonar.fincore.core.orchestration.api.DetailKey;
 import org.elyonar.fincore.core.orchestration.api.ErrorCode;
 import org.elyonar.fincore.core.orchestration.internal.approval.ApprovalRecords;
 import org.elyonar.fincore.core.orchestration.internal.saga.InternalAccounts;
+import org.elyonar.fincore.core.orchestration.internal.saga.SagaRecords;
 import org.elyonar.fincore.core.orchestration.internal.saga.TransferService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -120,6 +121,21 @@ public class ApiErrors {
     }
 
     /**
+     * A posting that can never be built — today, a priced fee whose rule names no fee account.
+     *
+     * <p>422 with the documented code, not the 500 this used to be: the refusal is configuration,
+     * not weather, and {@code api.md} has promised {@code FEE_ACCOUNT_NOT_CONFIGURED} since the
+     * caller-supplied fallback was removed. Retrying the same key without fixing the product's fee
+     * rule cannot succeed, and the body should say which knob to turn rather than shrug.
+     */
+    @ExceptionHandler(SagaRecords.Unretryable.class)
+    public ResponseEntity<ApiError> unbuildable(SagaRecords.Unretryable e) {
+        log.warn("posting cannot be built: {}", e.getMessage());
+        return ResponseEntity.unprocessableEntity()
+                .body(ApiError.of(ErrorCode.FEE_ACCOUNT_NOT_CONFIGURED.code(), e.getMessage()));
+    }
+
+    /**
      * The approval does not authorise this reversal — wrong target, wrong amount, unapproved, or
      * already spent. A 403: the request is well formed, the authority is not there.
      *
@@ -127,6 +143,19 @@ public class ApiErrors {
      * that the authority was insufficient, because naming the discrepancy tells a prober what a
      * valid approval would have to look like.
      */
+    /**
+     * Checking your own request.
+     *
+     * <p>Named plainly, unlike {@code APPROVAL_INVALID}: there is nothing here for a prober to
+     * learn — they already know who they are — and it is the one refusal on this surface with an
+     * obvious remedy, which is to ask somebody else.
+     */
+    @ExceptionHandler(ApprovalRecords.SelfCheck.class)
+    public ResponseEntity<ApiError> selfCheck() {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(ApiError.of(ErrorCode.CHECKER_IS_MAKER.code(), "the checker may not be the maker"));
+    }
+
     @ExceptionHandler(ApprovalRecords.ApprovalRejected.class)
     public ResponseEntity<ApiError> approvalRejected(ApprovalRecords.ApprovalRejected e) {
         log.debug("approval refused: {}", e.getMessage());

@@ -53,8 +53,18 @@ public interface CustomerEligibility {
     java.util.List<HeldAccount> heldAccounts(UUID tenantId, UUID customerId);
 
     /**
+     * @param accountNumber what the institution calls this account — the number on a paying-in slip
+     *     and the only name for it a customer will ever use. Null for accounts linked before the
+     *     platform issued numbers. Not PII: it identifies an account, not a person, in exactly the
+     *     way {@code ledgerAccountId} does, and it is the difference between a screen a teller can
+     *     read and a screen showing UUIDs
      * @param productCode what the account was opened under. Null for accounts linked before the
      *     column existed — a customer-360 read shows the gap rather than inventing a product.
      */
-    record HeldAccount(UUID ledgerAccountId, String currency, String role, String productCode) {}
+    record HeldAccount(
+            UUID ledgerAccountId,
+            String accountNumber,
+            String currency,
+            String role,
+            String productCode) {}
 }

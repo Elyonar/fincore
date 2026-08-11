@@ -1,19 +1,14 @@
 package org.elyonar.fincore.core.product.internal.api;
 
 import io.swagger.v3.oas.annotations.tags.Tag;
-import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
 import org.elyonar.fincore.auth.Authorization;
-import org.elyonar.fincore.core.product.internal.ProductAuthoring;
 import org.elyonar.fincore.core.product.internal.ProductRecords;
-import org.elyonar.fincore.core.product.internal.RuleValidation;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
@@ -36,14 +31,9 @@ import org.springframework.web.bind.annotation.RestController;
 public class ProductController {
 
     private final ProductRecords products;
-    private final ProductAuthoring authoring;
-    private final RuleValidation validation;
 
-    public ProductController(
-            ProductRecords products, ProductAuthoring authoring, RuleValidation validation) {
+    public ProductController(ProductRecords products) {
         this.products = products;
-        this.authoring = authoring;
-        this.validation = validation;
     }
 
     /** Every product and its versions, live or draft. */
@@ -80,99 +70,26 @@ public class ProductController {
     }
 
     // ---------------------------------------------------------------- version authoring
-
-    /**
-     * Drafts the next version of a product.
-     *
-     * <p>{@code cloneFrom} copies an existing version's rules into the new draft, which is what a
-     * price change almost always is: last version, with one number moved. Omit it for a version that
-     * starts empty.
-     */
-    @PostMapping("/{id}/versions")
-    @ResponseStatus(HttpStatus.CREATED)
-    public ProductRecords.Version draft(@PathVariable UUID id, @RequestBody(required = false) DraftVersion request) {
-        var identity = Authorization.require("products:create");
-        Integer cloneFrom = request == null ? null : request.cloneFrom();
-        return authoring.draft(identity.tenantId(), id, cloneFrom, Authorization.initiatedBy());
-    }
-
-    /**
-     * One version and everything that prices it.
-     *
-     * <p>A first-class read, not a debugging aid: an administrator who cannot see the pricing of a
-     * product they published cannot review it, and a client cannot render an edit form without it.
-     */
-    @GetMapping("/{id}/versions/{version}")
-    public ProductAuthoring.VersionDetail version(@PathVariable UUID id, @PathVariable int version) {
-        var identity = Authorization.require("products:read");
-        return authoring.read(identity.tenantId(), id, version);
-    }
-
-    /**
-     * Replaces the fee schedule of a draft.
-     *
-     * <p>Total, not incremental — send the rules the version should have. A PATCH of one rule out of
-     * four is how a version comes to price half of what its author intended.
-     */
-    @PutMapping("/{id}/versions/{version}/fee-rules")
-    public ProductAuthoring.VersionDetail feeRules(
-            @PathVariable UUID id, @PathVariable int version, @RequestBody FeeRules request) {
-        var identity = Authorization.require("products:create");
-        List<ProductAuthoring.FeeRule> rules = request.rules() == null ? List.of() : request.rules();
-        validation.checkFeeRules(identity.tenantId(), rules);
-        return authoring.replaceFeeRules(identity.tenantId(), id, version, rules);
-    }
-
-    /** Replaces the limit schedule of a draft, per KYC tier and channel. Total, as fees are. */
-    @PutMapping("/{id}/versions/{version}/limit-rules")
-    public ProductAuthoring.VersionDetail limitRules(
-            @PathVariable UUID id, @PathVariable int version, @RequestBody LimitRules request) {
-        var identity = Authorization.require("products:create");
-        List<ProductAuthoring.LimitRule> rules = request.rules() == null ? List.of() : request.rules();
-        validation.checkLimitRules(identity.tenantId(), rules);
-        return authoring.replaceLimitRules(identity.tenantId(), id, version, rules);
-    }
-
-    /**
-     * Replaces the loan terms of a draft. LOAN products only; one rule set per version.
-     *
-     * <p>Surfaced under Lending in the portal rather than beside the catalogue, because the rate and
-     * the term bounds are read at the desk. The rule still belongs to a product version, which is
-     * why it is authored here.
-     */
-    @PutMapping("/{id}/versions/{version}/loan-rules")
-    public ProductAuthoring.VersionDetail loanRules(
-            @PathVariable UUID id, @PathVariable int version, @RequestBody LoanRules request) {
-        var identity = Authorization.require("products:create");
-        validation.checkLoanRule(identity.tenantId(), request.rule());
-        return authoring.replaceLoanRules(identity.tenantId(), id, version, request.rule());
-    }
-
-    /**
-     * Sets when a draft becomes live once published.
-     *
-     * <p>Forward only. A version claiming to have been effective before it existed makes every
-     * transaction the saga says it priced unreconstructible.
-     */
-    @PatchMapping("/{id}/versions/{version}")
-    public ProductAuthoring.VersionDetail schedule(
-            @PathVariable UUID id, @PathVariable int version, @RequestBody Schedule request) {
-        var identity = Authorization.require("products:create");
-        validation.checkEffectiveFrom(request.effectiveFrom());
-        return authoring.setEffectiveFrom(identity.tenantId(), id, version, request.effectiveFrom());
-    }
+    //
+    // Deliberately absent. Drafting a version, reading one, and writing its fee, limit and loan
+    // rules were all served from here as well as from `app`'s PricingController, under
+    // `/{id}/versions/...` against `/{productId}/versions/...`. Those are two spellings of one URI,
+    // and Spring does not pick between them: it matched both and threw `Ambiguous handler methods`,
+    // so every request on the pricing surface — every rule save, every version read — was a 500.
+    // The whole surface was dead, and no test noticed because none exercised it.
+    //
+    // The duplicate went here rather than there because api.md (§ admin surface) assigns all six
+    // routes to `app (pricing)` and the portal is written to that contract, down to the
+    // `productId`/`productCode`/`productType` fields only its response carries.
+    //
+    // What that costs is real and not yet repaid: these methods ran every rule through
+    // RuleValidation first, and PricingController checks only the accounts a rule names. The shape
+    // checks — a FLAT fee carrying basis points, a tier this platform has no customers in, inverted
+    // term bounds — now reach the database and come back as a constraint violation instead of a
+    // RULES_INVALID a client can render. RuleValidation is still here and still correct; it needs
+    // lifting into product.api before `app` is allowed to call it (ADR 0006), which is its own
+    // change with its own tests.
 
     /** @param type SAVINGS, CURRENT or LOAN */
     public record CreateProduct(String code, String name, String type) {}
-
-    /** @param cloneFrom an existing version of this product whose rules the draft starts from */
-    public record DraftVersion(Integer cloneFrom) {}
-
-    public record FeeRules(List<ProductAuthoring.FeeRule> rules) {}
-
-    public record LimitRules(List<ProductAuthoring.LimitRule> rules) {}
-
-    public record LoanRules(ProductAuthoring.LoanRule rule) {}
-
-    public record Schedule(OffsetDateTime effectiveFrom) {}
 }

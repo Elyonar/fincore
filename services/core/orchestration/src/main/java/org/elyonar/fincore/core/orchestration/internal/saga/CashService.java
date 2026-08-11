@@ -125,7 +125,7 @@ public class CashService {
 
         UUID sagaId =
                 sagas.openCash(
-                        command, decision, till, eligibility.kycTier(),
+                        command, decision, till, eligibility.kycTier(), productCode,
                         "daily:" + LocalDate.now(command.businessZone()));
 
         // ---- Phase B ---------------------------------------------------------
@@ -164,34 +164,35 @@ public class CashService {
         long amount = command.amountMinor();
         long fee = decision.feeMinor();
 
-        List<LedgerPosting.Entry> entries;
-        if (command.operation() == CashCommand.Operation.DEPOSIT) {
-            // Cash in: the till takes the notes, the customer is credited what is left after the fee.
-            entries =
-                    new java.util.ArrayList<>(
-                            List.of(
-                                    entry(till.ledgerAccountId(), LedgerPosting.Direction.DEBIT, amount, command),
-                                    entry(command.customerAccountId(), LedgerPosting.Direction.CREDIT, amount - fee, command)));
-        } else {
-            // Cash out: the customer is debited the amount plus the fee, the till pays out the amount.
-            entries =
-                    new java.util.ArrayList<>(
-                            List.of(
-                                    entry(command.customerAccountId(), LedgerPosting.Direction.DEBIT, amount + fee, command),
-                                    entry(till.ledgerAccountId(), LedgerPosting.Direction.CREDIT, amount, command)));
-        }
-        if (fee > 0) {
-            // The product's account, and only that — see TransferService for why the caller's is no
-            // longer accepted now that pricing can name one.
-            if (decision.feeAccountId() == null) {
-                throw new CoreException(
-                        ErrorCode.FEE_ACCOUNT_NOT_CONFIGURED,
-                        null,
-                        "this product prices a fee and names no account to credit it to",
-                        Map.of());
-            }
-            entries.add(entry(decision.feeAccountId(), LedgerPosting.Direction.CREDIT, fee, command));
-        }
+        /*
+         * The entries come from Postings, which both this and the worker's retry path use. Two
+         * constructions of one posting is a drift waiting to happen, and it happened once already.
+         *
+         * A withdrawal debits the customer twice — the principal and the fee — so the charge reads
+         * as its own line on their statement. A deposit cannot do the same in one transaction: the
+         * customer would be credited the principal and debited the fee, which puts one account on
+         * both sides and the Ledger refuses it as a wash.
+         *
+         * So a deposit's fee is still netted into the credit, and a customer still cannot see it on
+         * their statement. Closing that needs a separate posting for the charge — the design is a
+         * second saga opened in the transaction that completes this one, so the two exist together
+         * or not at all — and it is not built. Deliberately not smuggled in here: it adds a state
+         * to the money path and wants its own tests.
+         */
+        boolean deposit = command.operation() == CashCommand.Operation.DEPOSIT;
+
+        UUID from = deposit ? till.ledgerAccountId() : command.customerAccountId();
+        UUID to = deposit ? command.customerAccountId() : till.ledgerAccountId();
+
+        List<LedgerPosting.Entry> entries =
+                Postings.entriesFor(
+                        deposit ? "DEPOSIT" : "WITHDRAWAL",
+                        from,
+                        to,
+                        decision.feeAccountId(),
+                        amount,
+                        fee,
+                        command.currency());
         return new LedgerPosting(key, command.initiatedBy(), command.description(), entries);
     }
 

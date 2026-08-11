@@ -16,7 +16,6 @@ import org.elyonar.fincore.core.orchestration.api.CoreProperties;
 import org.elyonar.fincore.core.customer.api.CustomerBeans;
 import org.elyonar.fincore.core.product.api.ProductBeans;
 import org.elyonar.fincore.core.organization.api.OrganizationBeans;
-import org.elyonar.fincore.core.lending.api.LendingBeans;
 
 /**
  * One DataSource per module, each connecting as that module's own database role.
@@ -71,12 +70,6 @@ public class ModuleDataSources {
     @Bean
     @ConfigurationProperties("fincore.core.datasource.organization")
     public DataSource organizationDataSource() {
-        return DataSourceBuilder.create().type(HikariDataSource.class).build();
-    }
-
-    @Bean
-    @ConfigurationProperties("fincore.core.datasource.lending")
-    public DataSource lendingDataSource() {
         return DataSourceBuilder.create().type(HikariDataSource.class).build();
     }
 
@@ -147,11 +140,6 @@ public class ModuleDataSources {
     }
 
     @Bean
-    public JdbcTemplate lendingJdbcTemplate(@Qualifier(LendingBeans.DATA_SOURCE) DataSource ds) {
-        return new JdbcTemplate(ds);
-    }
-
-    @Bean
     @Primary
     public JdbcTemplate orchestrationJdbcTemplate(@Qualifier(CoreProperties.Beans.ORCHESTRATION_DATA_SOURCE) DataSource ds) {
         return new JdbcTemplate(ds);
@@ -190,9 +178,4 @@ public class ModuleDataSources {
         return new DataSourceTransactionManager(ds);
     }
 
-    @Bean
-    public PlatformTransactionManager lendingTransactionManager(
-            @Qualifier(LendingBeans.DATA_SOURCE) DataSource ds) {
-        return new DataSourceTransactionManager(ds);
-    }
 }

@@ -35,6 +35,13 @@ public class OrgApiErrors {
                 .body(new Error(OrganizationErrorCode.UNIT_CODE_TAKEN.code()));
     }
 
+    /** 422, not 409: the code is refused on its own terms, not because something else holds it. */
+    @ExceptionHandler(UnitRecords.MalformedCode.class)
+    public ResponseEntity<Error> malformedCode() {
+        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY)
+                .body(new Error(OrganizationErrorCode.UNIT_CODE_INVALID.code()));
+    }
+
     @ExceptionHandler(UnitRecords.AlreadyAssigned.class)
     public ResponseEntity<Error> alreadyAssigned() {
         return ResponseEntity.status(HttpStatus.CONFLICT)

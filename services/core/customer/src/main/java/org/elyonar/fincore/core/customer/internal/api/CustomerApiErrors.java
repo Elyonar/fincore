@@ -5,6 +5,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.elyonar.fincore.core.customer.api.CustomerAdministration;
 import org.elyonar.fincore.core.customer.api.CustomerErrorCode;
 
 /**
@@ -36,7 +37,19 @@ public class CustomerApiErrors {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(new Error(CustomerErrorCode.EXTERNAL_REF_TAKEN.code()));
     }
 
-    @ExceptionHandler(CustomerRecords.AccountAlreadyHeld.class)
+    /**
+     * The number was supplied and is already somebody else's.
+     *
+     * <p>Separate from {@code ACCOUNT_ALREADY_HELD} because the remedies are different: that one
+     * means this customer already holds the account, this one means the number belongs to another.
+     * A caller that cannot tell them apart cannot write either sentence.
+     */
+    @ExceptionHandler(CustomerAdministration.AccountNumberTaken.class)
+    public ResponseEntity<Error> accountNumberTaken() {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(new Error(CustomerErrorCode.ACCOUNT_NUMBER_TAKEN.code()));
+    }
+
+    @ExceptionHandler(CustomerAdministration.AccountAlreadyHeld.class)
     public ResponseEntity<Error> alreadyHeld() {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(new Error(CustomerErrorCode.ACCOUNT_ALREADY_HELD.code()));
     }

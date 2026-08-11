@@ -61,7 +61,7 @@ public class Reconciliation {
         List<CompletedSaga> completed =
                 workerJdbc.query(
                         """
-                        SELECT id, tenant_id, ledger_transaction_id, amount_minor, fee_minor
+                        SELECT id, tenant_id, type, ledger_transaction_id, amount_minor, fee_minor
                           FROM orchestration.sagas
                          WHERE state = 'COMPLETED'
                            AND terminal_at > now() - make_interval(hours => ?)
@@ -71,6 +71,7 @@ public class Reconciliation {
                                 new CompletedSaga(
                                         rs.getObject("id", UUID.class),
                                         rs.getObject("tenant_id", UUID.class),
+                                        rs.getString("type"),
                                         rs.getObject("ledger_transaction_id", UUID.class),
                                         rs.getLong("amount_minor"),
                                         rs.getLong("fee_minor")),
@@ -88,7 +89,7 @@ public class Reconciliation {
                                                 + saga.ledgerTransactionId()
                                                 + ", which the ledger does not have");
                 case LedgerRead.Found found -> {
-                    long expected = saga.amountMinor() + saga.feeMinor();
+                    long expected = expectedDebitsFor(saga);
                     if (found.totalDebitMinor() != expected) {
                         newFindings +=
                                 record(
@@ -142,5 +143,28 @@ public class Reconciliation {
         return 1;
     }
 
-    record CompletedSaga(UUID id, UUID tenantId, UUID ledgerTransactionId, long amountMinor, long feeMinor) {}
+    /**
+     * What the debit side of this posting must total.
+     *
+     * <p>Not simply principal + fee, and assuming it was raised a mismatch against every deposit
+     * that charged one. A deposit's fee comes out of the <em>credit</em> side — the till hands over
+     * the gross notes and is debited once, while the customer and the fee account are credited
+     * between them — so its debits total the principal alone. A withdrawal or a transfer debits the
+     * customer for both, so theirs total principal + fee.
+     *
+     * <p>The consequence of getting this wrong was quiet and expensive: every fee-bearing deposit
+     * opened an AMOUNT_MISMATCH case, in a queue no screen rendered. Two of them were sitting there
+     * against perfectly correct postings before anybody could see the queue at all.
+     */
+    private static long expectedDebitsFor(CompletedSaga saga) {
+        return "DEPOSIT".equals(saga.type()) ? saga.amountMinor() : saga.amountMinor() + saga.feeMinor();
+    }
+
+    record CompletedSaga(
+            UUID id,
+            UUID tenantId,
+            String type,
+            UUID ledgerTransactionId,
+            long amountMinor,
+            long feeMinor) {}
 }

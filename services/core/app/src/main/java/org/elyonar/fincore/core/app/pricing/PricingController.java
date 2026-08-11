@@ -1,6 +1,9 @@
 package org.elyonar.fincore.core.app.pricing;
 
 import io.swagger.v3.oas.annotations.tags.Tag;
+import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -140,13 +143,50 @@ public class PricingController {
         return authoring.read(identity.tenantId(), productId, version);
     }
 
-    /** Schedules when the version becomes live once published. */
+    /**
+     * Schedules when the version becomes live once published.
+     *
+     * <p>Forward only. A version dated before it existed makes every transaction it priced
+     * unreconstructible: the saga records which version decided a transfer, and a version claiming
+     * to have been live in 2020 turns that record into a lie that reconciliation cannot unpick.
+     *
+     * <p>Null is not backdating — it means "as soon as somebody publishes it", and the record layer
+     * resolves it to {@code now()}.
+     */
     @PatchMapping("/{version}")
     public ProductAuthoring.VersionDetail schedule(
             @PathVariable UUID productId, @PathVariable int version, @RequestBody Schedule request) {
         var identity = Authorization.require("products:create");
+        requireNotBackdated(request.effectiveFrom());
         authoring.setEffectiveFrom(identity.tenantId(), productId, version, request.effectiveFrom());
         return authoring.read(identity.tenantId(), productId, version);
+    }
+
+    /**
+     * Refuses a moment already past.
+     *
+     * <p>A string this cannot parse is left alone rather than guessed at: the column is a
+     * {@code timestamptz} and the cast is the authority on what is a date, so inventing a second
+     * opinion here would refuse values the database accepts. Only a moment that parses <em>and</em>
+     * is behind us is refused.
+     */
+    private static void requireNotBackdated(String effectiveFrom) {
+        if (effectiveFrom == null || effectiveFrom.isBlank()) {
+            return;
+        }
+        Instant moment;
+        try {
+            moment = OffsetDateTime.parse(effectiveFrom).toInstant();
+        } catch (DateTimeParseException notAnOffset) {
+            try {
+                moment = Instant.parse(effectiveFrom);
+            } catch (DateTimeParseException notAnInstant) {
+                return;
+            }
+        }
+        if (moment.isBefore(Instant.now())) {
+            throw new EffectiveFromInThePast();
+        }
     }
 
     /**
@@ -186,6 +226,9 @@ public class PricingController {
 
     /** @param effectiveFrom ISO instant, or null for "as soon as it is published" */
     public record Schedule(String effectiveFrom) {}
+
+    /** A draft dated to become effective before it existed. */
+    public static class EffectiveFromInThePast extends RuntimeException {}
 
     /** A rule the institution's own configuration will not support. */
     public static class PricingRefused extends RuntimeException {

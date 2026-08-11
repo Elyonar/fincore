@@ -59,7 +59,7 @@ Read the [ADRs](docs/adr/), then try to break the ledger —
 | Service | What it does | Status | Docs |
 |---|---|---|---|
 | **Ledger** | Double-entry posting engine — the single source of monetary truth. Accounts, entries, balances, holds. | ✅ Design AGREED v1.10 · implemented (pre-1.0) | [README](services/ledger/README.md) · [design](services/ledger/docs/design.md) · [data model](services/ledger/docs/data-model.md) · [architecture](services/ledger/docs/architecture.md) · [API](services/ledger/docs/api.md) · [posting algorithm](services/ledger/docs/posting-algorithm.md) · [testing](services/ledger/docs/testing.md) |
-| **Core** | One deployable, five domain modules — `core/customer`, `core/product`, `core/organization`, `core/lending`, `core/orchestration`. Owns sagas, fee application, limits and the organizational tree (ADR 0012); the only caller of the Ledger's write API. Lending — the fifth module (ADR 0013) — is built: origination, schedules, accrual, delinquency, PAR. | ✅ Design AGREED v1.20 · implemented (pre-1.0) | [README](services/core/README.md) · [design](services/core/docs/design.md) · [outcome protocol](services/core/docs/outcome-protocol.md) · [saga protocol](services/core/docs/saga-protocol.md) · [data model](services/core/docs/data-model.md) · [API](services/core/docs/api.md) · [testing](services/core/docs/testing.md) |
+| **Core** | One deployable, four domain modules — `core/customer`, `core/product`, `core/organization`, `core/orchestration`. Owns sagas, fee application, limits and the organizational tree (ADR 0012); the only caller of the Ledger's write API. | ✅ Design AGREED v1.20 · implemented (pre-1.0) | [README](services/core/README.md) · [design](services/core/docs/design.md) · [outcome protocol](services/core/docs/outcome-protocol.md) · [saga protocol](services/core/docs/saga-protocol.md) · [data model](services/core/docs/data-model.md) · [API](services/core/docs/api.md) · [testing](services/core/docs/testing.md) |
 | Identity | Keycloak, self-hosted: auth, tenants, roles, maker-checker. **Configured, never built** — it is commodity software, and the platform's side of it is [`libs/auth`](libs/auth/README.md), which every service imports. Keycloak runs in compose behind the `identity` profile, persisting to its own `keycloak` database (`auth` schema), with one realm per tenant rendered from [`bootstrap/tenants.json`](bootstrap/tenants.json); without it, services default to a development identity that announces itself at startup | Partial | [ADR 0010](docs/adr/0010-keycloak-realm-per-tenant.md) |
 | **Notification** | The platform's first event consumer. Turns Core's business events into messages over a registry of channels; writes no money and holds no gateway credentials. | ✅ Design AGREED v1.5 · implemented (pre-1.0) | [README](services/notification/README.md) · [design](services/notification/docs/design.md) · [architecture](services/notification/docs/architecture.md) · [data model](services/notification/docs/data-model.md) · [API](services/notification/docs/api.md) · [testing](services/notification/docs/testing.md) |
 | Lending · Compliance · Connectors | Further domains around the ledger. | Planned | — |
@@ -91,7 +91,7 @@ them libraries rather than deployables (PRD §3.4).
 | [0010](docs/adr/0010-keycloak-realm-per-tenant.md) | One Keycloak realm per tenant, and identity lands before Core |
 | [0011](docs/adr/0011-first-consumer-before-phase-three.md) | The platform's first event consumer is built before Phase 3 |
 | [0012](docs/adr/0012-organizational-model.md) | Organizational units are operational scope — never legal entity, booking unit or jurisdiction |
-| [0013](docs/adr/0013-lending-module-first.md) | Lending starts as a Core module, above Orchestration; extraction triggers named |
+| [0013](docs/adr/0013-lending-module-first.md) | Lending starts as a Core module, above Orchestration; extraction triggers named — **withdrawn**: lending is out of scope for this build |
 | [0014](docs/adr/0014-ui-runway.md) | The edge is configuration, reads come through Core, identity gets real first |
 | [0015](docs/adr/0015-control-plane-and-tenant-provisioning.md) | The control plane is a deployable of its own, and provisioning is a saga — **Deferred** |
 | [0016](docs/adr/0016-tenant-bootstrap-manifest.md) | Tenants are declared in a manifest and seeded at startup |
@@ -106,7 +106,7 @@ fincore/
 │   │   ├── README.md  # the service's own map: purpose, boundaries, doc index
 │   │   └── docs/      # the service's design & deep-dive docs
 │   ├── core/          # one deployable, five domain modules + assembly:
-│   │                  #   customer · product · organization · lending · orchestration · app
+│   │                  #   customer · product · organization · orchestration · app
 │   └── notification/  # the first event consumer — messages, not money
 ├── libs/              # shared internal libraries (auth, events) — arrive when needed
 ├── docs/
@@ -139,7 +139,7 @@ and `db/init/` creates them all on an empty volume.
 | Database | Owned by | Migrations | Holds |
 |---|---|---|---|
 | `ledger` | Ledger service | Flyway (ours) | Accounts, entries, holds, periods, invariants |
-| `core` | Core service | Flyway (ours) | Customer, product, organization, orchestration, lending — one schema and one role per module |
+| `core` | Core service | Flyway (ours) | Customer, product, organization, orchestration — one schema and one role per module |
 | `notification` | Notification service | Flyway (ours) | Templates, policy, delivery queue, suppressions |
 | `keycloak` | **Keycloak** | **Liquibase (the vendor's)** | Realms, clients, users, credentials, roles, role assignments, user attributes |
 
@@ -197,6 +197,15 @@ trust-first philosophy.
 ```bash
 docker compose up --build          # PostgreSQL, Kafka, and all three deployables
 ```
+
+> **Migration baseline reset (2026-08-11).** Core's per-module migrations were
+> squashed into a single `V1__baseline.sql` per schema when the lending module
+> was withdrawn. There is deliberately no in-place upgrade path: a database that
+> applied the old V1..V9 chains fails Flyway validation at startup. Wipe the
+> volume and let the stack rebuild —
+> `docker compose down -v && docker compose up --build`. No environment holding
+> data of record existed at the time of the squash; from here on, schema changes
+> are incremental migrations again.
 
 | | Health | Interactive API |
 |---|---|---|

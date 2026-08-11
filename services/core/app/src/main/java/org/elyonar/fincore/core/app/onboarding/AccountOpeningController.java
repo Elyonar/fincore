@@ -88,7 +88,8 @@ public class AccountOpeningController {
                 opened.ledgerAccountId(),
                 currency,
                 request.role() == null || request.role().isBlank() ? "PRIMARY" : request.role(),
-                productCode);
+                productCode,
+                request.accountNumber());
     }
 
     /** How customers and their accounts are numbered, and what the next of each would be. */
@@ -137,7 +138,11 @@ public class AccountOpeningController {
      *     would be the platform guessing at pricing on a customer's behalf.
      * @param role PRIMARY unless the institution distinguishes several accounts per customer
      */
-    public record OpenAccount(String currency, String role, String productCode) {}
+    /**
+     * @param accountNumber the institution's own number for this account, or null to be given the
+     *     next one from its ACCOUNT series
+     */
+    public record OpenAccount(String currency, String role, String productCode, String accountNumber) {}
 
     public record Numbering(String prefix, int width, long nextValue) {}
 
@@ -156,6 +161,31 @@ public class AccountOpeningController {
         public org.springframework.http.ResponseEntity<Map<String, Object>> refused(OpeningRefused e) {
             return org.springframework.http.ResponseEntity.unprocessableEntity()
                     .body(Map.of("code", "ACCOUNT_NOT_OPENED", "message", e.getMessage(), "details", Map.of()));
+        }
+
+        /**
+         * The refusals raised by the record layer rather than by this controller.
+         *
+         * <p>Absent until now, so both arrived as a 500. Customer's own advice handles them, but it
+         * is scoped to {@code CustomerController} and this is a different surface — an advice bound
+         * to one controller does not cover another that happens to call the same code.
+         *
+         * <p>Code only, no message: the sentence belongs to the client (hard rule 8), and these two
+         * are told apart because their remedies are — one means the customer already holds this
+         * account, the other means the number they supplied belongs to somebody else.
+         */
+        @org.springframework.web.bind.annotation.ExceptionHandler(
+                CustomerAdministration.AccountNumberTaken.class)
+        public org.springframework.http.ResponseEntity<Map<String, Object>> numberTaken() {
+            return org.springframework.http.ResponseEntity.status(org.springframework.http.HttpStatus.CONFLICT)
+                    .body(Map.of("code", "ACCOUNT_NUMBER_TAKEN", "details", Map.of()));
+        }
+
+        @org.springframework.web.bind.annotation.ExceptionHandler(
+                CustomerAdministration.AccountAlreadyHeld.class)
+        public org.springframework.http.ResponseEntity<Map<String, Object>> alreadyHeld() {
+            return org.springframework.http.ResponseEntity.status(org.springframework.http.HttpStatus.CONFLICT)
+                    .body(Map.of("code", "ACCOUNT_ALREADY_HELD", "details", Map.of()));
         }
     }
 }

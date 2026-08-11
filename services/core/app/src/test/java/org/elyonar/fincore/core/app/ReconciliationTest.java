@@ -42,6 +42,9 @@ class ReconciliationTest {
     @Autowired private TransferService transfers;
     @Autowired private Reconciliation reconciliation;
     @Autowired @Qualifier("workerJdbcTemplate") private JdbcTemplate workerDb;
+    @Autowired @Qualifier("orchestrationJdbcTemplate") private JdbcTemplate orchestrationDb;
+    @Autowired @Qualifier("orchestrationTransactionManager")
+    private PlatformTransactionManager orchestrationTx;
     @Autowired @Qualifier("customerJdbcTemplate") private JdbcTemplate customerDb;
     @Autowired @Qualifier("productJdbcTemplate") private JdbcTemplate productDb;
     @Autowired @Qualifier("customerTransactionManager") private PlatformTransactionManager customerTx;
@@ -219,6 +222,69 @@ class ReconciliationTest {
         assertThat(reconciliation.run()).isZero();
         assertThat(count("reconciliation_findings", "LEDGER_MISSING")).isEqualTo(1);
         assertThat(count("ops_cases", "RECONCILIATION_MISMATCH")).isEqualTo(1);
+    }
+
+    /**
+     * A deposit's debits total the principal alone, and that is not a mismatch.
+     *
+     * <p>The reconciler used to expect principal + fee of every posting. A withdrawal and a transfer
+     * debit the customer for both, so that held; a deposit debits only the till, which hands over
+     * the gross notes, while the fee comes out of the credit side. So every deposit that charged a
+     * fee was flagged — correct postings, opening cases, in a queue nothing rendered.
+     */
+    @Test
+    void a_deposit_whose_debits_total_the_principal_alone_is_not_a_mismatch() {
+        UUID sagaId = UUID.randomUUID();
+        UUID ledgerTransactionId = UUID.randomUUID();
+        completedSagaOfType(sagaId, ledgerTransactionId, "DEPOSIT", 100_000, 5_000);
+        readTarget.set(ledgerTransactionId);
+        // The till's single debit — the fee reached income out of the credit side.
+        ledgerAnswers(ledgerTransactionId, 100_000);
+
+        assertThat(reconciliation.run()).isZero();
+        assertThat(count("reconciliation_findings", "AMOUNT_MISMATCH")).isZero();
+    }
+
+    /** The mirror: a withdrawal's debits must still total principal + fee. */
+    @Test
+    void a_withdrawal_whose_debits_omit_the_fee_is_a_mismatch() {
+        UUID sagaId = UUID.randomUUID();
+        UUID ledgerTransactionId = UUID.randomUUID();
+        completedSagaOfType(sagaId, ledgerTransactionId, "WITHDRAWAL", 100_000, 5_000);
+        readTarget.set(ledgerTransactionId);
+        ledgerAnswers(ledgerTransactionId, 100_000);
+
+        assertThat(reconciliation.run()).isEqualTo(1);
+        assertThat(count("reconciliation_findings", "AMOUNT_MISMATCH")).isEqualTo(1);
+    }
+
+    /** A terminal saga of a given type, written straight in — the type is the whole subject here. */
+    private void completedSagaOfType(
+            UUID sagaId, UUID ledgerTransactionId, String type, long amountMinor, long feeMinor) {
+        // The orchestration role, not the worker's: the worker may read sagas and never write them,
+        // which is the separation working rather than an obstacle. Inside a transaction because the
+        // tenant context is SET LOCAL and row-level security refuses a write without one.
+        new org.springframework.transaction.support.TransactionTemplate(orchestrationTx)
+                .executeWithoutResult(status -> {
+                    orchestrationDb.queryForObject(
+                            "SELECT set_config('app.tenant_id', ?, true)", String.class, tenantId.toString());
+                    orchestrationDb.update(
+                """
+                INSERT INTO orchestration.sagas
+                    (id, tenant_id, type, state, channel_idempotency_key, request_fingerprint,
+                     amount_minor, fee_minor, currency, initiated_by, executed_by,
+                     from_account_id, to_account_id, ledger_transaction_id, terminal_at)
+                VALUES (?, ?, ?, 'COMPLETED', ?, 'fp', ?, ?, 'NGN', 'user:ada', 'core',
+                        gen_random_uuid(), gen_random_uuid(), ?, now())
+                """,
+                            sagaId,
+                            tenantId,
+                            type,
+                            "rec-type-" + sagaId,
+                            amountMinor,
+                            feeMinor,
+                            ledgerTransactionId);
+                });
     }
 
     @Test

@@ -33,6 +33,9 @@ services:
       #   FINCORE_POSTGRES_PORT=5432 docker compose up   # if you want the usual one
       - "${FINCORE_POSTGRES_PORT:-55432}:5432"
     volumes:
+      # NOTE: the 2026-08-11 migration squash (lending withdrawal) has no in-place
+      # upgrade path. A pgdata volume created before it fails Flyway validation at
+      # startup — `docker compose down -v` and rebuild. See README "Running it".
       - pgdata:/var/lib/postgresql/data
       # Creates the non-superuser runtime role. RLS cannot constrain a superuser,
       # so the service must not connect as one.

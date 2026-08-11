@@ -70,7 +70,7 @@ jobs:
           # several (ADR 0006) — a cross-module query then fails at runtime rather than
           # surviving until someone tries to extract a module. The password matches the role
           # name in CI only; deployments provision real secrets.
-          ROLES="ledger_app core_customer core_product core_organization core_lending core_orchestration core_relay core_worker \
+          ROLES="ledger_app core_customer core_product core_organization core_orchestration core_relay core_worker \
                  notification_app notification_worker identity_app"
 
           for db in $DATABASES; do
@@ -118,7 +118,7 @@ jobs:
       # Core connects per module role (ADR 0006); the URL is the only thing shared,
       # and it is Core's database, never the ledger's.
       - name: Test — the Core deployable
-        run: ./mvnw --batch-mode verify -pl services/core/customer,services/core/product,services/core/organization,services/core/orchestration,services/core/lending,services/core/app
+        run: ./mvnw --batch-mode verify -pl services/core/customer,services/core/product,services/core/organization,services/core/orchestration,services/core/app
         env:
           SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/core
           SPRING_DATASOURCE_USERNAME: fincore

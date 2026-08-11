@@ -32,7 +32,6 @@ class ModuleBoundaryTest {
     private static final String CUSTOMER = "org.elyonar.fincore.core.customer..";
     private static final String PRODUCT = "org.elyonar.fincore.core.product..";
     private static final String ORGANIZATION = "org.elyonar.fincore.core.organization..";
-    private static final String LENDING = "org.elyonar.fincore.core.lending..";
     private static final String ORCHESTRATION = "org.elyonar.fincore.core.orchestration..";
 
     /**
@@ -93,53 +92,22 @@ class ModuleBoundaryTest {
      * each other. A cycle here would mean extraction has to move two modules at once.
      */
     /**
-     * ADR 0013 amended the order: lending sits above orchestration, consuming its published api.
-     * Everything else still may not ask it.
+     * Only the app depends on orchestration.
+     *
+     * <p>ADR 0013 put lending above orchestration, consuming its published api; lending is no longer
+     * built, so the app is the only thing above it again. The rule is kept rather than deleted
+     * because it is the direction that matters — a module reaching down into orchestration is the
+     * cycle that makes both unextractable, whichever module it is.
      */
     @ArchTest
-    static final ArchRule only_lending_and_app_depend_on_orchestration =
+    static final ArchRule only_the_app_depends_on_orchestration =
             noClasses()
                     .that()
-                    .resideOutsideOfPackages(ORCHESTRATION, LENDING, "org.elyonar.fincore.core.app..")
+                    .resideOutsideOfPackages(ORCHESTRATION, "org.elyonar.fincore.core.app..")
                     .should()
                     .dependOnClassesThat()
                     .resideInAPackage(ORCHESTRATION)
-                    .because("lending is the one module above orchestration (ADR 0013)")
-                    .allowEmptyShould(true);
-
-    /** And never the reverse: a cycle would make both unextractable. */
-    @ArchTest
-    static final ArchRule orchestration_does_not_know_lending =
-            noClasses()
-                    .that()
-                    .resideInAPackage(ORCHESTRATION)
-                    .should()
-                    .dependOnClassesThat()
-                    .resideInAPackage(LENDING)
-                    .because("the dependency points up only (ADR 0013)")
-                    .allowEmptyShould(true);
-
-    /** Lending consumes orchestration's published api, never its internals. */
-    @ArchTest
-    static final ArchRule lending_uses_only_the_published_orchestration_surface =
-            noClasses()
-                    .that()
-                    .resideInAPackage(LENDING)
-                    .should()
-                    .dependOnClassesThat()
-                    .resideInAPackage("org.elyonar.fincore.core.orchestration.internal..")
-                    .because("the boundary is the api package — the same one HTTP callers get")
-                    .allowEmptyShould(true);
-
-    @ArchTest
-    static final ArchRule lending_internals_are_private =
-            noClasses()
-                    .that()
-                    .resideOutsideOfPackage(LENDING)
-                    .should()
-                    .dependOnClassesThat()
-                    .resideInAPackage("org.elyonar.fincore.core.lending.internal..")
-                    .because("lending's internals belong to lending; use its api package")
+                    .because("orchestration is asked by the app and by nothing else")
                     .allowEmptyShould(true);
 
     @ArchTest
@@ -177,7 +145,7 @@ class ModuleBoundaryTest {
                     .resideInAPackage(ORGANIZATION)
                     .should()
                     .dependOnClassesThat()
-                    .resideInAnyPackage(CUSTOMER, PRODUCT, ORCHESTRATION, LENDING)
+                    .resideInAnyPackage(CUSTOMER, PRODUCT, ORCHESTRATION)
                     .because("organization is a leaf: neighbours ask it, it asks nobody")
                     .allowEmptyShould(true);
 
