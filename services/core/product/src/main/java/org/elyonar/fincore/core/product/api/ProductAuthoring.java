@@ -36,24 +36,6 @@ public interface ProductAuthoring {
     record LimitRule(
             String kycTier, String channel, String limitType, long maxAmountMinor, String currency) {}
 
-    record LoanRule(
-            int interestRateBp,
-            String scheduleKind,
-            long minAmountMinor,
-            long maxAmountMinor,
-            int minTermMonths,
-            int maxTermMonths,
-            int graceMonths,
-            String allocationOrder,
-            int prepaymentFeeBp,
-            long penaltyFlatMinor,
-            int penaltyRateBp,
-            Long penaltyCapMinor,
-            String currency,
-            UUID interestIncomeAccountId,
-            UUID penaltyIncomeAccountId,
-            UUID fundingAccountId) {}
-
     /** One version and everything priced under it. */
     record VersionDetail(
             UUID productId,
@@ -64,8 +46,7 @@ public interface ProductAuthoring {
             String effectiveFrom,
             String publishedBy,
             List<FeeRule> feeRules,
-            List<LimitRule> limitRules,
-            LoanRule loanRule) {}
+            List<LimitRule> limitRules) {}
 
     /**
      * Creates the next version as a draft.
@@ -81,9 +62,6 @@ public interface ProductAuthoring {
 
     /** Replaces the draft's limit rules, as a set. */
     void setLimitRules(UUID tenantId, UUID productId, int version, List<LimitRule> rules);
-
-    /** Replaces the draft's loan terms. One rule set per version: a version prices one way. */
-    void setLoanRule(UUID tenantId, UUID productId, int version, LoanRule rule);
 
     /** Schedules when a draft becomes live once published. */
     void setEffectiveFrom(UUID tenantId, UUID productId, int version, String effectiveFrom);

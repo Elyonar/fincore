@@ -49,14 +49,6 @@ public final class PermissionCatalog {
             "org:manage",
             "tills:read",
             "tills:manage",
-            "loans:apply",
-            "loans:read",
-            "loans:approve",
-            "loans:offer",
-            "loans:disburse",
-            "loans:repay",
-            "loans:portfolio",
-            "loans:tiers",
             // admin-surface §8: staff administration and internal accounts. Enforced by Core's
             // administration surface; named here because a permission the catalog does not know
             // is a permission no role may contain.
@@ -109,9 +101,6 @@ public final class PermissionCatalog {
             "tills:read",
             "tills:manage",
             "channel:api",
-            "loans:read",
-            "loans:portfolio",
-            "loans:tiers",
             "users:read",
             "users:manage",
             "accounts:read",
@@ -202,20 +191,8 @@ public final class PermissionCatalog {
                         teller,
                         Set.of(
                                 "approvals:check",
-                                "loans:approve",
-                                "loans:disburse",
-                                "loans:read",
                                 "org:read",
                                 "transfers:reverse")));
-        templates.put(
-                "job:loan-officer",
-                Set.of(
-                        "customers:read",
-                        "loans:apply",
-                        "loans:offer",
-                        "loans:read",
-                        "loans:repay",
-                        "products:read"));
         templates.put(
                 "job:compliance",
                 Set.of(
@@ -266,14 +243,6 @@ public final class PermissionCatalog {
         g.put("org:manage", "Create, close and staff organizational units");
         g.put("tills:read", "Read tills and their activity");
         g.put("tills:manage", "Provision and close tills");
-        g.put("loans:apply", "Take a loan application");
-        g.put("loans:read", "Read applications, loans and schedules");
-        g.put("loans:approve", "Sign a loan approval in the tiered chain");
-        g.put("loans:offer", "Accept an offer on the customer's behalf");
-        g.put("loans:disburse", "Disburse an accepted loan");
-        g.put("loans:repay", "Record a repayment");
-        g.put("loans:portfolio", "Read portfolio at risk and delinquency");
-        g.put("loans:tiers", "Set the loan approval tiers");
         g.put("users:read", "Read staff, roles and the permission catalog");
         g.put("users:manage", "Create staff, compose roles and grant them");
         g.put("accounts:read", "Read the institution's own internal accounts");

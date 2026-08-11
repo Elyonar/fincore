@@ -28,7 +28,6 @@ of the code — never silent edits.
 | Tables per schema, ownership rules, decided edge cases | [`docs/data-model.md`](docs/data-model.md) | AGREED v2.0 |
 | Endpoint surface, error catalog, contract properties | [`docs/api.md`](docs/api.md) | AGREED v2.0 |
 | Core's eight invariants and every test suite | [`docs/testing.md`](docs/testing.md) | AGREED v2.0 |
-| **Lending — the fifth module**: origination, schedules, accrual, delinquency | [`docs/lending.md`](docs/lending.md) | AGREED v2.0 |
 | **The UI runway** — identity end-to-end, the edge, ledger-read proxying, the Phase 0 read audit | [`docs/ui-runway.md`](docs/ui-runway.md) | AGREED v2.0 |
 | **The administration surface** — product authoring, account opening, users and roles | [`docs/admin-surface.md`](docs/admin-surface.md) | AGREED v2.0 |
 | Every amendment since the design was agreed | [`docs/CHANGELOG.md`](docs/CHANGELOG.md) | v1.20 |
@@ -45,7 +44,6 @@ README stays the map, never the territory.
 | `customer` | `customer` | Profiles, KYC tier, lifecycle, mandates, customer↔account mapping. **The only schema holding PII.** |
 | `product` | `product` | Product catalog, fee rules, limit rules, versioned configuration. Returns *decisions*, never postings. |
 | `organization` | `organization` | The tenant's operational tree — branches, regions, business lines — and who is assigned where ([ADR 0012](../../docs/adr/0012-organizational-model.md)). Operational scope only: never a legal entity, booking unit or jurisdiction. |
-| `lending` | `lending` | Origination, schedules, repayment allocation, accrual, delinquency ([ADR 0013](../../docs/adr/0013-lending-module-first.md)). Sits **above** orchestration; every money movement is a saga. |
 | `orchestration` | `orchestration` | Sagas, limit reservations, fee application, tills, the ledger client. **The only module that may call the Ledger's write API.** |
 
 `app` assembles them: wiring, the outbox relay, the saga worker. No domain
@@ -124,7 +122,7 @@ principal. Limits enforced as reservations. Customer and Product as real modules
 with minimal v0 configuration.
 
 **Out, deliberately:** inter-bank transfers and any rails connector, holds,
-standing orders, bulk disbursement, interest accrual, lending, AML rules,
+standing orders, bulk disbursement, interest accrual, AML rules,
 inbound events. The connector seam is designed in
 [`docs/saga-protocol.md`](docs/saga-protocol.md) and not built.
 
@@ -201,9 +199,8 @@ discovered. Per-suite status lives in [`docs/testing.md`](docs/testing.md).
 | Fee account fallback | Published versions predating `fee_rules.fee_account_id` cannot be edited to carry it (published versions are immutable), so for those the caller-supplied account still applies. Ages out as versions are republished |
 | Unit scope | Organizational units exist and are attributed (ADR 0012), but no endpoint yet *requires* one — unit-scoped authorization arrives with the teller application |
 | Income recognition coverage | Recognition (v1.17) posts collected interest and penalties per repayment; versions without an income account resolve as a recorded no-op. Ages out as versions are republished with the account configured. Value-dated month-end postings wait on a ledger value-dating amendment |
-| Loan funding account | `loan_rules.funding_account_id` (v1.17) is configuration-first; the caller-supplied account remains only a fallback for versions predating the column — the fee-account pattern, ageing out the same way |
-| Product authoring | **Designed (v1.20, `admin-surface.md`), not built.** `POST /v1/products` still accepts a code, a name and a type; `fee_rules`, `limit_rules` and `loan_rules` are written by nothing outside the test suite, so a published version prices nothing, and `create()` hardcodes `version = 1` — a product can only ever have one version through the API |
+| Product authoring | **Designed (v1.20, `admin-surface.md`), not built.** `POST /v1/products` still accepts a code, a name and a type; `fee_rules` and `limit_rules` are written by nothing outside the test suite, so a published version prices nothing, and `create()` hardcodes `version = 1` — a product can only ever have one version through the API |
 | Account opening | **Designed (v1.20), not built.** `POST /v1/customers/{id}/accounts` links an id the caller must already hold; the ledger client has no open operation and clients never address the ledger. Customer accounts, the institution's fee-income, funding and penalty-income accounts, and the account a till *is* are all unreachable through Core |
-| User and role administration | **Designed (v1.20, ADR 0017), not built.** No endpoint creates a member of staff or composes a role; the eight `job:*` composites are identical for every tenant. A seeded administrator cannot add a second user |
+| User and role administration | **Designed (v1.20, ADR 0017), not built.** No endpoint creates a member of staff or composes a role; the seven `job:*` composites are identical for every tenant. A seeded administrator cannot add a second user |
 | Units claim derivation | `OrgUnitController` documents that the `units` claim is derived from `unit_assignments`. **Nothing derives it** — assignment writes Core's record and stops, so assigning a teller to a branch has no effect on authorization. Closed by the v1.20 surface |
 | Performance | Targets in `architecture.md` are intent. Nothing has been benchmarked |

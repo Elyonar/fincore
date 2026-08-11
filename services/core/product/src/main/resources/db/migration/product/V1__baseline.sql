@@ -138,45 +138,6 @@ CREATE TABLE product.limit_rules (
 ALTER TABLE ONLY product.limit_rules FORCE ROW LEVEL SECURITY;
 
 --
--- Name: loan_rules; Type: TABLE; Schema: product; Owner: -
---
-
-CREATE TABLE product.loan_rules (
-    id uuid DEFAULT gen_random_uuid() NOT NULL,
-    tenant_id uuid NOT NULL,
-    product_version_id uuid NOT NULL,
-    interest_rate_bp integer NOT NULL,
-    schedule_kind text NOT NULL,
-    min_amount_minor bigint NOT NULL,
-    max_amount_minor bigint NOT NULL,
-    min_term_months integer NOT NULL,
-    max_term_months integer NOT NULL,
-    grace_months integer DEFAULT 0 NOT NULL,
-    allocation_order text DEFAULT 'PENALTY,FEE,INTEREST,PRINCIPAL'::text NOT NULL,
-    interest_income_account_id uuid,
-    prepayment_fee_bp integer DEFAULT 0 NOT NULL,
-    currency character(3) NOT NULL,
-    penalty_flat_minor bigint DEFAULT 0 NOT NULL,
-    penalty_rate_bp integer DEFAULT 0 NOT NULL,
-    penalty_cap_minor bigint,
-    penalty_income_account_id uuid,
-    funding_account_id uuid,
-    CONSTRAINT loan_rules_check CHECK ((max_amount_minor >= min_amount_minor)),
-    CONSTRAINT loan_rules_check1 CHECK ((max_term_months >= min_term_months)),
-    CONSTRAINT loan_rules_grace_months_check CHECK ((grace_months >= 0)),
-    CONSTRAINT loan_rules_interest_rate_bp_check CHECK ((interest_rate_bp >= 0)),
-    CONSTRAINT loan_rules_min_amount_minor_check CHECK ((min_amount_minor > 0)),
-    CONSTRAINT loan_rules_min_term_months_check CHECK ((min_term_months > 0)),
-    CONSTRAINT loan_rules_penalty_cap_minor_check CHECK (((penalty_cap_minor IS NULL) OR (penalty_cap_minor >= 0))),
-    CONSTRAINT loan_rules_penalty_flat_minor_check CHECK ((penalty_flat_minor >= 0)),
-    CONSTRAINT loan_rules_penalty_rate_bp_check CHECK ((penalty_rate_bp >= 0)),
-    CONSTRAINT loan_rules_prepayment_fee_bp_check CHECK ((prepayment_fee_bp >= 0)),
-    CONSTRAINT loan_rules_schedule_kind_check CHECK ((schedule_kind = ANY (ARRAY['ANNUITY'::text, 'FLAT'::text, 'BULLET'::text])))
-);
-
-ALTER TABLE ONLY product.loan_rules FORCE ROW LEVEL SECURITY;
-
---
 -- Name: product_versions; Type: TABLE; Schema: product; Owner: -
 --
 
@@ -209,7 +170,7 @@ CREATE TABLE product.products (
     name text NOT NULL,
     type text NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT products_type_check CHECK ((type = ANY (ARRAY['SAVINGS'::text, 'CURRENT'::text, 'LOAN'::text])))
+    CONSTRAINT products_type_check CHECK ((type = ANY (ARRAY['SAVINGS'::text, 'CURRENT'::text])))
 );
 
 ALTER TABLE ONLY product.products FORCE ROW LEVEL SECURITY;
@@ -243,20 +204,6 @@ ALTER TABLE ONLY product.limit_rules
     ADD CONSTRAINT limit_rules_tenant_id_id_key UNIQUE (tenant_id, id);
 
 --
--- Name: loan_rules loan_rules_pkey; Type: CONSTRAINT; Schema: product; Owner: -
---
-
-ALTER TABLE ONLY product.loan_rules
-    ADD CONSTRAINT loan_rules_pkey PRIMARY KEY (id);
-
---
--- Name: loan_rules loan_rules_tenant_id_id_key; Type: CONSTRAINT; Schema: product; Owner: -
---
-
-ALTER TABLE ONLY product.loan_rules
-    ADD CONSTRAINT loan_rules_tenant_id_id_key UNIQUE (tenant_id, id);
-
---
 -- Name: fee_rules one_fee_rule_per_operation; Type: CONSTRAINT; Schema: product; Owner: -
 --
 
@@ -269,13 +216,6 @@ ALTER TABLE ONLY product.fee_rules
 
 ALTER TABLE ONLY product.limit_rules
     ADD CONSTRAINT one_limit_per_tier_channel_type UNIQUE (product_version_id, kyc_tier, channel, limit_type);
-
---
--- Name: loan_rules one_loan_rule_per_version; Type: CONSTRAINT; Schema: product; Owner: -
---
-
-ALTER TABLE ONLY product.loan_rules
-    ADD CONSTRAINT one_loan_rule_per_version UNIQUE (product_version_id);
 
 --
 -- Name: product_versions product_versions_pkey; Type: CONSTRAINT; Schema: product; Owner: -
@@ -332,12 +272,6 @@ CREATE TRIGGER fee_rules_are_immutable_once_published BEFORE INSERT OR DELETE OR
 CREATE TRIGGER limit_rules_are_immutable_once_published BEFORE INSERT OR DELETE OR UPDATE ON product.limit_rules FOR EACH ROW EXECUTE FUNCTION product.reject_published_rule_write();
 
 --
--- Name: loan_rules loan_rules_are_immutable_once_published; Type: TRIGGER; Schema: product; Owner: -
---
-
-CREATE TRIGGER loan_rules_are_immutable_once_published BEFORE INSERT OR DELETE OR UPDATE ON product.loan_rules FOR EACH ROW EXECUTE FUNCTION product.reject_published_rule_write();
-
---
 -- Name: product_versions product_versions_are_immutable_once_published; Type: TRIGGER; Schema: product; Owner: -
 --
 
@@ -356,13 +290,6 @@ ALTER TABLE ONLY product.fee_rules
 
 ALTER TABLE ONLY product.limit_rules
     ADD CONSTRAINT limit_rules_tenant_id_product_version_id_fkey FOREIGN KEY (tenant_id, product_version_id) REFERENCES product.product_versions(tenant_id, id);
-
---
--- Name: loan_rules loan_rules_tenant_id_product_version_id_fkey; Type: FK CONSTRAINT; Schema: product; Owner: -
---
-
-ALTER TABLE ONLY product.loan_rules
-    ADD CONSTRAINT loan_rules_tenant_id_product_version_id_fkey FOREIGN KEY (tenant_id, product_version_id) REFERENCES product.product_versions(tenant_id, id);
 
 --
 -- Name: product_versions product_versions_tenant_id_product_id_fkey; Type: FK CONSTRAINT; Schema: product; Owner: -
@@ -394,18 +321,6 @@ ALTER TABLE product.limit_rules ENABLE ROW LEVEL SECURITY;
 --
 
 CREATE POLICY limit_rules_tenant_isolation ON product.limit_rules USING ((tenant_id = product.current_tenant())) WITH CHECK ((tenant_id = product.current_tenant()));
-
---
--- Name: loan_rules; Type: ROW SECURITY; Schema: product; Owner: -
---
-
-ALTER TABLE product.loan_rules ENABLE ROW LEVEL SECURITY;
-
---
--- Name: loan_rules loan_rules_tenant_isolation; Type: POLICY; Schema: product; Owner: -
---
-
-CREATE POLICY loan_rules_tenant_isolation ON product.loan_rules USING ((tenant_id = product.current_tenant())) WITH CHECK ((tenant_id = product.current_tenant()));
 
 --
 -- Name: product_versions; Type: ROW SECURITY; Schema: product; Owner: -
@@ -448,12 +363,6 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE product.fee_rules TO core_product;
 --
 
 GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE product.limit_rules TO core_product;
-
---
--- Name: TABLE loan_rules; Type: ACL; Schema: product; Owner: -
---
-
-GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE product.loan_rules TO core_product;
 
 --
 -- Name: TABLE product_versions; Type: ACL; Schema: product; Owner: -

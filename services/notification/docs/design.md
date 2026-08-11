@@ -100,7 +100,7 @@ only** — today `transfer.completed`, plus the reversal event once Core settles
 its name (its `architecture.md` documents `transfer.reversed`; the code emits
 `transfer.reversal_initiated`) — never the ledger's postings. In v1 this loses
 nothing: Core is the ledger's only writer, so every posting originates in a Core
-saga. The rule generalises: when Lending and rails publish, each category names
+saga. The rule generalises: when rails and future modules publish, each category names
 its one publisher, and a category with two candidate publishers is a design
 error to be resolved before it ships.
 

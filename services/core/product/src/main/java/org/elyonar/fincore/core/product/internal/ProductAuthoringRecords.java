@@ -14,8 +14,8 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p>The rule this class exists to hold is the one {@link ProductRecords} already holds for
  * versions: <strong>a published version is never edited</strong>. Every method here resolves the
- * version first and refuses if it is live. The database refuses too — V7 put the same guard on all
- * three rule tables — and the check here exists to produce a decent error rather than a constraint
+ * version first and refuses if it is live. The database refuses too — V7 put the same guard on
+ * both rule tables — and the check here exists to produce a decent error rather than a constraint
  * violation, exactly as publishing does.
  *
  * <p>Rules are replaced as a set rather than patched row by row. A fee schedule is a whole thing:
@@ -129,22 +129,6 @@ public class ProductAuthoringRecords implements ProductAuthoring {
                 targetVersionId,
                 tenantId,
                 sourceVersionId);
-        jdbc.update(
-                "INSERT INTO product.loan_rules"
-                        + " (tenant_id, product_version_id, interest_rate_bp, schedule_kind,"
-                        + "  min_amount_minor, max_amount_minor, min_term_months, max_term_months,"
-                        + "  grace_months, allocation_order, interest_income_account_id, prepayment_fee_bp,"
-                        + "  currency, penalty_flat_minor, penalty_rate_bp, penalty_cap_minor,"
-                        + "  penalty_income_account_id, funding_account_id)"
-                        + " SELECT tenant_id, ?, interest_rate_bp, schedule_kind,"
-                        + "        min_amount_minor, max_amount_minor, min_term_months, max_term_months,"
-                        + "        grace_months, allocation_order, interest_income_account_id, prepayment_fee_bp,"
-                        + "        currency, penalty_flat_minor, penalty_rate_bp, penalty_cap_minor,"
-                        + "        penalty_income_account_id, funding_account_id"
-                        + "   FROM product.loan_rules WHERE tenant_id = ? AND product_version_id = ?",
-                targetVersionId,
-                tenantId,
-                sourceVersionId);
     }
 
     @Override
@@ -197,47 +181,6 @@ public class ProductAuthoringRecords implements ProductAuthoring {
                     rule.maxAmountMinor(),
                     rule.currency());
         }
-    }
-
-    @Override
-    @Transactional(transactionManager = "productTransactionManager")
-    public void setLoanRule(UUID tenantId, UUID productId, int version, ProductAuthoring.LoanRule rule) {
-        scopeTo(tenantId);
-        UUID versionId = draftVersionId(tenantId, productId, version);
-
-        jdbc.update(
-                "DELETE FROM product.loan_rules WHERE tenant_id = ? AND product_version_id = ?",
-                tenantId,
-                versionId);
-        if (rule == null) {
-            return;
-        }
-        jdbc.update(
-                "INSERT INTO product.loan_rules"
-                        + " (tenant_id, product_version_id, interest_rate_bp, schedule_kind,"
-                        + "  min_amount_minor, max_amount_minor, min_term_months, max_term_months,"
-                        + "  grace_months, allocation_order, interest_income_account_id, prepayment_fee_bp,"
-                        + "  currency, penalty_flat_minor, penalty_rate_bp, penalty_cap_minor,"
-                        + "  penalty_income_account_id, funding_account_id)"
-                        + " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                tenantId,
-                versionId,
-                rule.interestRateBp(),
-                rule.scheduleKind(),
-                rule.minAmountMinor(),
-                rule.maxAmountMinor(),
-                rule.minTermMonths(),
-                rule.maxTermMonths(),
-                rule.graceMonths(),
-                rule.allocationOrder(),
-                rule.interestIncomeAccountId(),
-                rule.prepaymentFeeBp(),
-                rule.currency(),
-                rule.penaltyFlatMinor(),
-                rule.penaltyRateBp(),
-                rule.penaltyCapMinor(),
-                rule.penaltyIncomeAccountId(),
-                rule.fundingAccountId());
     }
 
     @Override
@@ -324,32 +267,6 @@ public class ProductAuthoringRecords implements ProductAuthoring {
                 tenantId,
                 versionId);
 
-        List<ProductAuthoring.LoanRule> loan = jdbc.query(
-                "SELECT interest_rate_bp, schedule_kind, min_amount_minor, max_amount_minor,"
-                        + " min_term_months, max_term_months, grace_months, allocation_order,"
-                        + " prepayment_fee_bp, penalty_flat_minor, penalty_rate_bp, penalty_cap_minor,"
-                        + " currency, interest_income_account_id, penalty_income_account_id, funding_account_id"
-                        + " FROM product.loan_rules WHERE tenant_id = ? AND product_version_id = ?",
-                (rs, row) -> new ProductAuthoring.LoanRule(
-                        rs.getInt("interest_rate_bp"),
-                        rs.getString("schedule_kind"),
-                        rs.getLong("min_amount_minor"),
-                        rs.getLong("max_amount_minor"),
-                        rs.getInt("min_term_months"),
-                        rs.getInt("max_term_months"),
-                        rs.getInt("grace_months"),
-                        rs.getString("allocation_order"),
-                        rs.getInt("prepayment_fee_bp"),
-                        rs.getLong("penalty_flat_minor"),
-                        rs.getInt("penalty_rate_bp"),
-                        (Long) rs.getObject("penalty_cap_minor"),
-                        rs.getString("currency"),
-                        rs.getObject("interest_income_account_id", UUID.class),
-                        rs.getObject("penalty_income_account_id", UUID.class),
-                        rs.getObject("funding_account_id", UUID.class)),
-                tenantId,
-                versionId);
-
         return new ProductAuthoring.VersionDetail(
                 productId,
                 (String) header[4],
@@ -359,8 +276,7 @@ public class ProductAuthoringRecords implements ProductAuthoring {
                 (String) header[2],
                 (String) header[3],
                 fees,
-                limits,
-                loan.isEmpty() ? null : loan.get(0));
+                limits);
     }
 
     /** Kept out of the API surface: {@code List.copyOf} on an empty list, spelled once. */

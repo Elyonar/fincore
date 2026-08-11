@@ -40,8 +40,7 @@ import tools.jackson.databind.json.JsonMapper;
 class UiReadsApiTest {
 
     private static final String ALL =
-            "customers:read,transfers:read,tills:read,approvals:check,approvals:make,cash:transact,"
-                    + "loans:apply,loans:read,loans:approve,loans:offer,loans:disburse,loans:repay,loans:tiers";
+            "customers:read,transfers:read,tills:read,approvals:check,approvals:make,cash:transact";
 
     @Autowired private TenantRegistry tenantRegistry;
     @LocalServerPort private int port;
@@ -169,27 +168,21 @@ class UiReadsApiTest {
                                                 + " VALUES (?,?, 'TIER_2', ?, 'PER_TXN', 5000000, 'NGN')",
                                         tenantId, versionId, channel);
                             }
-                            UUID loanProductId =
+                            // A second product, so any read that lists products has to distinguish
+                            // rather than assume a singleton.
+                            UUID secondProductId =
                                     productDb.queryForObject(
                                             "INSERT INTO product.products (tenant_id, code, name, type)"
-                                                    + " VALUES (?, 'AJO_LOAN', 'Ajo Loan', 'LOAN') RETURNING id",
+                                                    + " VALUES (?, 'AJO_TARGET', 'Ajo Target Savings', 'SAVINGS')"
+                                                    + " RETURNING id",
                                             UUID.class, tenantId);
-                            UUID loanVersionId =
+                            UUID secondVersionId =
                                     productDb.queryForObject(
                                             "INSERT INTO product.product_versions (tenant_id, product_id, version,"
                                                     + " status, created_by, published_by)"
                                                     + " VALUES (?,?,1,'DRAFT','user:author',NULL)"
                                                     + " RETURNING id",
-                                            UUID.class, tenantId, loanProductId);
-                            productDb.update(
-                                    """
-                                    INSERT INTO product.loan_rules
-                                        (tenant_id, product_version_id, interest_rate_bp, schedule_kind,
-                                         min_amount_minor, max_amount_minor, min_term_months, max_term_months,
-                                         currency)
-                                    VALUES (?,?, 2400, 'FLAT', 10000, 100000000, 1, 36, 'NGN')
-                                    """,
-                                    tenantId, loanVersionId);
+                                            UUID.class, tenantId, secondProductId);
                             // Published last, because pricing for a live version is immutable (V7):
                             // a rule added after publish would change what an already-decided transaction
                             // was priced under, and the database refuses it.
@@ -200,7 +193,7 @@ class UiReadsApiTest {
                             productDb.update(
                                     "UPDATE product.product_versions SET status = 'PUBLISHED',"
                                             + " published_by = 'user:publisher' WHERE tenant_id = ? AND id = ?",
-                                    tenantId, loanVersionId);
+                                    tenantId, secondVersionId);
                         });
 
         tillId = tills.open(tenantId, "BR-01", null, tillAccount, "NGN", "user:teller-1");
@@ -422,8 +415,8 @@ class UiReadsApiTest {
     @Test
     void every_new_read_denies_by_default() {
         String[][] probes = {
-            {"/v1/customers?q=x", "loans:read"},
-            {"/v1/customers/" + customerId + "/accounts", "loans:read"},
+            {"/v1/customers?q=x", "tills:read"},
+            {"/v1/customers/" + customerId + "/accounts", "tills:read"},
             {"/v1/accounts/" + customerAccount + "/statement?from=2026-08-01&to=2026-08-31", "customers:read"},
             {"/v1/tills/" + tillId + "/activity?date=2026-08-08", "customers:read"},
             {"/v1/approvals/pending", "approvals:make"},

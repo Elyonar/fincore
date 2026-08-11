@@ -23,9 +23,9 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Product pricing (admin-surface §3) — fees, limits and loan terms.
+ * Product pricing (admin-surface §3) — fees and limits.
  *
- * <p>The gap this closes was the widest one on the platform. All three rule tables have been fully
+ * <p>The gap this closes was the widest one on the platform. Both rule tables have been fully
  * modelled and constrained since V2 and V5, and written by nothing outside the test suite. That is
  * worse than an unpriced product, because the limit evaluator denies by default: with no PER_TXN
  * rule a published product refuses every transaction. An institution could create a product,
@@ -46,7 +46,7 @@ import org.springframework.web.bind.annotation.RestController;
  * can be charged under: a draft prices nobody. The second signature belongs where it already is —
  * on {@code publish}, enforced by the database, which refuses a publisher who is the author.
  */
-@Tag(name = "Pricing", description = "Fee, limit and loan rules per product version")
+@Tag(name = "Pricing", description = "Fee and limit rules per product version")
 @RestController
 @RequestMapping("/v1/products/{productId}/versions")
 public class PricingController {
@@ -106,40 +106,6 @@ public class PricingController {
         var identity = Authorization.require("products:create");
         authoring.setLimitRules(
                 identity.tenantId(), productId, version, request.rules() == null ? List.of() : request.rules());
-        return authoring.read(identity.tenantId(), productId, version);
-    }
-
-    /** Replaces the draft's loan terms. */
-    @PutMapping("/{version}/loan-rules")
-    public ProductAuthoring.VersionDetail setLoanRules(
-            @PathVariable UUID productId, @PathVariable int version, @RequestBody ProductAuthoring.LoanRule rule) {
-        var identity = Authorization.require("products:create");
-
-        if (rule != null) {
-            requireAccount(
-                    identity.tenantId(),
-                    rule.interestIncomeAccountId(),
-                    "INTEREST_INCOME",
-                    rule.currency(),
-                    "interestIncomeAccountId");
-            requireAccount(
-                    identity.tenantId(),
-                    rule.fundingAccountId(),
-                    "LOAN_FUNDING",
-                    rule.currency(),
-                    "fundingAccountId");
-            // Optional: null means penalties are recognised where interest is, which the lending
-            // module already does. Only checked when the institution named a separate account.
-            if (rule.penaltyIncomeAccountId() != null) {
-                requireAccount(
-                        identity.tenantId(),
-                        rule.penaltyIncomeAccountId(),
-                        "PENALTY_INCOME",
-                        rule.currency(),
-                        "penaltyIncomeAccountId");
-            }
-        }
-        authoring.setLoanRule(identity.tenantId(), productId, version, rule);
         return authoring.read(identity.tenantId(), productId, version);
     }
 

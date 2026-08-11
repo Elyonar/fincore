@@ -21,7 +21,7 @@ import org.springframework.web.bind.annotation.RestController;
  * The institution's own accounts (admin-surface §4).
  *
  * <p>This closes the gap that made every other configuration screen unusable. Fee rules point at a
- * fee income account, loan rules point at funding and interest accounts, a till is a ledger
+ * fee income account, a till is a ledger
  * account — and until now no account could be created through the platform at all. The ledger's
  * write API is not routed by the edge and never will be (ADR 0014); {@code LedgerClient} had no
  * way to open one; nothing seeded them. An institution could be provisioned, staffed, and unable
@@ -86,7 +86,7 @@ public class InternalAccountController {
     /**
      * @param code the institution's own short reference, e.g. {@code fee-income-ngn}. Permanent,
      *     and how every other screen names this account instead of showing a UUID.
-     * @param purpose TILL, VAULT, FEE_INCOME, INTEREST_INCOME, PENALTY_INCOME, LOAN_FUNDING,
+     * @param purpose TILL, VAULT, FEE_INCOME, INTEREST_INCOME, PENALTY_INCOME,
      *     SUSPENSE, SETTLEMENT or OTHER. Decides which ledger account type is opened.
      */
     public record OpenInternalAccount(String code, String name, String purpose, String currency) {}

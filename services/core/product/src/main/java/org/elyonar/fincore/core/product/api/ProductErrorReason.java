@@ -36,9 +36,6 @@ public enum ProductErrorReason {
     /** A limit type this schema does not hold. */
     UNKNOWN_LIMIT_TYPE,
 
-    /** A schedule kind lending cannot generate. */
-    UNKNOWN_SCHEDULE_KIND,
-
     // --- the values in a rule -----------------------------------------------------------------
 
     /** A minimum above its maximum: a bound that admits nothing. */

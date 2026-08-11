@@ -10,6 +10,21 @@ a frozen contract.
 
 ---
 
+## [0.5.0] — 2026-08-11 · MINOR
+
+**The catalog stops advertising capability the platform does not have.** Lending was withdrawn
+(ADR 0013, Core 2.0.0); identity's permission catalog follows.
+
+- The eight `loans:*` permissions leave `PermissionCatalog` — the catalog, the admin and
+  supervisor role templates, and the blurbs. A permission no endpoint checks is not a permission;
+  it is a promise the platform cannot keep, and a role screen offering it invites an administrator
+  to grant nothing and believe they granted something.
+- The `job:loan-officer` starting template and the "Loan officer" starting job title leave the
+  bootstrap manifest for the same reason. Existing tenants keep any roles they authored; templates
+  only seed new ones.
+- MINOR, not MAJOR: no caller could exercise these permissions — every endpoint they named was
+  removed with the lending module, so no working caller must act.
+
 ## [0.4.0] — 2026-08-09 · MINOR
 
 **An institution can describe its own staff** — job titles become a vocabulary, staff numbers are

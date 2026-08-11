@@ -71,25 +71,26 @@ public class ProductController {
 
     // ---------------------------------------------------------------- version authoring
     //
-    // Deliberately absent. Drafting a version, reading one, and writing its fee, limit and loan
-    // rules were all served from here as well as from `app`'s PricingController, under
+    // Deliberately absent. Drafting a version, reading one, and writing its fee and limit rules
+    // were all served from here as well as from `app`'s PricingController, under
     // `/{id}/versions/...` against `/{productId}/versions/...`. Those are two spellings of one URI,
     // and Spring does not pick between them: it matched both and threw `Ambiguous handler methods`,
     // so every request on the pricing surface — every rule save, every version read — was a 500.
     // The whole surface was dead, and no test noticed because none exercised it.
     //
-    // The duplicate went here rather than there because api.md (§ admin surface) assigns all six
+    // The duplicate went here rather than there because api.md (§ admin surface) assigns all five
     // routes to `app (pricing)` and the portal is written to that contract, down to the
     // `productId`/`productCode`/`productType` fields only its response carries.
     //
-    // What that costs is real and not yet repaid: these methods ran every rule through
-    // RuleValidation first, and PricingController checks only the accounts a rule names. The shape
-    // checks — a FLAT fee carrying basis points, a tier this platform has no customers in, inverted
-    // term bounds — now reach the database and come back as a constraint violation instead of a
-    // RULES_INVALID a client can render. RuleValidation is still here and still correct; it needs
-    // lifting into product.api before `app` is allowed to call it (ADR 0006), which is its own
-    // change with its own tests.
+    // What that costs is real and not yet repaid: these methods ran every rule through a
+    // RuleValidation component first, and PricingController checks only the accounts a rule names.
+    // The shape checks — a FLAT fee carrying basis points, a tier this platform has no customers
+    // in — now reach the database and come back as a constraint violation instead of a
+    // RULES_INVALID a client can render. RuleValidation itself is gone: a validator no request
+    // could reach was dead code, and it left with the withdrawn lending module (ADR 0013).
+    // Restoring the shape checks means rebuilding them in product.api, where `app` is allowed to
+    // call them (ADR 0006) — its own change with its own tests.
 
-    /** @param type SAVINGS, CURRENT or LOAN */
+    /** @param type SAVINGS or CURRENT */
     public record CreateProduct(String code, String name, String type) {}
 }

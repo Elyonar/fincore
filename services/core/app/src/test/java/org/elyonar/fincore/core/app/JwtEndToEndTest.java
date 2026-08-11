@@ -40,7 +40,7 @@ import tools.jackson.databind.json.JsonMapper;
 /**
  * The jwt lane, end to end (ui-runway.md §2): Core in {@code mode=jwt} against a local JWKS —
  * real RS256 tokens, verified locally per request, no identity provider in the loop — driving a
- * full lending disbursement, with the outbound side asserted too: the ledger stub must receive
+ * full money path, with the outbound side asserted too: the ledger stub must receive
  * Core's <em>service credential</em> and the originating user's <em>forwarded token</em> (outbound
  * propagation), which is exactly what {@code LedgerAuth} on the other side requires.
  *

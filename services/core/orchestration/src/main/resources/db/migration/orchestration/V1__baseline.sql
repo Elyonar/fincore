@@ -140,7 +140,7 @@ CREATE TABLE orchestration.internal_accounts (
     opened_by text NOT NULL,
     closed_at timestamp with time zone,
     closed_by text,
-    CONSTRAINT internal_accounts_purpose_check CHECK ((purpose = ANY (ARRAY['TILL'::text, 'VAULT'::text, 'FEE_INCOME'::text, 'INTEREST_INCOME'::text, 'PENALTY_INCOME'::text, 'LOAN_FUNDING'::text, 'SUSPENSE'::text, 'SETTLEMENT'::text, 'OTHER'::text]))),
+    CONSTRAINT internal_accounts_purpose_check CHECK ((purpose = ANY (ARRAY['TILL'::text, 'VAULT'::text, 'FEE_INCOME'::text, 'INTEREST_INCOME'::text, 'PENALTY_INCOME'::text, 'SUSPENSE'::text, 'SETTLEMENT'::text, 'OTHER'::text]))),
     CONSTRAINT internal_accounts_status_check CHECK ((status = ANY (ARRAY['ACTIVE'::text, 'CLOSED'::text])))
 );
 
@@ -369,7 +369,7 @@ CREATE TABLE orchestration.sagas (
     CONSTRAINT sagas_channel_idempotency_key_check CHECK ((length(channel_idempotency_key) <= 200)),
     CONSTRAINT sagas_fee_minor_check CHECK ((fee_minor >= 0)),
     CONSTRAINT sagas_state_check CHECK ((state = ANY (ARRAY['RECEIVED'::text, 'POSTING'::text, 'COMPLETED'::text, 'FAILED'::text, 'PENDING_RESOLUTION'::text]))),
-    CONSTRAINT sagas_type_check CHECK ((type = ANY (ARRAY['TRANSFER'::text, 'DEPOSIT'::text, 'WITHDRAWAL'::text, 'REVERSAL'::text, 'DISBURSEMENT'::text, 'REPAYMENT'::text, 'RECOGNITION'::text]))),
+    CONSTRAINT sagas_type_check CHECK ((type = ANY (ARRAY['TRANSFER'::text, 'DEPOSIT'::text, 'WITHDRAWAL'::text, 'REVERSAL'::text]))),
     CONSTRAINT terminal_states_are_stamped CHECK ((((state = ANY (ARRAY['COMPLETED'::text, 'FAILED'::text])) AND (terminal_at IS NOT NULL)) OR ((state <> ALL (ARRAY['COMPLETED'::text, 'FAILED'::text])) AND (terminal_at IS NULL))))
 );
 

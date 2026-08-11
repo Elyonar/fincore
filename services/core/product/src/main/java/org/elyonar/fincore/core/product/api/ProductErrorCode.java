@@ -49,14 +49,11 @@ public enum ProductErrorCode {
      *
      * <p>One code spanning many causes, so it carries a {@code reason}: {@code UNKNOWN_OPERATION},
      * {@code UNKNOWN_FEE_BASIS}, {@code UNKNOWN_KYC_TIER}, {@code UNKNOWN_CHANNEL},
-     * {@code UNKNOWN_LIMIT_TYPE}, {@code UNKNOWN_SCHEDULE_KIND}, {@code BOUNDS_INVERTED},
+     * {@code UNKNOWN_LIMIT_TYPE}, {@code BOUNDS_INVERTED},
      * {@code RATE_OUT_OF_RANGE}, {@code AMOUNT_MALFORMED}, {@code CURRENCY_INVALID},
      * {@code ACCOUNT_NOT_FOUND}, {@code ACCOUNT_WRONG_TYPE}, {@code EFFECTIVE_FROM_INVALID}.
      */
     RULES_INVALID,
-
-    /** Loan terms on a product that is not a LOAN. */
-    LOAN_RULES_ON_NON_LOAN_PRODUCT,
 
     /** A draft dated to become effective before it existed. */
     EFFECTIVE_FROM_IN_THE_PAST,

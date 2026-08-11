@@ -18,7 +18,7 @@ Numbered, never deleted; superseded ADRs are marked as such.
 | 0010 | One Keycloak realm per tenant, and identity lands before Core | Accepted — superseded by 0018 when it is |
 | 0011 | The platform's first event consumer is built before Phase 3 | Accepted |
 | 0012 | Organizational model: unit is operational scope, tenant is the legal entity | Accepted |
-| 0013 | Lending is the first module built after the money path | Accepted |
+| 0013 | Lending is the first module built after the money path | Withdrawn |
 | 0014 | The edge is configuration, reads come through Core, identity gets real first | Accepted |
 | 0015 | The control plane is a deployable of its own, and provisioning is a saga | Deferred |
 | 0016 | Tenants are declared in a manifest and seeded at startup | Proposed |

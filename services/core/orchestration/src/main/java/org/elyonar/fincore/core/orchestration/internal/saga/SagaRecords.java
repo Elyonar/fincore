@@ -260,47 +260,6 @@ public class SagaRecords {
     }
 
     /**
-     * Phase A for funding movements (lending.md): the saga and the event, no reservation.
-     *
-     * <p>No product decision and no limit reservation, deliberately — the exposure was approved
-     * by Lending's amount-tiered chain, and channel limits protect customer-initiated movement.
-     * Everything that makes recovery possible is still here: accounts on the row, fee zero, the
-     * idempotency key arbitrated by the unique index.
-     */
-    @Transactional
-    public UUID openFunding(org.elyonar.fincore.core.orchestration.api.FundingCommand command) {
-        scopeTo(command.tenantId());
-        UUID sagaId =
-                jdbc.queryForObject(
-                        """
-                        INSERT INTO orchestration.sagas
-                            (tenant_id, type, state, channel_idempotency_key, request_fingerprint,
-                             subject_customer_id, amount_minor, fee_minor, currency,
-                             initiated_by, executed_by, from_account_id, to_account_id)
-                        VALUES (?, ?, 'POSTING', ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)
-                        RETURNING id
-                        """,
-                        UUID.class,
-                        command.tenantId(),
-                        command.kind().name(),
-                        command.idempotencyKey(),
-                        command.fingerprint(),
-                        command.customerId(),
-                        command.amountMinor(),
-                        command.currency(),
-                        command.initiatedBy(),
-                        command.executedBy(),
-                        command.sourceAccountId(),
-                        command.destinationAccountId());
-        outbox.append(
-                command.tenantId(),
-                "transfer.initiated",
-                sagaId,
-                payload(sagaId, command.amountMinor(), 0, command.currency()));
-        return sagaId;
-    }
-
-    /**
      * Phase A for cash: the saga, the reservation, and the event, together.
      *
      * <p>Accounts are recorded from the till's point of view — for a deposit the money comes from

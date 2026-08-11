@@ -322,8 +322,8 @@ erDiagram
   the migration that added `created_by`, which had tried to backfill published
   rows with an `UPDATE`. A migration is exactly the privileged path that quietly
   edits signed-off configuration, and it was stopped like any other writer.
-- **So are a published version's rules** — `fee_rules`, `limit_rules` and
-  `loan_rules`, since `V7__published_rules_are_immutable.sql` (v1.24). The V2
+- **So are a published version's rules** — `fee_rules` and
+  `limit_rules`, since `V7__published_rules_are_immutable.sql` (v1.24). The V2
   trigger fired on `product_versions` alone, so for six migrations the header row
   was immutable while the rows carrying the actual price were not. Nothing
   exercised it because nothing outside the test suite wrote them; the rule-authoring
@@ -395,21 +395,6 @@ Also as of v1.14: `platform.tenants.business_timezone` (IANA id, default
 window rolls at that midnight; and `sagas.decision` is finally *written*, a
 JSONB snapshot of version, fee, fee account, both limits, channel and KYC tier
 at Phase A.
-
-### Lending arrivals (v1.16)
-
-Schema `lending` is documented in [`lending.md`](lending.md) §3 and implemented to it. In
-*neighbouring* schemas: `product.loan_rules` carries loan pricing on versions (`LOAN` joined the
-product type vocabulary); `orchestration.sagas.type` gained `DISBURSEMENT` and `REPAYMENT` —
-funding sagas with no reservation and no product decision, per V7's stated reasoning.
-
-As of v1.17: `orchestration.sagas.type` gains `RECOGNITION` (V8) — income recognition rides the
-same funding-saga machinery; `product.loan_rules` gains the penalty rules
-(`penalty_flat_minor`, `penalty_rate_bp` per day, `penalty_cap_minor`), `penalty_income_account_id`
-and `funding_account_id` (V6); `lending.loans` gains `interest_paid_minor`,
-`recognized_interest_minor`, `penalty_charged_minor`, `penalty_paid_minor` (CHECK paid ≤ charged)
-and `penalty_through`; `lending.loan_schedule` gains `penalty_applied_at`; `lending.repayments`
-gains `recognized_at`. Counters, never a stored "due": due is always a subtraction.
 
 ## Rules that apply to every schema
 

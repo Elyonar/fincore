@@ -22,7 +22,7 @@ public record ProductRequest(
         long amountMinor,
         String currency) {
 
-    /** The operations v1 prices and limits. Rails, standing orders and lending are not here yet. */
+    /** The operations v1 prices and limits. Rails and standing orders are not here yet. */
     public enum Operation {
         DEPOSIT,
         WITHDRAWAL,

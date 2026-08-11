@@ -7,9 +7,9 @@ already promised, and records the decisions the first external consumer forces.
 ## Context
 
 Every domain service the Phase 0 client apps need already exists: the ledger,
-Core's six modules (customer, product, organization, orchestration, lending,
-app), and notification. Deposits, withdrawals, transfers, reversals, tills, the
-full loan lifecycle, PAR and period-bounded statements are all served by APIs
+Core's five modules (customer, product, organization, orchestration,
+app), and notification. Deposits, withdrawals, transfers, reversals, tills and
+period-bounded statements are all served by APIs
 that are live and tested today.
 
 What does not exist is the layer between those APIs and a browser:

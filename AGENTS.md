@@ -171,11 +171,11 @@ Verified by running the suites, not by reading the docs: **521 tests green** —
   maker-checker approval, customer contact and consent, product versioning with
   publish control, and organizational units (ADR 0012). A sixth module, lending
   ([ADR 0013](docs/adr/0013-lending-module-first.md)), was built and has been
-  withdrawn — out of scope for this build. It has its own image and compose
+  withdrawn — out of scope for this build. Core has its own image and compose
   service, and calls the ledger over HTTP.
 
   The domain modules carry no unit tests of their own; all are covered by
-  `app`'s integration suite (plus `ScheduleEngineTest`'s seeded sweep), which
+  `app`'s integration suite, which
   is why Core's 213 sit almost entirely in `app`.
 
   Read `services/core/docs/design.md` and then `outcome-protocol.md` before

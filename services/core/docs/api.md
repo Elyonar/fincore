@@ -50,10 +50,9 @@ the first place.
 | `POST /v1/products` | create a product with a DRAFT version 1 | product | `products:create` | admin |
 | `POST /v1/products/{id}/versions/{v}/publish` | publish a version (attributed; maker-checker) | product | `products:publish` | admin |
 | `POST /v1/products/{productId}/versions` | draft the next version, optionally copying an existing one's rules | app (pricing) | `products:create` | admin |
-| `GET  /v1/products/{productId}/versions/{version}` | one version with its fee, limit and loan rules | app (pricing) | `products:read` | admin |
+| `GET  /v1/products/{productId}/versions/{version}` | one version with its fee and limit rules | app (pricing) | `products:read` | admin |
 | `PUT  /v1/products/{productId}/versions/{version}/fee-rules` | replace the draft's fee schedule; accounts validated against the institution's own | app (pricing) | `products:create` | admin |
 | `PUT  /v1/products/{productId}/versions/{version}/limit-rules` | replace the draft's limits — without a PER_TXN rule the product refuses everything | app (pricing) | `products:create` | admin |
-| `PUT  /v1/products/{productId}/versions/{version}/loan-rules` | replace the draft's loan terms, rates and penalties | app (pricing) | `products:create` | admin |
 | `PATCH /v1/products/{productId}/versions/{version}` | schedule when the version becomes live once published | app (pricing) | `products:create` | admin |
 | `POST /v1/approvals` | raise a maker-checker approval, bound to a target and amount | orchestration | `approvals:make` | supervisor |
 | `POST /v1/approvals/{id}/check` | approve or reject (checker ≠ maker, enforced) | orchestration | `approvals:check` | supervisor |
@@ -148,7 +147,7 @@ exception: even after a Ledger restore, resolution is mechanical replay rather
 than human judgement ([`saga-protocol.md`](saga-protocol.md)).
 
 Not in v1, deliberately: inter-bank transfers, bulk disbursement, standing
-orders, holds, interest accrual, lending. The connector seam is designed
+orders, holds, interest accrual. The connector seam is designed
 ([`saga-protocol.md`](saga-protocol.md)) and not built.
 
 ## The contract property that matters most
@@ -268,7 +267,6 @@ tenant renders its own string from `code`, `reason` and `details`.
 | `PUBLISHER_IS_AUTHOR` | the principal wrote this version and may not publish it → 403 | no — a colleague must publish |
 | `VERSION_NOT_DRAFT` | a write against a version that is already live → 409 | no — draft the next version |
 | `RULES_INVALID` | a rule set this version cannot hold; `reason` names which → 422 | no — caller bug |
-| `LOAN_RULES_ON_NON_LOAN_PRODUCT` | loan terms on a product that is not a LOAN → 422 | no |
 | `EFFECTIVE_FROM_IN_THE_PAST` | a draft dated to become effective before it existed → 422 | no |
 
 `NOT_REVERSIBLE` is checked **before** the approval is examined. A transaction

@@ -5,8 +5,7 @@ import java.util.UUID;
 /**
  * What Product needs to know about a ledger account, without being allowed to ask.
  *
- * <p>Pricing names accounts: a fee rule names where its fee income lands, a loan rule names the
- * interest and penalty income accounts and the account a disbursement is funded from. Accepting
+ * <p>Pricing names accounts: a fee rule names where its fee income lands. Accepting
  * those unverified is the defect {@code V4__fee_account_configuration.sql} was written about —
  * <em>"a caller could route the tenant's fee to any account it could name"</em> — and configuration
  * is exactly where it should be caught, because the alternative is discovering it when a customer's
