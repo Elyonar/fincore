@@ -8,6 +8,39 @@ entry first.
 
 ---
 
+## [2.3.0] — 2026-08-11 · MINOR
+
+**The administration surface becomes the `admin` module.** A move, not a rewrite: `AdminController`
+(eighteen endpoints), `IdentityDirectory` and `AdminApiErrors` leave `services/core/app` — the
+composition shell, which held an entire domain — for a Maven module of their own,
+`services/core/admin`, package `org.elyonar.fincore.core.admin`. Nothing on the wire changes: same
+routes, same permissions, same refusals; `api.md`'s Module column now says `admin` where it said
+`app (directory)`. MINOR because the platform gains a stated module boundary and loses none.
+
+- **One deliberate deviation from ADR 0006's module shape, stated in the module's `package-info`
+  rather than discovered by an auditor: `admin` owns no schema and no database role.** It holds no
+  state — every read and write is a proxied HTTP call to the identity service (ADR 0018). A module
+  exists to own a boundary, and this one's boundary is the identity service's *client*, not a
+  schema; an empty schema and an unused grant would dress the deviation up as conformance. The one
+  durable record the surface touches — unit assignments — belongs to Organization and is written
+  through `OrganizationUnits`, its published api, which is the boundary working, not an exception.
+- **The classes are byte-identical apart from packages and imports, with one forced exception:**
+  `IdentityDirectory.DirectoryRefused`'s constructor was package-private and is now public,
+  because the controller that throws it (`internal.api`) no longer shares a package with the
+  client that defines it (`internal`). No behaviour changed.
+- **`ModuleBoundaryTest` learns the module:** `admin`'s internals are private, `admin` consults
+  only Organization's api, nothing — the app included — depends on `admin`, Organization stays a
+  leaf against it, and the one-HTTP-client exemption now names
+  `org.elyonar.fincore.core.admin.internal.IdentityDirectory` at its new address.
+- **Build wiring, all of it mechanical:** the `services/core` reactor and its
+  `dependencyManagement`, `app`'s dependency, the four Dockerfiles that copy every core module POM
+  (`DockerfileModuleCatalogTest` would have failed each one), and CI's core `-pl` list.
+- No new endpoints, no error-catalog change — the surface's codes were never enum-published and
+  stay as documented in `admin-surface.md` §5. Coverage stays where the suite pattern puts it:
+  `app`'s integration tests exercise every module through the assembled application.
+
+---
+
 ## [2.2.0] — 2026-08-11 · MINOR
 
 **The worker learns what a reversal is, and five smaller ways to lose money quietly close.** All

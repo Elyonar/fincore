@@ -1,4 +1,4 @@
-package org.elyonar.fincore.core.app.admin;
+package org.elyonar.fincore.core.admin.internal;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -271,7 +271,7 @@ public class IdentityDirectory {
         public final int status;
         public final transient JsonNode body;
 
-        DirectoryRefused(int status, JsonNode body) {
+        public DirectoryRefused(int status, JsonNode body) {
             super("directory refused: " + status);
             this.status = status;
             this.body = body;

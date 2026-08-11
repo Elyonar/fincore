@@ -33,6 +33,7 @@ class ModuleBoundaryTest {
     private static final String PRODUCT = "org.elyonar.fincore.core.product..";
     private static final String ORGANIZATION = "org.elyonar.fincore.core.organization..";
     private static final String ORCHESTRATION = "org.elyonar.fincore.core.orchestration..";
+    private static final String ADMIN = "org.elyonar.fincore.core.admin..";
 
     /**
      * Canary. Every rule below is a {@code no...should...} rule, and such a rule passes trivially
@@ -145,8 +146,58 @@ class ModuleBoundaryTest {
                     .resideInAPackage(ORGANIZATION)
                     .should()
                     .dependOnClassesThat()
-                    .resideInAnyPackage(CUSTOMER, PRODUCT, ORCHESTRATION)
+                    .resideInAnyPackage(CUSTOMER, PRODUCT, ORCHESTRATION, ADMIN)
                     .because("organization is a leaf: neighbours ask it, it asks nobody")
+                    .allowEmptyShould(true);
+
+    @ArchTest
+    static final ArchRule admin_internals_are_private =
+            noClasses()
+                    .that()
+                    .resideOutsideOfPackage(ADMIN)
+                    .should()
+                    .dependOnClassesThat()
+                    .resideInAPackage("org.elyonar.fincore.core.admin.internal..")
+                    .because("admin's internals belong to admin")
+                    .allowEmptyShould(true);
+
+    /**
+     * Admin owns no state — no schema, no database role — and every read and write it serves is a
+     * proxied call to the identity service (its package-info states the deviation). Its one
+     * in-process dependency is Organization's published api, because creating a member of staff
+     * and replacing unit assignments write Core's assignment record alongside the directory's
+     * claim. Everything else stays out of reach: a second dependency is a design amendment, not an
+     * import.
+     */
+    @ArchTest
+    static final ArchRule admin_consults_only_organization =
+            noClasses()
+                    .that()
+                    .resideInAPackage(ADMIN)
+                    .should()
+                    .dependOnClassesThat()
+                    .resideInAnyPackage(CUSTOMER, PRODUCT, ORCHESTRATION)
+                    .because(
+                            "admin proxies the identity service and consults only organization's"
+                                + " api; a customer, product or orchestration dependency here is a"
+                                + " design amendment, not an import")
+                    .allowEmptyShould(true);
+
+    /**
+     * Nothing depends on admin, the app included: the app wires it by component scan, and no
+     * module has a reason to call an HTTP proxy through the classpath. Admin publishes no api
+     * package, and this rule is what keeps that honest — the day a consumer appears, an api
+     * package is designed for it rather than an internal reached for.
+     */
+    @ArchTest
+    static final ArchRule nothing_depends_on_admin =
+            noClasses()
+                    .that()
+                    .resideOutsideOfPackage(ADMIN)
+                    .should()
+                    .dependOnClassesThat()
+                    .resideInAPackage(ADMIN)
+                    .because("admin is a leaf: it asks organization and identity, nothing asks it")
                     .allowEmptyShould(true);
 
     @ArchTest
@@ -158,8 +209,8 @@ class ModuleBoundaryTest {
                     .dependOnClassesThat()
                     .resideInAPackage(ORGANIZATION)
                     .because(
-                            "only orchestration consults the organizational tree today; a new"
-                                + " consumer is a design amendment, not an import")
+                            "only orchestration and admin consult the organizational tree today;"
+                                + " a new consumer is a design amendment, not an import")
                     .allowEmptyShould(true);
 
     /**
@@ -183,7 +234,7 @@ class ModuleBoundaryTest {
                     // silently; exempting one class means the next one is argued for.
                     .and()
                     .doNotHaveFullyQualifiedName(
-                            "org.elyonar.fincore.core.app.admin.IdentityDirectory")
+                            "org.elyonar.fincore.core.admin.internal.IdentityDirectory")
                     .should()
                     .dependOnClassesThat()
                     .resideInAnyPackage(

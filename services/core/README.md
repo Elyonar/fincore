@@ -6,10 +6,11 @@
 > idempotent posting, and guarantees that a request interrupted at any point
 > ends either completely done or completely undone. Never half.
 
-One deployable, four domain modules, one database, four domain schemas, one
-database role per module. It is the **only** caller of the Ledger's write API.
+One deployable, five domain modules, one database, four domain schemas, one
+database role per schema-owning module — `admin` owns no schema and no role,
+deliberately (see below). It is the **only** caller of the Ledger's write API.
 
-**Status: design AGREED v2.2 — implemented, pre-1.0.** Packaging is decided
+**Status: design AGREED v2.3 — implemented, pre-1.0.** Packaging is decided
 ([ADR 0006](../../docs/adr/0006-modular-core.md)), all documented endpoints are
 served, and every suite runs against real PostgreSQL. Changes to the design are
 amendments in [`docs/CHANGELOG.md`](docs/CHANGELOG.md), in their own PR ahead
@@ -21,16 +22,16 @@ of the code — never silent edits.
 
 | You want to know… | Read | Status |
 |---|---|---|
-| The design at a glance + the decision log | [`docs/design.md`](docs/design.md) | AGREED v2.2 |
-| **The three-valued outcome model** — the thing this service exists to get right | [`docs/outcome-protocol.md`](docs/outcome-protocol.md) | AGREED v2.2 |
-| How sagas execute, recover, and are claimed across instances | [`docs/saga-protocol.md`](docs/saga-protocol.md) | AGREED v2.2 |
-| Modules, boundaries, the ledger client, events, DR posture | [`docs/architecture.md`](docs/architecture.md) | AGREED v2.2 |
-| Tables per schema, ownership rules, decided edge cases | [`docs/data-model.md`](docs/data-model.md) | AGREED v2.2 |
-| Endpoint surface, error catalog, contract properties | [`docs/api.md`](docs/api.md) | AGREED v2.2 |
-| Core's eight invariants and every test suite | [`docs/testing.md`](docs/testing.md) | AGREED v2.2 |
-| **The UI runway** — identity end-to-end, the edge, ledger-read proxying, the Phase 0 read audit | [`docs/ui-runway.md`](docs/ui-runway.md) | AGREED v2.2 |
-| **The administration surface** — product authoring, account opening, users and roles | [`docs/admin-surface.md`](docs/admin-surface.md) | AGREED v2.2 |
-| Every amendment since the design was agreed | [`docs/CHANGELOG.md`](docs/CHANGELOG.md) | v1.20 |
+| The design at a glance + the decision log | [`docs/design.md`](docs/design.md) | AGREED v2.3 |
+| **The three-valued outcome model** — the thing this service exists to get right | [`docs/outcome-protocol.md`](docs/outcome-protocol.md) | AGREED v2.3 |
+| How sagas execute, recover, and are claimed across instances | [`docs/saga-protocol.md`](docs/saga-protocol.md) | AGREED v2.3 |
+| Modules, boundaries, the ledger client, events, DR posture | [`docs/architecture.md`](docs/architecture.md) | AGREED v2.3 |
+| Tables per schema, ownership rules, decided edge cases | [`docs/data-model.md`](docs/data-model.md) | AGREED v2.3 |
+| Endpoint surface, error catalog, contract properties | [`docs/api.md`](docs/api.md) | AGREED v2.3 |
+| Core's eight invariants and every test suite | [`docs/testing.md`](docs/testing.md) | AGREED v2.3 |
+| **The UI runway** — identity end-to-end, the edge, ledger-read proxying, the Phase 0 read audit | [`docs/ui-runway.md`](docs/ui-runway.md) | AGREED v2.3 |
+| **The administration surface** — product authoring, account opening, users and roles | [`docs/admin-surface.md`](docs/admin-surface.md) | AGREED v2.3 |
+| Every amendment since the design was agreed | [`docs/CHANGELOG.md`](docs/CHANGELOG.md) | v2.3 |
 | Platform hard rules | [`AGENTS.md`](../../AGENTS.md) | Standing |
 | What every service must have before it ships | [`service-scaffold.md`](../../docs/conventions/service-scaffold.md) | Standing |
 
@@ -45,6 +46,7 @@ README stays the map, never the territory.
 | `product` | `product` | Product catalog, fee rules, limit rules, versioned configuration. Returns *decisions*, never postings. |
 | `organization` | `organization` | The tenant's operational tree — branches, regions, business lines — and who is assigned where ([ADR 0012](../../docs/adr/0012-organizational-model.md)). Operational scope only: never a legal entity, booking unit or jurisdiction. |
 | `orchestration` | `orchestration` | Sagas, limit reservations, fee application, tills, the ledger client. **The only module that may call the Ledger's write API.** |
+| `admin` | — | The staff and role administration surface (admin-surface §5): permissions, roles, users, job titles, staff numbering. **Owns no schema and no database role, deliberately** — it holds no state; every read and write is a proxied HTTP call to the identity service (ADR 0018). A module exists to own a boundary, and this one's boundary is the identity service's client, not a schema. |
 
 `app` assembles them: wiring, the outbox relay, the saga worker. No domain
 logic.

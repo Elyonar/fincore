@@ -165,9 +165,12 @@ Verified by running the suites, not by reading the docs: **521 tests green** —
   - no performance, soak or disaster-recovery evidence exists
 
 - `services/core` — **design AGREED v1.20; implemented, merged, and running.**
-  One deployable holding five modules ([ADR 0006](docs/adr/0006-modular-core.md)):
-  `customer`, `product`, `organization`, `orchestration` and `app`, with a schema
-  and a database role each. Transfers, cash in and out, business reversal with
+  One deployable holding six modules ([ADR 0006](docs/adr/0006-modular-core.md)):
+  `customer`, `product`, `organization`, `orchestration`, `admin` and `app`. The
+  four domain modules first named carry a schema and a database role each;
+  `admin` — the staff/role administration surface — deliberately owns neither,
+  because it holds no state and proxies every call to the identity service
+  (ADR 0018). Transfers, cash in and out, business reversal with
   maker-checker approval, customer contact and consent, product versioning with
   publish control, and organizational units (ADR 0012). A sixth module, lending
   ([ADR 0013](docs/adr/0013-lending-module-first.md)), was built and has been

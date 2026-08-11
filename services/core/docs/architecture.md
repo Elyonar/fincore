@@ -1,6 +1,6 @@
 # Core — Architecture & Boundaries
 
-**Status:** AGREED v2.2 (2026-08-11) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
+**Status:** AGREED v2.3 (2026-08-11) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
 
 ## The shape
 
@@ -31,10 +31,18 @@
 | `customer` | `customer` | Profiles, KYC tier, lifecycle status, mandates, customer↔account mapping | Balances, entries, transaction history, money of any kind |
 | `product` | `product` | Product catalog, fee rules, limit rules, versioned configuration | Executing anything. It returns *decisions*, never postings |
 | `orchestration` | `orchestration` | Sagas, limit reservations, fee application, the ledger client, the idempotency registry | Fee or interest *rules*; customer PII; balance computation |
+| `admin` | — | The staff and role administration surface (admin-surface §5): permission catalog, roles, users, job titles, staff numbering — every read and write proxied to the identity service (ADR 0018) | A schema, a database role, or state of any kind. Its one durable record — unit assignments — belongs to `organization` and is written through its api |
 
 `app` assembles them into one Spring Boot application. It holds wiring and
 cross-cutting infrastructure (the outbox relay, the saga worker), no domain
 logic.
+
+**`admin` deviates from the module shape deliberately, and the deviation is the
+design:** a module exists to own a boundary, and admin's boundary is the
+identity service's *client*, not a schema. It holds no state, so it owns no
+schema and connects as no role — an empty schema and an unused grant would
+dress the deviation up as conformance. The database-privilege mechanism below
+therefore does not apply to it; the POM graph and ArchUnit still do.
 
 ### How the boundaries are enforced
 

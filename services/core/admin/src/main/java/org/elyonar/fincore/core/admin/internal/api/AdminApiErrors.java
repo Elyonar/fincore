@@ -1,7 +1,8 @@
-package org.elyonar.fincore.core.app.admin;
+package org.elyonar.fincore.core.admin.internal.api;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import org.elyonar.fincore.core.admin.internal.IdentityDirectory;
 import org.elyonar.fincore.core.organization.api.OrganizationUnits;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;

@@ -1,6 +1,6 @@
 # Core — The Outcome Protocol
 
-**Status:** AGREED v2.2 (2026-08-11) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
+**Status:** AGREED v2.3 (2026-08-11) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
 
 This document exists on its own because it is the thing this category of
 software gets wrong, and burying it inside a saga document guarantees it is

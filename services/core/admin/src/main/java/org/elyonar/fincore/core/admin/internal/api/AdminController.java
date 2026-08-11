@@ -1,4 +1,4 @@
-package org.elyonar.fincore.core.app.admin;
+package org.elyonar.fincore.core.admin.internal.api;
 
 import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.ArrayList;
@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.elyonar.fincore.auth.Authorization;
+import org.elyonar.fincore.core.admin.internal.IdentityDirectory;
 import org.elyonar.fincore.core.organization.api.OrganizationUnits;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;

@@ -1,6 +1,6 @@
 # Core — The Administration Surface
 
-**Status:** AGREED v2.2 (2026-08-11) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
+**Status:** AGREED v2.3 (2026-08-11) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
 
 What a tenant's own administrator needs in order to turn a provisioned tenant
 into an institution that can transact. Three capabilities, designed as one batch
