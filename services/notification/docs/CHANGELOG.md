@@ -8,6 +8,16 @@ Newest entry first.
 
 ---
 
+## [1.6.0] — 2026-08-11 · MINOR
+
+**The address cipher refuses to bluff in production.** `AddressCipher` substituted a committed
+development key for a missing `fincore.notification.address-key` with only a log warning — PII
+encrypted under a key anyone with the repository holds, in any environment. It now refuses to
+start outside the `dev`/`test`/`local` profiles when the property is blank, mirroring Identity's
+signing-key double lock: dev convenience stays, production silence does not. A tightening, so
+MINOR; no working deployment can have been relying on the substitute knowingly, and one that was
+relying on it unknowingly is the reason this entry exists. Covered by `AddressCipherTest`.
+
 ## [1.5.1] — 2026-08-08 · PATCH
 
 **The `tenants` table gets documented, and an off-by-one is chased out.**
