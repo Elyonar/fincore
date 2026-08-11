@@ -100,6 +100,22 @@ public class OutboxRelay {
     }
 
     /**
+     * How many events are waiting to be published.
+     *
+     * <p>Read from the table, never counted in memory, so a relay that has stopped running still
+     * reports honestly — an in-memory counter maintained by the relay would go quiet exactly when
+     * the relay did.
+     */
+    @Transactional(readOnly = true)
+    public long pendingCount() {
+        enterRelayScope();
+        Long pending =
+                jdbc.queryForObject(
+                        "SELECT count(*) FROM outbox_events WHERE published_at IS NULL", Long.class);
+        return pending == null ? 0L : pending;
+    }
+
+    /**
      * Age of the oldest unpublished event, in seconds, or empty when nothing is pending.
      *
      * <p>This is the health signal that matters: a dead relay is silent, and without it the first

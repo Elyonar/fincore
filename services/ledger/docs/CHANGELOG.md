@@ -8,6 +8,55 @@ entry first.
 
 ---
 
+## [1.10.1] — 2026-08-11 · PATCH
+
+**Three silent failures fixed: the invariant report shows its findings, the outbox gauges
+measure, and reversals respect closed periods.**
+
+- **Docs:** `posting-algorithm.md` (reversal: tenant-timezone business date, closed-period
+  refusal, and that the closed-period rule is not a third bypass)
+- **Why:** three verified defects, each a guarantee the docs already promised and the code
+  quietly failed to keep — none visible in a stack trace, a log line, or the existing suite:
+  - **`GET /v1/invariants` structurally could not report a violation.** The read path selected
+    only the counts and substituted an empty findings list for the ones every run persists, so
+    the one endpoint an operator asks "did the ledger find anything" answered `CLEAN, 0, 0` for
+    *any* completed run — including one that had detected and stored violations. The
+    zero-violations success metric was unfalsifiable rather than met.
+  - **`ledger.outbox.pending` and `ledger.outbox.oldest_pending_seconds` always read zero.**
+    The gauges were registered against the raw `this`, so Micrometer bypassed the Spring proxy,
+    `@Transactional` never fired, the relay-scope `set_config` died with its own statement, and
+    RLS hid the whole queue from the scrape. A stalled relay — money events not leaving the
+    ledger — reported healthy, which is the exact failure the sixty-second alarm exists to
+    catch. The reads now delegate to the injected `OutboxRelay` bean, whose proxy the pattern
+    is already proven on.
+  - **Reversals bypassed the closed-period check and stamped the JVM-zone date.** No
+    `PeriodService` reference existed in `ReversalService`, and the mirrored entries carried
+    `LocalDate.now()` in the host's zone rather than the tenant's business date. A
+    same-day-after-close reversal could change a FINAL statement after the fact, and every
+    midnight-adjacent reversal on a UTC host booked to the previous day — quietly, every day.
+- **Impact:** backward compatible in shape; behaviourally visible in three places. The
+  invariant report's `findings` array is now populated (the field always existed and was always
+  empty). The gauges report real values, so the staleness alert can actually fire.
+  `POST /v1/transactions/{id}/reverse` gains one refusal: `VALUE_DATE_INVALID` /
+  `PERIOD_CLOSED` when the tenant's current business date falls in a closed period — the same
+  rejection, code and reason the posting path has always given. No caller can have depended on
+  the old behaviours; each was indistinguishable from "nothing is wrong".
+- **Supersedes:** nothing. In all three the code contradicted the agreed docs — `api.md`'s
+  FINAL statements are byte-identical forever, `architecture.md`'s oldest-unpublished alarm,
+  `posting-algorithm.md`'s *two* deliberate bypasses — so the code moved, not the design.
+- **Tests:** `InvariantServiceTest.latest_report_carries_the_violations_the_run_found` — a
+  planted violation is visible through the endpoint's read path, naming its account;
+  `OutboxMetricsTest` — both gauges non-zero over an aged pending event, zero when drained;
+  `ReversalServiceTest.reversal_respects_closed_periods` — refused in total, the original stays
+  POSTED and reversible in the next open period — plus the business-date assertion in
+  `reversal_does_not_post_into_the_past`, now pinned to the tenant's timezone. Invariants
+  affected: the violation/exposure report's honesty, and the FINAL-statement immutability that
+  period close buys.
+- **Migration:** none — `invariant_runs.findings` has existed since V5 and every run wrote it;
+  only the read path ignored it.
+
+---
+
 ## [1.10.0] — 2026-08-08 · MINOR
 
 **The tenant header dies, as ADR 0010 promised and ADR 0014 scheduled.** A contract change,
