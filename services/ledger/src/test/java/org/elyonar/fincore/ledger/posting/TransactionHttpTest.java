@@ -93,6 +93,32 @@ class TransactionHttpTest extends LedgerHttpTest {
     }
 
     @Test
+    @DisplayName("a malformed value date is a documented 422, never an unknown outcome")
+    void malformed_value_date_is_422() throws Exception {
+        // Regression: this fell through to the catch-all and answered 500 with
+        // retryableWithSameKey: true — telling Orchestration to retry a caller typo, on a
+        // payment, with the same key, forever.
+        String body =
+                """
+                {"idempotencyKey":"tx-baddate","initiatedBy":"u",
+                 "entries":[
+                   {"accountId":"%s","direction":"DEBIT","amountMinor":10000,"currency":"NGN","valueDate":"not-a-date"},
+                   {"accountId":"%s","direction":"CREDIT","amountMinor":10000,"currency":"NGN","valueDate":"not-a-date"}]}
+                """
+                        .formatted(settlement, customer);
+        mvc.perform(as(post("/v1/transactions")).content(body))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("VALUE_DATE_INVALID"))
+                .andExpect(jsonPath("$.reason").value("VALUE_DATE_MALFORMED"))
+                .andExpect(jsonPath("$.retryableWithSameKey").value(false))
+                .andExpect(jsonPath("$.details.supplied").value("not-a-date"));
+
+        // The refusal is total: no rows, no balance movement, and the key stays free.
+        mvc.perform(as(get("/v1/accounts/" + customer)))
+                .andExpect(jsonPath("$.currentMinor").value("0"));
+    }
+
+    @Test
     @DisplayName("a transaction reads back with its entries")
     void reads_a_transaction_back() throws Exception {
         MvcResult posted =

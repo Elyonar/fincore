@@ -213,6 +213,7 @@ text branches on the reason, not on the message.
 | `UNBALANCED` | `TOO_FEW_ENTRIES` | fewer than two entries | `minimum`, `supplied` |
 | `UNBALANCED` | `CURRENCY_NOT_BALANCED` | debits ≠ credits in one currency | `currency`, `differenceMinor` |
 | `UNBALANCED` | `ENTRIES_REQUIRED` | no entries supplied | — |
+| `VALUE_DATE_INVALID` | `VALUE_DATE_MALFORMED` | a supplied date is not an ISO-8601 calendar date (`yyyy-MM-dd`) | `supplied` |
 | `VALUE_DATE_INVALID` | `VALUE_DATE_IN_FUTURE` | value date after the business date | `valueDate`, `businessDate` |
 | `VALUE_DATE_INVALID` | `BACKDATE_WINDOW_EXCEEDED` | older than the tenant's backdate window | `valueDate`, `earliestAllowed`, `windowDays` |
 | `VALUE_DATE_INVALID` | `BACKDATE_REASON_REQUIRED` | backdated posting without a stated reason | — |

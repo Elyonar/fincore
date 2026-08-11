@@ -32,6 +32,7 @@ public final class ErrorReason {
     public static final String UNKNOWN_HOLD = "UNKNOWN_HOLD";
 
     // VALUE_DATE_INVALID
+    public static final String VALUE_DATE_MALFORMED = "VALUE_DATE_MALFORMED";
     public static final String VALUE_DATE_IN_FUTURE = "VALUE_DATE_IN_FUTURE";
     public static final String BACKDATE_WINDOW_EXCEEDED = "BACKDATE_WINDOW_EXCEEDED";
     public static final String BACKDATE_REASON_REQUIRED = "BACKDATE_REASON_REQUIRED";

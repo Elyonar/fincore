@@ -10,12 +10,14 @@ entry first.
 
 ## [1.10.1] — 2026-08-11 · PATCH
 
-**Three silent failures fixed: the invariant report shows its findings, the outbox gauges
-measure, and reversals respect closed periods.**
+**Four silent failures fixed: the invariant report shows its findings, the outbox gauges
+measure, reversals respect closed periods, and a malformed date is a documented refusal
+rather than "retry forever".**
 
 - **Docs:** `posting-algorithm.md` (reversal: tenant-timezone business date, closed-period
-  refusal, and that the closed-period rule is not a third bypass)
-- **Why:** three verified defects, each a guarantee the docs already promised and the code
+  refusal, and that the closed-period rule is not a third bypass); `api.md` (one new reason,
+  `VALUE_DATE_MALFORMED`, under `VALUE_DATE_INVALID`)
+- **Why:** four verified defects, each a guarantee the docs already promised and the code
   quietly failed to keep — none visible in a stack trace, a log line, or the existing suite:
   - **`GET /v1/invariants` structurally could not report a violation.** The read path selected
     only the counts and substituted an empty findings list for the ones every run persists, so
@@ -34,24 +36,41 @@ measure, and reversals respect closed periods.**
     `LocalDate.now()` in the host's zone rather than the tenant's business date. A
     same-day-after-close reversal could change a FINAL statement after the fact, and every
     midnight-adjacent reversal on a UTC host booked to the previous day — quietly, every day.
-- **Impact:** backward compatible in shape; behaviourally visible in three places. The
+  - **A malformed `valueDate` on the posting path was a 500 with `retryableWithSameKey: true`.**
+    `valueDate` binds as a string and is parsed in application code, so a date that does not
+    parse never reached Jackson, threw `DateTimeParseException` — which is not an
+    `IllegalArgumentException` — matched no handler, and fell to the catch-all. That answer
+    tells Orchestration the outcome is unknown and the same key must be retried: an instruction
+    to retry a caller typo, on a payment, indefinitely — the exact outcome the handler's own
+    comment exists to prevent. A `DateTimeException` handler now maps it to the documented
+    422 `VALUE_DATE_INVALID` / `VALUE_DATE_MALFORMED`, terminal for the key, with the supplied
+    text in `details`.
+- **Impact:** backward compatible in shape; behaviourally visible in four places. The
   invariant report's `findings` array is now populated (the field always existed and was always
   empty). The gauges report real values, so the staleness alert can actually fire.
   `POST /v1/transactions/{id}/reverse` gains one refusal: `VALUE_DATE_INVALID` /
   `PERIOD_CLOSED` when the tenant's current business date falls in a closed period — the same
-  rejection, code and reason the posting path has always given. No caller can have depended on
-  the old behaviours; each was indistinguishable from "nothing is wrong".
-- **Supersedes:** nothing. In all three the code contradicted the agreed docs — `api.md`'s
+  rejection, code and reason the posting path has always given. A malformed date anywhere the
+  ledger parses one now answers 422 `VALUE_DATE_INVALID` / `VALUE_DATE_MALFORMED` where it
+  answered 500 `INTERNAL` — a caller "depending" on that was retry-looping a request that can
+  never succeed. No caller can have depended on the old behaviours; each was indistinguishable
+  from "nothing is wrong".
+- **Supersedes:** nothing. In all four the code contradicted the agreed docs — `api.md`'s
   FINAL statements are byte-identical forever, `architecture.md`'s oldest-unpublished alarm,
-  `posting-algorithm.md`'s *two* deliberate bypasses — so the code moved, not the design.
+  `posting-algorithm.md`'s *two* deliberate bypasses, and the exception handler's own rule that
+  a request that can never succeed as written is a 4xx terminal for its key — so the code
+  moved, not the design.
 - **Tests:** `InvariantServiceTest.latest_report_carries_the_violations_the_run_found` — a
   planted violation is visible through the endpoint's read path, naming its account;
   `OutboxMetricsTest` — both gauges non-zero over an aged pending event, zero when drained;
   `ReversalServiceTest.reversal_respects_closed_periods` — refused in total, the original stays
   POSTED and reversible in the next open period — plus the business-date assertion in
-  `reversal_does_not_post_into_the_past`, now pinned to the tenant's timezone. Invariants
-  affected: the violation/exposure report's honesty, and the FINAL-statement immutability that
-  period close buys.
+  `reversal_does_not_post_into_the_past`, now pinned to the tenant's timezone;
+  `TransactionHttpTest.malformed_value_date_is_422` — a posting with `valueDate: "not-a-date"`
+  answers 422 with code, reason and `retryableWithSameKey: false`, and nothing posts.
+  Invariants affected: the violation/exposure report's honesty, the FINAL-statement
+  immutability that period close buys, and the retry contract — only a genuinely unknown
+  outcome may say "retry the same key".
 - **Migration:** none — `invariant_runs.findings` has existed since V5 and every run wrote it;
   only the read path ignored it.
 

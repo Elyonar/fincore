@@ -1,8 +1,11 @@
 package org.elyonar.fincore.ledger.api;
 
+import java.time.DateTimeException;
+import java.time.format.DateTimeParseException;
 import java.util.Map;
 import org.elyonar.fincore.ledger.posting.ReversalService;
 import org.elyonar.fincore.ledger.shared.ErrorCode;
+import org.elyonar.fincore.ledger.shared.ErrorReason;
 import org.elyonar.fincore.ledger.shared.LedgerException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -89,6 +92,31 @@ public class ApiExceptionHandler {
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<ApiError> malformed(IllegalArgumentException e) {
         return ResponseEntity.badRequest().body(ApiError.of("BAD_REQUEST", e.getMessage()));
+    }
+
+    /**
+     * Dates bind as strings and are parsed in application code, so a malformed one never reaches
+     * Jackson and {@code DateTimeParseException} is not an {@code IllegalArgumentException}.
+     * Before this handler it fell to the catch-all below, which answered 500 with
+     * {@code retryableWithSameKey: true} — instructing Orchestration to retry a caller typo, on a
+     * payment, with the same key, forever. A date that does not parse can never succeed as
+     * written: a documented 422, terminal for the key, like every other malformed request.
+     */
+    @ExceptionHandler(DateTimeException.class)
+    public ResponseEntity<ApiError> malformedDate(DateTimeException e) {
+        Map<String, String> details =
+                e instanceof DateTimeParseException parse && parse.getParsedString() != null
+                        ? Map.of("supplied", parse.getParsedString())
+                        : Map.of();
+        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY)
+                .body(
+                        new ApiError(
+                                ErrorCode.VALUE_DATE_INVALID.code(),
+                                ErrorReason.VALUE_DATE_MALFORMED,
+                                e.getMessage(),
+                                false,
+                                null,
+                                details));
     }
 
     /**
