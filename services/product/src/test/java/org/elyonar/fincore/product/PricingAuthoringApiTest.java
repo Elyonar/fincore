@@ -1,4 +1,4 @@
-package org.elyonar.fincore.core.app;
+package org.elyonar.fincore.product;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -12,6 +12,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import org.elyonar.fincore.product.internal.TenantRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -46,38 +47,22 @@ class PricingAuthoringApiTest {
     @Qualifier("productTransactionManager")
     private PlatformTransactionManager productTx;
 
-    @Autowired
-    @Qualifier("orchestrationJdbcTemplate")
-    private JdbcTemplate orchestrationDb;
-
-    @Autowired
-    @Qualifier("orchestrationTransactionManager")
-    private PlatformTransactionManager orchestrationTx;
-
     @LocalServerPort private int port;
     private final HttpClient http = HttpClient.newHttpClient();
 
     private UUID tenantId;
 
     /**
-     * A fee-income account in the register, planted directly.
+     * The account a fee rule names.
      *
-     * <p>The controller verifies a rule's account against the internal-accounts register, not the
-     * ledger, so the register row is all a pricing test needs — no stub ledger required.
+     * <p>It used to be planted in Core's internal-accounts register, because Core's pricing
+     * controller checks a rule against that register before storing it. That check is still Core's
+     * and stays there — this service does not own the register and may not read it (ADR 0020). So
+     * from here the account is just an id, and what this suite proves is the half that moved: the
+     * authoring rules themselves, against the real evaluator and the real triggers.
      */
     private UUID feeIncomeAccount() {
-        UUID ledgerAccountId = UUID.randomUUID();
-        new TransactionTemplate(orchestrationTx)
-                .executeWithoutResult(s -> {
-                    orchestrationDb.queryForObject(
-                            "SELECT set_config('app.tenant_id', ?, true)", String.class, tenantId.toString());
-                    orchestrationDb.update(
-                            "INSERT INTO orchestration.internal_accounts"
-                                    + " (tenant_id, ledger_account_id, code, name, purpose, currency, opened_by)"
-                                    + " VALUES (?,?,?, 'Fee income', 'FEE_INCOME', 'NGN', 'user:test')",
-                            tenantId, ledgerAccountId, "FEES-" + UUID.randomUUID().toString().substring(0, 8));
-                });
-        return ledgerAccountId;
+        return UUID.randomUUID();
     }
 
     @DynamicPropertySource
@@ -196,7 +181,12 @@ class PricingAuthoringApiTest {
         // and the product would silently refuse every TIER_1 transaction. Refusal beats silence.
         HttpResponse<String> typoTier = putLimitRules(
                 productId, 2,
-                "[{\"kycTier\":\"TIER1\",\"channel\":\"TELLER\",\"limitType\":\"PER_TXN\","
+                // Not a handle at all. Which tiers an institution *recognises* is its own
+                // vocabulary now (customer.kyc_tiers), and this service deliberately does not know
+                // it — checking that would mean Product calling Customer, the edge ADR 0020 exists
+                // to prevent. Core makes that check, because Core can see both. What stays here is
+                // the shape: a rule whose tier is untypeable matches nobody and is silently dead.
+                "[{\"kycTier\":\"tier one\",\"channel\":\"TELLER\",\"limitType\":\"PER_TXN\","
                         + "\"maxAmountMinor\":1000000,\"currency\":\"NGN\"}]",
                 "user:bob");
         assertThat(typoTier.statusCode()).isEqualTo(422);

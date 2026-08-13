@@ -158,8 +158,20 @@ services:
       # client-credentials token with this secret and forwards the administrator's own token
       # beside it. A dev secret like the throwaway database passwords above — a deployment
       # supplies a real one by reference (hard rule 8).
-      FINCORE_IDENTITY_SERVICE_CLIENTS: core=FINCORE_CORE_IDENTITY_SECRET
+      FINCORE_IDENTITY_SERVICE_CLIENTS: core=FINCORE_CORE_IDENTITY_SECRET,notification=FINCORE_NOTIFICATION_IDENTITY_SECRET,product=FINCORE_PRODUCT_IDENTITY_SECRET
       FINCORE_CORE_IDENTITY_SECRET: ${FINCORE_CORE_IDENTITY_SECRET:-dev-core-directory-secret}
+      FINCORE_NOTIFICATION_IDENTITY_SECRET: ${FINCORE_NOTIFICATION_IDENTITY_SECRET:-dev-notification-reader-secret}
+      FINCORE_PRODUCT_IDENTITY_SECRET: ${FINCORE_PRODUCT_IDENTITY_SECRET:-dev-product-ledger-reader-secret}
+
+      # What Notification may do inside a tenant (ADR 0019), and nothing more: the two reads it
+      # needs to address a message. Declared here rather than asked for on the call, so widening a
+      # service's reach is a deployment change somebody reviews. `core` is deliberately absent —
+      # it holds the tenantless token the ledger's caller allowlist expects and needs no grants.
+      # ADR 0020 moved Product and Customer out of Core, so Core is now a *client* of both and
+      # needs tenant-scoped grants it never needed while they were in-process. Exactly the calls
+      # the money path and account opening make, and nothing wider: widening a service's reach
+      # stays a deployment change somebody reviews.
+      FINCORE_IDENTITY_SERVICE_CLIENT_GRANTS: notification=customers:contact|transfers:read,core=products:read|products:create|customers:read|customers:create|customers:link
 
       # The manifest, mounted read-only. Seeded idempotently on every boot (ADR 0016 / 0018).
       FINCORE_IDENTITY_MANIFEST: /bootstrap/tenants.json
@@ -272,6 +284,77 @@ services:
   # Core — the deployable that orchestrates transfers. Four modules, one process,
   # one image; the boundary between them is enforced by per-module database roles
   # inside the container, not by separate containers (ADR 0006).
+  # ---------------------------------------------------------------------------
+  # Product — the catalogue and its pricing (ADR 0020).
+  #
+  # Extracted from Core because a published version and its rules are immutable by database
+  # trigger, which is what makes a pricing decision safe to answer across a network. It answers
+  # questions and returns decisions; it never posts money. Its only outbound call is a read to the
+  # ledger, on the authoring path, to refuse a fee rule naming an account that does not exist.
+  # ---------------------------------------------------------------------------
+  product:
+    build:
+      context: .
+      dockerfile: services/product/Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+      # It mints its own tenant-scoped credential before it can read the ledger (ADR 0019).
+      identity:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/product
+      SPRING_DATASOURCE_USERNAME: fincore
+      SPRING_DATASOURCE_PASSWORD: fincore
+      FINCORE_PRODUCT_DB_USER: product_app
+      FINCORE_PRODUCT_DB_PASSWORD: product_app
+
+      FINCORE_AUTH_MODE: jwt
+      FINCORE_AUTH_ISSUER_URI: ${FINCORE_AUTH_ISSUER_URI:-http://localhost:58183}
+      FINCORE_AUTH_JWKS_URI: ${FINCORE_AUTH_JWKS_URI:-http://identity:8083/.well-known/jwks.json}
+
+      FINCORE_PRODUCT_LEDGER_URL: http://ledger:8080
+      FINCORE_PRODUCT_IDENTITY_BASE_URL: http://identity:8083
+      FINCORE_PRODUCT_IDENTITY_CLIENT_ID: product
+      FINCORE_PRODUCT_IDENTITY_CLIENT_SECRET: ${FINCORE_PRODUCT_IDENTITY_SECRET:-dev-product-ledger-reader-secret}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8084/actuator/health/readiness || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 20s
+
+  # ---------------------------------------------------------------------------
+  # Customer — people, their tiers, their contact details and the accounts they hold (ADR 0020).
+  #
+  # The only service holding PII, and the one other services will consume: lending, partner APIs,
+  # any customer-owned surface. That is the whole argument for it standing alone rather than being
+  # reached by calling the service that moves money. It posts nothing and holds no ledger client.
+  # ---------------------------------------------------------------------------
+  customer:
+    build:
+      context: .
+      dockerfile: services/customer/Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/customer
+      SPRING_DATASOURCE_USERNAME: fincore
+      SPRING_DATASOURCE_PASSWORD: fincore
+      FINCORE_CUSTOMER_DB_USER: customer_app
+      FINCORE_CUSTOMER_DB_PASSWORD: customer_app
+
+      FINCORE_AUTH_MODE: jwt
+      FINCORE_AUTH_ISSUER_URI: ${FINCORE_AUTH_ISSUER_URI:-http://localhost:58183}
+      FINCORE_AUTH_JWKS_URI: ${FINCORE_AUTH_JWKS_URI:-http://identity:8083/.well-known/jwks.json}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8085/actuator/health/readiness || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 20s
+
   core:
     build:
       # Root context: the Dockerfile builds through the Maven reactor, so it
@@ -300,6 +383,10 @@ services:
       # Orchestration's only outbound dependency, by service name on the compose
       # network. No other module may hold a ledger client.
       FINCORE_LEDGER_URL: http://ledger:8080
+      # Core is a client of both since ADR 0020. Fails closed: an unreachable pricing service
+      # refuses a transaction rather than pricing it at nothing.
+      FINCORE_CORE_PRODUCT_BASE_URL: http://product:8084
+      FINCORE_CORE_CUSTOMER_BASE_URL: http://customer:8085
       # Seeds the development tenant at startup, loudly. Local stacks only.
       # The same backbone key both services read (libs/events). One key, so an
       # operator cannot half-migrate by changing it in one place.
@@ -360,6 +447,10 @@ services:
       # unconsumed and redelivery retries it.
       core:
         condition: service_healthy
+      # Named explicitly rather than inherited through Core: this service now mints its own
+      # credential before it can ask Core anything (ADR 0019), so identity is on its send path.
+      identity:
+        condition: service_healthy
     environment:
       # Its own database, never Core's (AGENTS.md rule 5). The roles come from
       # db/init/40-notification-roles.sql, which runs once on an empty volume.
@@ -389,6 +480,15 @@ services:
       # The only outbound dependency on the send path. There is no ledger client
       # here and no gateway SDK.
       FINCORE_NOTIFICATION_CORE_BASE_URL: http://core:8081
+
+      # Where this service mints its own credential for those reads (ADR 0019). It authenticates
+      # as itself and asks for a token scoped to the tenant the event named — never asserting that
+      # tenant on the call to Core, which is what keeps the tenant a claim rather than a caller's
+      # word. The secret is the same dev throwaway the identity service registers above; a
+      # deployment supplies a real one by reference (hard rule 8).
+      FINCORE_NOTIFICATION_IDENTITY_BASE_URL: http://identity:8083
+      FINCORE_NOTIFICATION_IDENTITY_CLIENT_ID: notification
+      FINCORE_NOTIFICATION_IDENTITY_CLIENT_SECRET: ${FINCORE_NOTIFICATION_IDENTITY_SECRET:-dev-notification-reader-secret}
       # Seeds the development tenant at startup, loudly. Local stacks only.
 
       # Dev identity, as elsewhere in this file: headers rather than tokens, and

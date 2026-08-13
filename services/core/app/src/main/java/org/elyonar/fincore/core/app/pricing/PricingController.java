@@ -10,8 +10,9 @@ import java.util.Map;
 import java.util.UUID;
 import org.elyonar.fincore.auth.Authorization;
 import org.elyonar.fincore.core.orchestration.api.InstitutionAccounts;
-import org.elyonar.fincore.core.product.api.ProductAuthoring;
-import org.elyonar.fincore.core.product.api.ProductErrorReason;
+import org.elyonar.fincore.core.orchestration.api.CustomerEligibility;
+import org.elyonar.fincore.core.orchestration.api.ProductAuthoring;
+import org.elyonar.fincore.core.orchestration.api.ProductErrorReason;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -54,10 +55,13 @@ public class PricingController {
 
     private final ProductAuthoring authoring;
     private final InstitutionAccounts accounts;
+    private final CustomerEligibility customers;
 
-    public PricingController(ProductAuthoring authoring, InstitutionAccounts accounts) {
+    public PricingController(
+            ProductAuthoring authoring, InstitutionAccounts accounts, CustomerEligibility customers) {
         this.authoring = authoring;
         this.accounts = accounts;
+        this.customers = customers;
     }
 
     /**
@@ -109,8 +113,39 @@ public class PricingController {
     public ProductAuthoring.VersionDetail setLimitRules(
             @PathVariable UUID productId, @PathVariable int version, @RequestBody LimitRules request) {
         var identity = Authorization.require("products:create");
-        authoring.setLimitRules(
-                identity.tenantId(), productId, version, request.rules() == null ? List.of() : request.rules());
+        List<ProductAuthoring.LimitRule> rules = request.rules() == null ? List.of() : request.rules();
+
+        /*
+         * The tier has to be one this institution recognises.
+         *
+         * A rule naming a tier nobody can hold does not fail — it stores cleanly and then never
+         * matches, and because the evaluator denies by default it reads on screen as a configured
+         * ceiling while behaving as a blanket refusal. That is the worst kind of misconfiguration:
+         * silent, and indistinguishable from a working one until a customer is turned away.
+         *
+         * Checked here rather than in the product service because the vocabulary belongs to the
+         * customer service, and Product calling it would be the edge ADR 0020 exists to prevent.
+         * This controller can see both — the same reason it, and not Product, checks that a fee
+         * rule names one of the institution's own accounts.
+         */
+        if (!rules.isEmpty()) {
+            var recognised = customers.recognisedTiers(identity.tenantId());
+            // An empty answer means the institution has defined none, not that none are valid;
+            // refusing everything on that basis would block pricing over a provisioning gap.
+            if (!recognised.isEmpty()) {
+                for (ProductAuthoring.LimitRule rule : rules) {
+                    if (!recognised.contains(rule.kycTier())) {
+                        throw new ProductAuthoring.RulesInvalid(
+                                ProductErrorReason.UNKNOWN_KYC_TIER,
+                                Map.of(
+                                        "kycTier", String.valueOf(rule.kycTier()),
+                                        "permitted", recognised.toString()));
+                    }
+                }
+            }
+        }
+
+        authoring.setLimitRules(identity.tenantId(), productId, version, rules);
         return authoring.read(identity.tenantId(), productId, version);
     }
 

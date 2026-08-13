@@ -25,6 +25,22 @@ the first place.
 
 ## Endpoints
 
+> **Customer and Product left this service (ADR 0020).** Their endpoints are served by the
+> `customer` and `product` deployables and are documented with them — `/api/customer/**` and
+> `/api/product/**` at the edge. What stays here is what Core genuinely composes: opening an
+> account (a ledger account, a product check and a customer record, in that order), and the 360
+> view that joins held accounts with the ledger's balances. A documented endpoint that nothing
+> serves is worse than an undocumented one, because an integrator plans against it — which is why
+> `ApiSurfaceCatalogTest` refuses to let this table drift from what is actually built.
+>
+> Two vocabularies moved with them and are worth naming here because Core enforces something about
+> each. `/v1/kyc-tiers` belongs to the customer service and `/v1/product-types` to the product
+> service — but Core checks a limit rule's tier against the first before writing it through, for the
+> same reason it checks a fee rule's account against its own register: a rule naming a tier nobody
+> can hold stores cleanly and then never matches, which reads as a configured ceiling and behaves as
+> a blanket refusal.
+
+
 | Method & path | Purpose | Module | Permission | Caller |
 |---|---|---|---|---|
 | `POST /v1/deposits` | cash in: till → customer account; priced by the account's own product | orchestration | `cash:transact` | teller, API |
@@ -32,23 +48,13 @@ the first place.
 | `POST /v1/transfers` | intra-tenant book transfer | orchestration | `transfers:create` | teller, API |
 | `GET  /v1/transactions/{id}` | saga state and the accounts it moved between — **non-mutating recovery read** | orchestration | `transfers:read` | teller, API, ops, consumers |
 | `POST /v1/transactions/{id}/reverse` | **business** reversal of a completed transaction — approval required | orchestration | `transfers:reverse` | ops, supervisor |
-| `POST /v1/customers` | create a customer | customer | `customers:create` | admin, API |
-| `GET  /v1/customers/{id}` | customer profile, tier, status, linked accounts | customer | `customers:read` | teller, API |
-| `GET  /v1/customers` | search by name or reference, keyset-paged (`q`, `page`) | customer | `customers:read` | teller, API |
 | `GET  /v1/customers/{id}/accounts` | held accounts with the ledger's balances joined on | orchestration | `customers:read` | teller, API |
 | `GET  /v1/accounts/{ledgerAccountId}/statement` | the ledger's period statement, passed through byte-for-byte (`from`, `to`) | orchestration | `transfers:read` | teller, API |
 | `GET  /v1/tills/{id}/activity` | the till's day: its sagas and net position (`date`) | orchestration | `tills:read` | supervisor |
 | `GET  /v1/approvals/pending` | the checker's queue, oldest first | orchestration | `approvals:check` | supervisor |
-| `POST /v1/customers/{id}/tier` | change KYC tier (attributed, reason required) | customer | `customers:tier` | compliance, admin |
-| `POST /v1/customers/{id}/accounts` | link a ledger account to a customer | customer | `customers:link` | admin |
 | `POST /v1/customers/{customerId}/accounts/open` | open a ledger account for a customer, number it, and record the product it is held under — a code the catalogue does not know is refused (`PRODUCT_NOT_FOUND`) before the account exists | app (onboarding) | `customers:link` | admin, teller |
 | `GET  /v1/customer-numbering` | how customers and their accounts are numbered, and the next of each | app (onboarding) | `customers:read` | admin |
 | `PUT  /v1/customer-numbering/{series}` | change a series — prefix, width, next value (forward only: a `nextValue` below the current one is refused, `COMMAND_INVALID`) | app (onboarding) | `org:manage` | admin |
-| `GET  /v1/customers/by-account/{ledgerAccountId}` | contact addresses, language and consent for the holder of an account — **no name, no tier** | customer | `customers:contact` | notification, API |
-| `POST /v1/customers/{id}/consent` | record what a customer agreed to, per category and channel | customer | `customers:consent` | admin, compliance |
-| `GET  /v1/products` | list products and their versions | product | `products:read` | teller, admin |
-| `POST /v1/products` | create a product with a DRAFT version 1 | product | `products:create` | admin |
-| `POST /v1/products/{id}/versions/{v}/publish` | publish a version (attributed; maker-checker) | product | `products:publish` | admin |
 | `POST /v1/products/{productId}/versions` | draft the next version, optionally copying an existing one's rules | app (pricing) | `products:create` | admin |
 | `GET  /v1/products/{productId}/versions/{version}` | one version with its fee and limit rules | app (pricing) | `products:read` | admin |
 | `PUT  /v1/products/{productId}/versions/{version}/fee-rules` | replace the draft's fee schedule; accounts validated against the institution's own | app (pricing) | `products:create` | admin |
@@ -58,12 +64,16 @@ the first place.
 | `POST /v1/approvals/{id}/check` | approve or reject (checker ≠ maker, enforced) | orchestration | `approvals:check` | supervisor |
 | `GET  /v1/ops/cases` | unresolved-outcome cases | orchestration | `ops:read` | ops |
 | `POST /v1/ops/cases/{id}/resolve` | **re-attempt resolution now.** Does not accept an outcome | orchestration | `ops:resolve` | ops |
+| `GET  /v1/currencies` | what this institution deals in, and each one's ISO 4217 exponent — **not** an allow-list, the ledger is the authority on what may be posted | orchestration | `org:read` | everyone |
+| `POST /v1/currencies` | offer a currency, or bring a withdrawn one back (upsert; withdrawing deactivates rather than deletes, because its accounts still have to render) | orchestration | `org:manage` | admin |
+| `GET  /v1/currencies/registry` | every currency the ledger will carry, with its ISO 4217 exponent — the list an institution's own offering is chosen from | orchestration | `org:read` | admin |
+| `DELETE /v1/currencies/{code}` | stop offering a currency; its existing accounts keep their balances and keep rendering | orchestration | `org:manage` | admin |
 | `POST /v1/org-units` | create an organizational unit (ADR 0012) | organization | `org:manage` | admin |
 | `GET  /v1/org-units` | the tenant's units | organization | `org:read` | admin, supervisor |
 | `GET  /v1/org-units/{id}` | one unit | organization | `org:read` | admin, supervisor |
 | `POST /v1/org-units/{id}/close` | close a unit; its history stays attributed to it | organization | `org:manage` | admin |
-| `POST /v1/org-units/{id}/assignments` | assign a principal to a unit, attributed | organization | `org:manage` | admin |
-| `POST /v1/org-units/{id}/assignments/revoke` | revoke a live assignment, attributed; history kept | organization | `org:manage` | admin |
+| `POST /v1/org-units/{id}/assignments` | assign a principal to a unit, attributed; a person's `units` claim moves with it | organization | `org:manage` | admin |
+| `POST /v1/org-units/{id}/assignments/revoke` | revoke a live assignment, attributed; history kept, and a person's claim drops it | organization | `org:manage` | admin |
 | `GET  /v1/org-units/{id}/assignments` | the unit's live assignments — what identity provisioning reads | organization | `org:read` | admin |
 | `GET  /v1/permissions` | the platform's permission vocabulary, with what each grants | admin | `users:read` | admin |
 | `GET  /v1/roles` | the tenant's roles — seeded templates and anything authored — with contents | admin | `users:read` | admin |
@@ -87,6 +97,7 @@ the first place.
 | `POST /v1/internal-accounts` | open one in the ledger and name it — till, fee income, suspense | orchestration | `accounts:manage` | admin |
 | `POST /v1/tills` | provision a till inside a validated branch | orchestration | `tills:manage` | admin |
 | `GET  /v1/tills` | the tenant's tills | orchestration | `tills:read` | admin, supervisor |
+| `PUT  /v1/tills/{id}/assignment` | hand an open till to a staff member, or to nobody (`assignedTo: null`) | orchestration | `tills:manage` | admin |
 | `POST /v1/tills/{id}/close` | close a till; cash cannot move through it afterwards | orchestration | `tills:manage` | admin |
 
 **The channel is permission-gated, never free-asserted.** The channel a

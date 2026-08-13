@@ -94,6 +94,13 @@ public class IdentityDirectory {
         return exchange("GET", "/v1/directory/users/{id}", null, id);
     }
 
+    /** One user by the name tokens spell, or null. Used to turn a principal into an id. */
+    public JsonNode userByUsername(String username) {
+        JsonNode page = exchange("GET", "/v1/directory/users?username={username}", null, username);
+        JsonNode users = page == null ? null : page.get("users");
+        return users == null || users.isEmpty() ? null : users.get(0);
+    }
+
     public JsonNode createRole(Map<String, Object> body) {
         return exchange("POST", "/v1/directory/roles", body);
     }

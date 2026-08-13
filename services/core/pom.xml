@@ -14,15 +14,20 @@
     <packaging>pom</packaging>
     <name>fincore :: core</name>
     <description>
-        Core Service (ADR 0006) — one deployable holding three modules: customer, product and
-        transaction orchestration. One database, one schema per module, one database role per
-        module. The only caller of the Ledger's write API.
+        Core Service — transaction orchestration, the organizational model and staff
+        administration. One database, one schema per module, one database role per module. The only
+        caller of the Ledger's write API.
+
+        Customer and Product left this deployable under ADR 0020, which fired two of ADR 0006's own
+        extraction triggers. Core is now a client of both over HTTP and links against neither.
     </description>
 
     <!--
         One Maven module per domain, so dependency direction is declared rather than implied:
-        orchestration depends on customer and product, nothing depends on orchestration, and a
-        cycle is a build failure instead of a review comment.
+        nothing depends on orchestration, and a cycle is a build failure instead of a review
+        comment. Orchestration's dependencies on Customer and Product are now network calls behind
+        ports it owns, so the compiler can no longer enforce that direction — ADR 0020 explains why
+        the ports and their client model live here rather than in a shared jar.
 
         Within a module, `api` is the published surface and `internal` is everything else. A
         consumer may reference another module's `api` package and never its `internal` one —
@@ -35,8 +40,6 @@
         costs rather than implying nothing changed.
     -->
     <modules>
-        <module>customer</module>
-        <module>product</module>
         <module>organization</module>
         <module>orchestration</module>
         <module>admin</module>
@@ -45,16 +48,6 @@
 
     <dependencyManagement>
         <dependencies>
-            <dependency>
-                <groupId>org.elyonar</groupId>
-                <artifactId>customer</artifactId>
-                <version>${project.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>org.elyonar</groupId>
-                <artifactId>product</artifactId>
-                <version>${project.version}</version>
-            </dependency>
             <dependency>
                 <groupId>org.elyonar</groupId>
                 <artifactId>organization</artifactId>

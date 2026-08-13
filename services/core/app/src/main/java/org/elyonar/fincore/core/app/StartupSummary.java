@@ -13,8 +13,6 @@ import org.springframework.core.env.Environment;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 import org.elyonar.fincore.core.orchestration.api.CoreProperties;
-import org.elyonar.fincore.core.customer.api.CustomerBeans;
-import org.elyonar.fincore.core.product.api.ProductBeans;
 
 /**
  * Prints what this instance actually is, once it is genuinely serving.
@@ -38,22 +36,16 @@ public class StartupSummary {
 
     private final Environment environment;
     private final IdentityResolver identity;
-    private final JdbcTemplate customerJdbc;
-    private final JdbcTemplate productJdbc;
     private final JdbcTemplate orchestrationJdbc;
     private final String ledgerUrl;
 
     public StartupSummary(
             Environment environment,
             IdentityResolver identity,
-            @Qualifier(CustomerBeans.JDBC) JdbcTemplate customerJdbc,
-            @Qualifier(ProductBeans.JDBC) JdbcTemplate productJdbc,
             @Qualifier(CoreProperties.Beans.ORCHESTRATION_JDBC) JdbcTemplate orchestrationJdbc,
             @Value("${" + CoreProperties.LEDGER_BASE_URL + ":unset}") String ledgerUrl) {
         this.environment = environment;
         this.identity = identity;
-        this.customerJdbc = customerJdbc;
-        this.productJdbc = productJdbc;
         this.orchestrationJdbc = orchestrationJdbc;
         this.ledgerUrl = ledgerUrl;
     }
@@ -81,8 +73,6 @@ public class StartupSummary {
         log.info("  │  Ledger     {}  (the only outbound dependency)", ledgerUrl);
         log.info("  ├─────────────────────────────────────────────────────────────────");
         log.info("  │  Modules    one database role each — the boundary ADR 0006 rests on");
-        log.info("  │    customer       {}", roleOf(customerJdbc));
-        log.info("  │    product        {}", roleOf(productJdbc));
         log.info("  │    orchestration  {}", roleOf(orchestrationJdbc));
         log.info("  ├─────────────────────────────────────────────────────────────────");
         if (identity.verifies()) {

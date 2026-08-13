@@ -17,11 +17,11 @@ import java.util.TreeSet;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-import org.elyonar.fincore.core.customer.api.CustomerErrorCode;
+import org.elyonar.fincore.core.orchestration.api.CustomerErrorCode;
 import org.elyonar.fincore.core.organization.api.OrganizationErrorCode;
-import org.elyonar.fincore.core.product.api.ProductDecision;
-import org.elyonar.fincore.core.product.api.ProductErrorCode;
-import org.elyonar.fincore.core.product.api.ProductErrorReason;
+import org.elyonar.fincore.core.orchestration.api.ProductDecision;
+import org.elyonar.fincore.core.orchestration.api.ProductErrorCode;
+import org.elyonar.fincore.core.orchestration.api.ProductErrorReason;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 

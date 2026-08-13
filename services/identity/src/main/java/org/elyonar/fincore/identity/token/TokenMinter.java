@@ -74,6 +74,34 @@ public class TokenMinter {
                 .build());
     }
 
+    /**
+     * A service acting inside one tenant (ADR 0019): the staff shape without the human parts.
+     *
+     * <p>Carries {@code tenant_id} and {@code permissions} so an ordinary tenant-scoped endpoint
+     * can authorize it the way it authorizes everyone else — no second code path at the reader,
+     * which is the point. No {@code preferred_username} and no {@code units}: there is no person
+     * and no branch, and inventing either would put a fiction in an audit line. {@code libs/auth}
+     * falls back to {@code sub} for the principal, so this reads as the client that acted.
+     *
+     * <p>The tenant is a parameter here and never a header on the call the token is then used for.
+     * A service asserting its own tenant per request is the caller-asserted scope this platform
+     * refuses everywhere, and the failure it invites — a consumer reading the wrong institution's
+     * customers — is silent.
+     */
+    public String tenantServiceToken(UUID tenantId, String clientId, List<String> permissions) {
+        Instant now = Instant.now();
+        return sign(new JWTClaimsSet.Builder()
+                .issuer(properties.getIssuer())
+                .subject(clientId)
+                .jwtID(UUID.randomUUID().toString())
+                .issueTime(Date.from(now))
+                .expirationTime(Date.from(now.plusSeconds(properties.getAccessTokenTtlSeconds())))
+                .claim(CLAIM_TENANT, tenantId.toString())
+                .claim(CLAIM_PERMISSIONS, permissions)
+                .claim(CLAIM_AZP, clientId)
+                .build());
+    }
+
     /** A trusted service caller: {@code azp}, and no tenant claim of any kind. */
     public String serviceToken(String clientId) {
         Instant now = Instant.now();

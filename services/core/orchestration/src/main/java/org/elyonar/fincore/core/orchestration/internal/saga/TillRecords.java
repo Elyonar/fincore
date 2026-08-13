@@ -58,6 +58,34 @@ public class TillRecords {
                 UUID.class, tenantId, branchCode, unitId, ledgerAccountId, currency, assignedTo);
     }
 
+    /**
+     * Puts a till in somebody's hands, or takes it out of them.
+     *
+     * <p>Missing until now, and the omission was doing real harm: {@code assigned_to} could only be
+     * set at the moment a till was opened. A till opened before anybody knew whose it would be
+     * stayed unassigned for the life of the drawer, and the only remedy was to close it and open
+     * another — a new till, a new id, and a break in the operational record of a drawer that never
+     * physically moved.
+     *
+     * <p>Only an open till. Reassigning a closed one would rewrite who was answerable for cash that
+     * has already been counted and signed off, which is the one thing the record exists to hold
+     * still. Returns false when there is no such open till, so the caller answers 404 rather than
+     * reporting success against nothing.
+     *
+     * <p>Null hands it back to nobody. That is a legitimate state — a teller leaves, the drawer
+     * stays — and it differs from never having been assigned only in the audit trail, which is
+     * where the difference belongs.
+     */
+    @Transactional
+    public boolean assign(UUID tenantId, UUID tillId, String assignedTo) {
+        scopeTo(tenantId);
+        return jdbc.update(
+                        "UPDATE orchestration.tills SET assigned_to = ? WHERE id = ? AND status = 'OPEN'",
+                        assignedTo,
+                        tillId)
+                > 0;
+    }
+
     /** The tenant's tills, open and closed — the operational inventory a supervisor reads. */
     @Transactional(readOnly = true)
     public java.util.List<TillSummary> list(UUID tenantId) {

@@ -9,7 +9,7 @@
 #
 # WHAT THIS WRITES, AND WHAT IT DELIBERATELY DOES NOT.
 #
-# Three rows per tenant, one per deployable, in the three tenant registries and nowhere else:
+# Five rows per tenant, one per deployable, in the three tenant registries and nowhere else:
 #
 #     ledger        tenants                 (id, name)
 #     core          platform.tenants        (id, name, business_timezone)
@@ -69,9 +69,25 @@ for t in json.load(open(sys.argv[1]))["tenants"]:
           % ("\x27"+t["id"]+"\x27", "\x27"+t["displayName"].replace("\x27","\x27\x27")+"\x27", "\x27bootstrap:manifest\x27"))
 ' "$MANIFEST")
 
-echo "    ledger"        && echo "$SQL_LEDGER" | run_sql ledger
-echo "    core"          && echo "$SQL_CORE"   | run_sql core
-echo "    notification"  && echo "$SQL_NOTIF"  | run_sql notification
+SQL_PRODUCT=$(python3 -c '
+import json,sys
+for t in json.load(open(sys.argv[1]))["tenants"]:
+    print("INSERT INTO product.tenants (id, name, created_by) VALUES (%s, %s, %s) ON CONFLICT (id) DO NOTHING;"
+          % ("\x27"+t["id"]+"\x27", "\x27"+t["displayName"].replace("\x27","\x27\x27")+"\x27", "\x27bootstrap:manifest\x27"))
+' "$MANIFEST")
+
+SQL_CUSTOMER=$(python3 -c '
+import json,sys
+for t in json.load(open(sys.argv[1]))["tenants"]:
+    print("INSERT INTO customer.tenants (id, name, created_by) VALUES (%s, %s, %s) ON CONFLICT (id) DO NOTHING;"
+          % ("\x27"+t["id"]+"\x27", "\x27"+t["displayName"].replace("\x27","\x27\x27")+"\x27", "\x27bootstrap:manifest\x27"))
+' "$MANIFEST")
+
+echo "    ledger"        && echo "$SQL_LEDGER"   | run_sql ledger
+echo "    core"          && echo "$SQL_CORE"     | run_sql core
+echo "    notification"  && echo "$SQL_NOTIF"    | run_sql notification
+echo "    product"       && echo "$SQL_PRODUCT"  | run_sql product
+echo "    customer"      && echo "$SQL_CUSTOMER" | run_sql customer
 
 echo
 echo "==> registered:"
@@ -79,9 +95,13 @@ docker compose exec -T postgres psql -qtA -U "$PSQL_USER" -d core \
   -c "SELECT '    ' || name || '  ' || id || '  ' || business_timezone || '  ' || status FROM platform.tenants ORDER BY created_at;"
 
 echo
-echo "==> cross-check (all three registries must agree)"
-for db in ledger core notification; do
-  tbl=tenants; [ "$db" = core ] && tbl=platform.tenants; [ "$db" = notification ] && tbl=notification.tenants
+echo "==> cross-check (all five registries must agree)"
+for db in ledger core notification product customer; do
+  tbl=tenants
+  [ "$db" = core ] && tbl=platform.tenants
+  [ "$db" = notification ] && tbl=notification.tenants
+  [ "$db" = product ] && tbl=product.tenants
+  [ "$db" = customer ] && tbl=customer.tenants
   n=$(docker compose exec -T postgres psql -qtA -U "$PSQL_USER" -d "$db" -c "SELECT count(*) FROM $tbl;")
   printf '    %-13s %s\n' "$db" "$n"
 done

@@ -21,6 +21,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -37,17 +38,27 @@ import org.springframework.transaction.support.TransactionTemplate;
  * tenant's fee revenue to any account it could name.
  */
 @SpringBootTest
+@Import(FakeServices.class)
 class DailyLimitAndFeeConfigTest {
+
+    /*
+     * Two currency cases left with ADR 0020. "An operation priced in another currency refuses
+     * rather than pricing free" and its free-in-any-currency counterpart are statements about the
+     * *evaluator* — which currency a rule applies in, and what an absent rule means — and the
+     * evaluator is the Product service's now. Asserting them here would mean teaching this suite's
+     * double to reimplement them, which proves only that the double agrees with itself.
+     *
+     * What remains is Core's: the daily reservation, taken in the same transaction as the saga, and
+     * the fee landing in the account the product named rather than one the caller asked for.
+     */
 
     private static final ZoneId LAGOS = ZoneId.of("Africa/Lagos");
 
     @Autowired private TenantRegistry tenantRegistry;
+    @Autowired private FakeServices.FakeCustomers customers;
+    @Autowired private FakeServices.FakePricing pricing;
     @Autowired private TransferService transfers;
     @Autowired private JdbcTemplate orchestrationDb;
-    @Autowired @Qualifier("customerJdbcTemplate") private JdbcTemplate customerDb;
-    @Autowired @Qualifier("productJdbcTemplate") private JdbcTemplate productDb;
-    @Autowired @Qualifier("customerTransactionManager") private PlatformTransactionManager customerTx;
-    @Autowired @Qualifier("productTransactionManager") private PlatformTransactionManager productTx;
     @Autowired @Qualifier("orchestrationTransactionManager") private PlatformTransactionManager orchestrationTx;
 
     private static HttpServer ledger;
@@ -104,95 +115,18 @@ class DailyLimitAndFeeConfigTest {
         configuredFeeAccount = UUID.randomUUID();
         usdAccount = UUID.randomUUID();
 
-        new TransactionTemplate(customerTx)
-                .executeWithoutResult(
-                        s -> {
-                            customerDb.queryForObject(
-                                    "SELECT set_config('app.tenant_id', ?, true)", String.class, tenantId.toString());
-                            customerDb.update(
-                                    "INSERT INTO customer.customers (id, tenant_id, external_ref, full_name, kyc_tier)"
-                                            + " VALUES (?,?,?,?, 'TIER_2')",
-                                    customerId, tenantId, "C-" + UUID.randomUUID(), "Ada");
-                            customerDb.update(
-                                    "INSERT INTO customer.customer_accounts (tenant_id, customer_id,"
-                                            + " ledger_account_id, currency, product_code) VALUES (?,?,?, 'NGN', 'P')",
-                                    tenantId, customerId, fromAccount);
-                            customerDb.update(
-                                    "INSERT INTO customer.customer_accounts (tenant_id, customer_id,"
-                                            + " ledger_account_id, currency, product_code) VALUES (?,?,?, 'USD', 'P')",
-                                    tenantId, customerId, usdAccount);
-                        });
+        // The rules these blocks wrote are the Product service's now (ADR 0020). What this suite
+        // asserts is what the money path does with a decision, so the decision is stated directly
+        // and each test narrows it where it needs to.
+        customers.clear();
+        customers.eligible(customerId, "TIER_2")
+                .holds(customerId, fromAccount, "P", "NGN")
+                .holds(customerId, usdAccount, "Q", "USD");
 
-        new TransactionTemplate(productTx)
-                .executeWithoutResult(
-                        s -> {
-                            productDb.queryForObject(
-                                    "SELECT set_config('app.tenant_id', ?, true)", String.class, tenantId.toString());
-                            UUID productId =
-                                    productDb.queryForObject(
-                                            "INSERT INTO product.products (tenant_id, code, name, type)"
-                                                    + " VALUES (?, 'P', 'P', 'SAVINGS') RETURNING id",
-                                            UUID.class, tenantId);
-                            UUID versionId =
-                                    productDb.queryForObject(
-                                            "INSERT INTO product.product_versions (tenant_id, product_id, version,"
-                                                    + " status, created_by, published_by)"
-                                                    + " VALUES (?,?,1,'DRAFT','user:author',NULL) RETURNING id",
-                                            UUID.class, tenantId, productId);
-                            productDb.update(
-                                    "INSERT INTO product.limit_rules (tenant_id, product_version_id, kyc_tier,"
-                                            + " channel, limit_type, max_amount_minor, currency)"
-                                            + " VALUES (?,?, 'TIER_2', 'API', 'PER_TXN', 100000, 'NGN')",
-                                    tenantId, versionId);
-                            productDb.update(
-                                    "INSERT INTO product.limit_rules (tenant_id, product_version_id, kyc_tier,"
-                                            + " channel, limit_type, max_amount_minor, currency)"
-                                            + " VALUES (?,?, 'TIER_2', 'API', 'DAILY', 150000, 'NGN')",
-                                    tenantId, versionId);
-                            // Dollar transactions are permitted by limit and deliberately priced by
-                            // no fee rule — the cross-currency cases below turn on exactly that.
-                            productDb.update(
-                                    "INSERT INTO product.limit_rules (tenant_id, product_version_id, kyc_tier,"
-                                            + " channel, limit_type, max_amount_minor, currency)"
-                                            + " VALUES (?,?, 'TIER_2', 'API', 'PER_TXN', 100000, 'USD')",
-                                    tenantId, versionId);
-                            // ₦50 flat, credited to the account the *product* names.
-                            productDb.update(
-                                    "INSERT INTO product.fee_rules (tenant_id, product_version_id, operation,"
-                                            + " kind, flat_minor, currency, fee_account_id)"
-                                            + " VALUES (?,?, 'TRANSFER', 'FLAT', 5000, 'NGN', ?)",
-                                    tenantId, versionId, configuredFeeAccount);
-                            // Published last, because pricing for a live version is immutable (V7):
-                            // a rule added after publish would change what an already-decided transaction
-                            // was priced under, and the database refuses it.
-                            productDb.update(
-                                    "UPDATE product.product_versions SET status = 'PUBLISHED',"
-                                            + " published_by = 'user:publisher' WHERE tenant_id = ? AND id = ?",
-                                    tenantId, versionId);
-
-                            // A second product with no fee rules at all — the genuinely-free case
-                            // that must stay free in every currency.
-                            UUID freeProductId =
-                                    productDb.queryForObject(
-                                            "INSERT INTO product.products (tenant_id, code, name, type)"
-                                                    + " VALUES (?, 'Q', 'Q', 'SAVINGS') RETURNING id",
-                                            UUID.class, tenantId);
-                            UUID freeVersionId =
-                                    productDb.queryForObject(
-                                            "INSERT INTO product.product_versions (tenant_id, product_id, version,"
-                                                    + " status, created_by, published_by)"
-                                                    + " VALUES (?,?,1,'DRAFT','user:author',NULL) RETURNING id",
-                                            UUID.class, tenantId, freeProductId);
-                            productDb.update(
-                                    "INSERT INTO product.limit_rules (tenant_id, product_version_id, kyc_tier,"
-                                            + " channel, limit_type, max_amount_minor, currency)"
-                                            + " VALUES (?,?, 'TIER_2', 'API', 'PER_TXN', 100000, 'USD')",
-                                    tenantId, freeVersionId);
-                            productDb.update(
-                                    "UPDATE product.product_versions SET status = 'PUBLISHED',"
-                                            + " published_by = 'user:publisher' WHERE tenant_id = ? AND id = ?",
-                                    tenantId, freeVersionId);
-                        });
+        // The numbers the rules carried: ₦1,000 flat, ₦100,000 per transaction, ₦150,000 a day.
+        // The daily accumulation is what this suite is really about, and that is Core's reservation
+        // rather than Product's rule — the rule only supplies the ceiling it is taken against.
+        pricing.permits(5000, configuredFeeAccount, 100_000L).daily(150_000L);
     }
 
     private TransferCommand command(String key, long amountMinor, UUID callerFeeAccount) {
@@ -262,40 +196,7 @@ class DailyLimitAndFeeConfigTest {
                 amountMinor, currency, "P", "API", "test", "user:ada", "core", LAGOS);
     }
 
-    @Test
-    void an_operation_priced_in_another_currency_refuses_rather_than_pricing_free() {
-        // The version charges ₦50 for a transfer and has no dollar rule. "No rule in this currency
-        // ⇒ free" priced this at zero — a silent undercharge on every second-currency transaction.
-        // Unpriced-in-this-currency is a configuration gap, and a gap refuses.
-        TransferService.TransferRefused refused =
-                catchThrowableOfType(
-                        TransferService.TransferRefused.class,
-                        () -> transfers.transfer(commandFrom("usd-fee", usdAccount, 10_000, "USD")));
 
-        assertThat(refused.errorCode()).isEqualTo(ErrorCode.CURRENCY_MISMATCH);
-    }
-
-    @Test
-    void an_operation_with_no_fee_rule_at_all_is_still_free_in_any_currency() {
-        // The contrast that keeps the refusal honest: product Q prices nothing for transfers, so
-        // an absent price is genuinely free — including in dollars.
-        UUID freeUsdAccount = UUID.randomUUID();
-        new TransactionTemplate(customerTx)
-                .executeWithoutResult(
-                        s -> {
-                            customerDb.queryForObject(
-                                    "SELECT set_config('app.tenant_id', ?, true)", String.class, tenantId.toString());
-                            customerDb.update(
-                                    "INSERT INTO customer.customer_accounts (tenant_id, customer_id,"
-                                            + " ledger_account_id, currency, product_code) VALUES (?,?,?, 'USD', 'Q')",
-                                    tenantId, customerId, freeUsdAccount);
-                        });
-
-        var result = transfers.transfer(commandFrom("usd-free", freeUsdAccount, 10_000, "USD"));
-
-        assertThat(result.state()).isEqualTo("COMPLETED");
-        assertThat(result.feeMinor()).isZero();
-    }
 
     @Test
     void the_fee_credits_the_account_the_product_names_not_the_callers() {

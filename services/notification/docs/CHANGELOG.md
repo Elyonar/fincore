@@ -8,6 +8,58 @@ Newest entry first.
 
 ---
 
+## [1.7.0] — 2026-08-12 · MINOR
+
+**A template can finally say something.** Three changes that only make sense together: a render
+context, formatting filters, and a seeded starter set. Before them a template could see the event
+payload and nothing else — a transaction id, an amount in minor units, a fee and a currency — so
+the only sendable message was a sentence containing no facts ("your account has been credited"). A
+customer cannot reconcile that against a passbook, cannot quote it to the branch, and cannot use it
+to spot a transaction they did not make. The pipeline worked; the product did not exist.
+
+- **`RenderContext`** assembles what a template may refer to: `institution`, `accountNumber`,
+  `drCr`, `reference`, `currency`, `channel`, `amountMinor`, `feeMinor`, `totalMinor`,
+  `occurredAt`. A **platform vocabulary**, not tenant content — the tenant writes the sentence, the
+  set of things a sentence may name is bounded by what the services know. Absent values are left
+  out of the map rather than blanked, so they surface as `MISSING_VARIABLE` and suppress instead of
+  sending a gap in the middle of a line.
+- **The facts come from a call already being made.** `TransactionAccounts` was reading two fields
+  out of Core's transaction response and discarding the rest; it now returns `Facts` from the same
+  response. No new endpoint, no extra hop, and nothing added to the event — ADR 0008 keeps the
+  payload a published contract, and a customer's transaction detail on the broker is customer data
+  in every consumer's retention window.
+- **Filters**, a closed set: `money` (minor units to grouped major, via `BigDecimal` — hard rule 1
+  applies to displaying money as much as to holding it), `date`, `time`, `mask` (all but the last
+  four). Closed because formatting money is a decision this platform should make once; the
+  alternative is a portfolio where ₦2,500.00, 2500.00 and 250000 all appear and the third is a
+  support call. **An unknown filter is a missing variable**, not a silent pass-through: a template
+  written against a filter that does not exist must not render raw minor units while looking like
+  it worked.
+- **Starter templates, seeded and forkable.** `debit.alert` and `credit.alert`, SMS and email,
+  English, published, marked `origin = PLATFORM` (new column, `V5__template_origin.sql`). A tenant
+  changes wording by publishing its own version of the same key/channel/locale, which supersedes
+  the starter through the existing highest-published-version rule — the starter is never edited, so
+  a later release can improve it without overwriting a deliberate choice. The split is ADR 0017's,
+  applied to wording: the platform owns the vocabulary, the tenant owns the sentence.
+  - Seeded **on first sight of a tenant**, not at startup: tenants are provisioned by a script that
+    writes registry rows directly (ADR 0016's interim path) and can appear at any time, so a
+    startup-only seeder would leave every tenant registered after boot mute until a restart.
+  - Only the two moments this service consumes. Seeding `statement.ready` while nothing publishes a
+    statement event would put a row in front of an administrator that can never fire, and a
+    template nobody can trigger reads as a feature.
+- **`ContactAndConsent` gains `accountNumber`** (Core 2.3.2), so a message can name *which* account
+  moved. "Your account has been debited" is not actionable for a customer holding two.
+
+**Also: the consumer stops hammering silently.** Transient failures retried once a second forever
+and logged nothing at any level — a service that had never successfully sent looked identical to
+one with nothing to send, while it queried a dead dependency 86,400 times a day. Retry semantics
+are unchanged, because losing an alert is the one outcome this service refuses: the backoff is now
+exponential to a one-minute ceiling, every attempt logs at WARN, and past eight attempts it logs at
+ERROR naming the partition it is blocking. MINOR, not PATCH: an operator watching this service's
+logs sees something they did not see before.
+
+---
+
 ## [1.6.0] — 2026-08-11 · MINOR
 
 **The address cipher refuses to bluff in production.** `AddressCipher` substituted a committed

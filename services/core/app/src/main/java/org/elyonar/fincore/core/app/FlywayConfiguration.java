@@ -26,12 +26,21 @@ public class FlywayConfiguration {
      * than arbitrary.
      *
      * <p>{@code platform} is not a module and owns no domain: it holds the tenant registry, which
-     * is a fact about the deployable rather than about customer, product or orchestration. Putting
-     * it in a module's schema would force the other two to read another module's table, which
-     * ADR 0006 forbids outright. It migrates last because its backfill reads the three that
-     * precede it.
+     * is a fact about the deployable rather than about orchestration or organization. Putting it in
+     * a module's schema would force the other to read its neighbour's table, which the module
+     * boundary forbids outright. It migrates last because its backfill reads what precedes it.
+     *
+     * <p>{@code customer} and {@code product} left this list with ADR 0020. Leaving them in did
+     * something quietly wrong rather than failing: with no migrations on the classpath Flyway
+     * still created the schema and an empty {@code schema_history} in it, so a freshly purged Core
+     * database grew two empty schemas named after services that no longer live here — exactly the
+     * kind of residue that later reads as evidence the extraction never happened.
+     *
+     * <p>The per-module history below is what made their removal clean. Because each module's
+     * migrations were recorded in their own schema rather than interleaved in one table, taking
+     * the module out took its record with it and left nothing to unpick.
      */
-    private static final String[] MODULES = {"customer", "product", "organization", "orchestration", "platform"};
+    private static final String[] MODULES = {"organization", "orchestration", "platform"};
 
     @Bean
     public InitializingBean migrateEveryModule(DataSource ownerDataSource) {

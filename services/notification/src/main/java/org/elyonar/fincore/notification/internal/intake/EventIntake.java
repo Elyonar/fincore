@@ -13,6 +13,7 @@ import org.elyonar.fincore.notification.internal.Suppressed;
 import org.elyonar.fincore.notification.internal.channel.Channels;
 import org.elyonar.fincore.notification.internal.contact.ContactDirectory;
 import org.elyonar.fincore.notification.internal.contact.TransactionAccounts;
+import org.elyonar.fincore.notification.internal.template.RenderContext;
 import org.elyonar.fincore.notification.internal.policy.DeliveryPolicy;
 import org.elyonar.fincore.notification.internal.template.Templates;
 import org.slf4j.Logger;
@@ -63,6 +64,7 @@ public class EventIntake {
     // intake would run every statement unscoped — which is exactly how a test found this.
     private final TransactionTemplate transaction;
     private final org.elyonar.fincore.notification.internal.TenantRegistry tenants;
+    private final org.elyonar.fincore.notification.internal.template.TenantStarters starters;
     private final TransactionAccounts transactions;
     private final ContactDirectory directory;
     private final DeliveryPolicy policies;
@@ -80,6 +82,7 @@ public class EventIntake {
             @Qualifier("appJdbcTemplate") JdbcTemplate jdbc,
             @Qualifier("appTransactionManager") PlatformTransactionManager transactionManager,
             org.elyonar.fincore.notification.internal.TenantRegistry tenants,
+            org.elyonar.fincore.notification.internal.template.TenantStarters starters,
             TransactionAccounts transactions,
             ContactDirectory directory,
             DeliveryPolicy policies,
@@ -89,8 +92,8 @@ public class EventIntake {
             @Value("${fincore.notification.max-event-age-ms:900000}") long maxEventAgeMs,
             @Value("${fincore.notification.trusted-epoch:1}") long trustedEpoch) {
         this(
-                jdbc, transactionManager, tenants, transactions, directory, policies, templates, channels, cipher,
-                Duration.ofMillis(maxEventAgeMs), trustedEpoch, Clock.systemUTC());
+                jdbc, transactionManager, tenants, starters, transactions, directory, policies, templates,
+                channels, cipher, Duration.ofMillis(maxEventAgeMs), trustedEpoch, Clock.systemUTC());
     }
 
     /** Visible for tests, which need to place an event at a chosen point in a quiet-hours window. */
@@ -98,6 +101,7 @@ public class EventIntake {
             JdbcTemplate jdbc,
             PlatformTransactionManager transactionManager,
             org.elyonar.fincore.notification.internal.TenantRegistry tenants,
+            org.elyonar.fincore.notification.internal.template.TenantStarters starters,
             TransactionAccounts transactions,
             ContactDirectory directory,
             DeliveryPolicy policies,
@@ -110,6 +114,7 @@ public class EventIntake {
         this.jdbc = jdbc;
         this.transaction = new TransactionTemplate(transactionManager);
         this.tenants = tenants;
+        this.starters = starters;
         this.transactions = transactions;
         this.directory = directory;
         this.policies = policies;
@@ -152,6 +157,11 @@ public class EventIntake {
             return suppressEvent(publisher, event, Suppressed.UNKNOWN_TENANT, Map.of());
         }
 
+        // A real tenant has the platform's starter wording, whether or not anybody has opened a
+        // settings screen. Once per tenant per process; see StarterTemplates for why it is here
+        // and not at startup.
+        starters.ensureFor(event.tenantId());
+
         // Fenced before anything else is decided. An event from a generation this consumer has been
         // told to distrust describes a history the publisher now denies, and acting on it is worse
         // than ignoring it.
@@ -185,14 +195,19 @@ public class EventIntake {
                 // is no recipient to record one against.
                 continue;
             }
-            anyOwed |= owe(publisher, event, side, account);
+            anyOwed |= owe(publisher, event, side, account, accounts.get().facts());
         }
 
         return record(publisher, event, anyOwed ? Disposition.NOTIFIED : Disposition.SUPPRESSED);
     }
 
     /** @return true when a message is now owed to this side */
-    private boolean owe(String publisher, EventEnvelope event, Side side, UUID account) {
+    private boolean owe(
+            String publisher,
+            EventEnvelope event,
+            Side side,
+            UUID account,
+            TransactionAccounts.Facts facts) {
         Optional<ContactDirectory.Contact> found = directory.forAccount(event.tenantId(), account);
         if (found.isEmpty()) {
             suppress(event, side, null, null, Suppressed.UNKNOWN_ACCOUNT, Map.of("account", account.toString()));
@@ -229,7 +244,7 @@ public class EventIntake {
             if (!contact.permits(CATEGORY, channelId)) {
                 continue;
             }
-            return renderAndQueue(event, side, contact, policy, channel.get(), address);
+            return renderAndQueue(event, side, contact, policy, channel.get(), address, facts);
         }
 
         suppress(
@@ -245,7 +260,8 @@ public class EventIntake {
             ContactDirectory.Contact contact,
             DeliveryPolicy.Policy policy,
             Channels.Channel channel,
-            String address) {
+            String address,
+            TransactionAccounts.Facts facts) {
 
         Optional<Templates.Template> found = pickTemplate(event, side, contact, policy, channel);
         if (found.isEmpty()) {
@@ -256,7 +272,21 @@ public class EventIntake {
         }
         Templates.Template template = found.get();
 
-        Templates.Rendered rendered = templates.render(template, event.payload());
+        // The context, not the raw payload. The payload is four fields by design (ADR 0008); what
+        // a customer needs to read is assembled from Core's read API on the call this service
+        // already made, plus which side of the movement this recipient is on.
+        Templates.Rendered rendered = templates.render(
+                template,
+                RenderContext.of(
+                        tenants.displayName(event.tenantId()),
+                        contact.accountNumber(),
+                        side.party() == Party.FROM ? RenderContext.DEBIT : RenderContext.CREDIT,
+                        facts == null ? null : facts.reference(),
+                        facts == null ? 0L : facts.amountMinor(),
+                        facts == null ? 0L : facts.feeMinor(),
+                        facts == null ? null : facts.currency(),
+                        facts == null ? null : facts.channel(),
+                        facts == null ? null : facts.occurredAt()));
         if (!rendered.missingVariables().isEmpty()) {
             suppress(
                     event, side, contact.customerId(), channel.id(), Suppressed.MISSING_VARIABLE,

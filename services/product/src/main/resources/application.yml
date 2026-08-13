@@ -1,0 +1,61 @@
+spring:
+  application:
+    name: product
+
+  # Migrations run as the owner; traffic connects as the restricted role. The owner connection
+  # never serves a request, so it holds one connection rather than a pool's worth for the life of
+  # the process.
+  datasource:
+    hikari:
+      maximum-pool-size: 1
+      minimum-idle: 0
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:55432/product}
+    username: ${SPRING_DATASOURCE_USERNAME:fincore}
+    password: ${SPRING_DATASOURCE_PASSWORD:fincore}
+
+  # Off, and wired in Migrations instead — two datasources exist and only the owner may run DDL,
+  # which autoconfiguration cannot know.
+  flyway:
+    enabled: false
+
+fincore:
+  auth:
+    mode: ${FINCORE_AUTH_MODE:jwt}
+    issuer-uri: ${FINCORE_AUTH_ISSUER_URI:}
+
+  product:
+    datasource:
+      app:
+        # Sized for the decision endpoint rather than for authoring. Every transaction on the
+        # platform asks this service one read-only question, and authoring is a handful of calls a
+        # week by comparison.
+        maximum-pool-size: ${FINCORE_PRODUCT_POOL:10}
+        minimum-idle: 2
+        connection-timeout: 3000
+        jdbc-url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:55432/product}
+        username: ${FINCORE_PRODUCT_DB_USER:product_app}
+        password: ${FINCORE_PRODUCT_DB_PASSWORD:product_app}
+
+    ledger:
+      # The only outbound dependency, and only on the authoring path: a fee rule names the account
+      # its income lands in, and accepting that unverified is how a customer's fee ends up in
+      # somebody's savings. Never called while deciding.
+      base-url: ${FINCORE_LEDGER_URL:http://localhost:8080}
+      timeout-ms: 2000
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+springdoc:
+  swagger-ui:
+    path: /docs
+
+server:
+  port: ${SERVER_PORT:8084}

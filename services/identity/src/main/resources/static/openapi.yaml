@@ -469,13 +469,19 @@ paths:
         '409': { description: A user with that username already exists in this tenant. }
     get:
       tags: [Directory (admin)]
-      summary: List staff (keyset-paged, filterable by role and unit)
+      summary: List staff (keyset-paged, filterable by role, unit and username)
       operationId: listUsers
       x-status: planned
       security: [{ bearerAuth: [] }]
       parameters:
         - { name: role, in: query, schema: { type: string } }
         - { name: unit, in: query, schema: { type: string } }
+        - name: username
+          in: query
+          description: >
+            Exact match, case-insensitive. Turns the principal an assignment names —
+            `user:ngozi.teller` — into the user record, without paging the whole roster to find it.
+          schema: { type: string }
         - { name: cursor, in: query, schema: { type: string } }
       responses:
         '200':

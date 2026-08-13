@@ -45,9 +45,48 @@ public class OperationsController {
     public List<Map<String, Object>> policy() {
         Authorization.require("notifications:read");
         scope();
-        return jdbc.queryForList(
+        return jdbc.query(
                 "SELECT category, channels, timezone, quiet_from, quiet_to FROM notification.channel_policy"
-                        + " ORDER BY category");
+                        + " ORDER BY category",
+                (rs, i) -> policyRow(rs));
+    }
+
+    /**
+     * One policy row, with {@code channels} rendered as the list of strings it is.
+     *
+     * <p>{@code queryForList} hands a {@code text[]} back as the driver's own {@code java.sql.Array}
+     * — a live object holding its {@code ResultSet}, which holds its {@code Statement}, which holds
+     * the {@code Connection}. Serializing that walked the whole graph and put the deployment inside
+     * the response body: the JDBC URL, the backend PID, the PostgreSQL version. Hard rule 8 says
+     * deployment specifics are never committed; emitting them to every client that can read a
+     * policy is worse than committing them.
+     *
+     * <p>It also broke the contract it leaked from. The document was large enough and malformed
+     * enough that a client parsing it got nothing, so the portal showed an institution with a
+     * configured policy the words "nothing sends" — the failure looked like missing configuration
+     * rather than a broken read, which is the most expensive kind of wrong a settings screen can be.
+     */
+    private static Map<String, Object> policyRow(java.sql.ResultSet rs) throws java.sql.SQLException {
+        Map<String, Object> row = new java.util.LinkedHashMap<>();
+        row.put("category", rs.getString("category"));
+        row.put("channels", textArray(rs, "channels"));
+        row.put("timezone", rs.getString("timezone"));
+        row.put("quiet_from", rs.getString("quiet_from"));
+        row.put("quiet_to", rs.getString("quiet_to"));
+        return row;
+    }
+
+    /** A {@code text[]} as a plain list, copied out before the driver's array can carry anything else. */
+    private static List<String> textArray(java.sql.ResultSet rs, String column) throws java.sql.SQLException {
+        java.sql.Array array = rs.getArray(column);
+        if (array == null) {
+            return List.of();
+        }
+        try {
+            return List.of((String[]) array.getArray());
+        } finally {
+            array.free();
+        }
     }
 
     @PutMapping("/v1/policy/{category}")
@@ -93,10 +132,15 @@ public class OperationsController {
                 identity.tenantId(), category, "{" + String.join(",", request.channels()) + "}",
                 request.timezone(), request.quietFrom(), request.quietTo());
 
-        return jdbc.queryForMap(
-                "SELECT category, channels, timezone, quiet_from, quiet_to FROM notification.channel_policy"
-                        + " WHERE category = ?",
-                category);
+        // Projected the same way as the read above, and for the same reason: this is the body a
+        // client sees immediately after saving, so leaking the connection here would leak it to
+        // exactly the caller who just proved they can write.
+        return jdbc.query(
+                        "SELECT category, channels, timezone, quiet_from, quiet_to FROM notification.channel_policy"
+                                + " WHERE category = ?",
+                        (rs, i) -> policyRow(rs),
+                        category)
+                .getFirst();
     }
 
     @GetMapping("/v1/deliveries")
@@ -106,7 +150,10 @@ public class OperationsController {
         scope();
         // No recipient_address in the projection, deliberately. It is PII at rest and an operator
         // asking what happened to a message does not need the number it was going to.
-        return jdbc.queryForList(
+        // Projected column by column for the same reason the policy is. `units` is the message's
+        // billing size — SMS segments, an INT — and not an org unit despite the name; reading it
+        // as an array would have thrown the first time a message actually existed to list.
+        return jdbc.query(
                 """
                 SELECT id, business_moment_key, category, channel, template_key, template_version,
                        recipient_ref, units, state, attempts, next_attempt_at, created_at
@@ -115,6 +162,22 @@ public class OperationsController {
                  ORDER BY created_at DESC
                  LIMIT 200
                 """,
+                (rs, i) -> {
+                    Map<String, Object> row = new java.util.LinkedHashMap<>();
+                    row.put("id", rs.getString("id"));
+                    row.put("business_moment_key", rs.getString("business_moment_key"));
+                    row.put("category", rs.getString("category"));
+                    row.put("channel", rs.getString("channel"));
+                    row.put("template_key", rs.getString("template_key"));
+                    row.put("template_version", rs.getObject("template_version"));
+                    row.put("recipient_ref", rs.getString("recipient_ref"));
+                    row.put("units", rs.getObject("units"));
+                    row.put("state", rs.getString("state"));
+                    row.put("attempts", rs.getInt("attempts"));
+                    row.put("next_attempt_at", rs.getString("next_attempt_at"));
+                    row.put("created_at", rs.getString("created_at"));
+                    return row;
+                },
                 moment, moment);
     }
 

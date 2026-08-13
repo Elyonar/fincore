@@ -23,6 +23,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -38,12 +39,15 @@ import org.springframework.transaction.support.TransactionTemplate;
  * the Ledger receives, not just that the saga completed.
  */
 @SpringBootTest
+@Import(FakeServices.class)
 class CashTest {
 
     // Every tenant a test uses must be registered, because Core now refuses one it has
     // never heard of. Registering here rather than weakening the gate for tests: a guard
     // switched off under test is a guard nobody has tested.
     @Autowired private TenantRegistry tenantRegistry;
+    @Autowired private FakeServices.FakeCustomers customers;
+    @Autowired private FakeServices.FakePricing pricing;
 
     private static HttpServer ledger;
     private static final AtomicInteger ledgerStatus = new AtomicInteger(201);
@@ -52,10 +56,6 @@ class CashTest {
 
     @Autowired private CashService cash;
     @Autowired private TillRecords tills;
-    @Autowired @Qualifier("customerJdbcTemplate") private JdbcTemplate customerDb;
-    @Autowired @Qualifier("productJdbcTemplate") private JdbcTemplate productDb;
-    @Autowired @Qualifier("customerTransactionManager") private PlatformTransactionManager customerTx;
-    @Autowired @Qualifier("productTransactionManager") private PlatformTransactionManager productTx;
 
     private UUID tenantId;
     private UUID customerId;
@@ -104,58 +104,11 @@ class CashTest {
         ledgerStatus.set(201);
         ledgerBody.set("{\"transactionId\":\"" + UUID.randomUUID() + "\"}");
 
-        new TransactionTemplate(customerTx)
-                .executeWithoutResult(
-                        s -> {
-                            customerDb.queryForObject(
-                                    "SELECT set_config('app.tenant_id', ?, true)", String.class, tenantId.toString());
-                            customerDb.update(
-                                    "INSERT INTO customer.customers (id, tenant_id, external_ref, full_name, kyc_tier)"
-                                            + " VALUES (?,?,?,?, 'TIER_2')",
-                                    customerId, tenantId, "C-" + UUID.randomUUID(), "Ada");
-                            customerDb.update(
-                                    "INSERT INTO customer.customer_accounts (tenant_id, customer_id,"
-                                            + " ledger_account_id, currency, product_code) VALUES (?,?,?, 'NGN', 'P')",
-                                    tenantId, customerId, customerAccount);
-                        });
-
-        new TransactionTemplate(productTx)
-                .executeWithoutResult(
-                        s -> {
-                            productDb.queryForObject(
-                                    "SELECT set_config('app.tenant_id', ?, true)", String.class, tenantId.toString());
-                            UUID productId =
-                                    productDb.queryForObject(
-                                            "INSERT INTO product.products (tenant_id, code, name, type)"
-                                                    + " VALUES (?, 'P', 'P', 'SAVINGS') RETURNING id",
-                                            UUID.class, tenantId);
-                            UUID versionId =
-                                    productDb.queryForObject(
-                                            "INSERT INTO product.product_versions (tenant_id, product_id, version,"
-                                                    + " status, created_by, published_by) VALUES (?,?,1,'DRAFT','user:author',NULL) RETURNING id",
-                                            UUID.class, tenantId, productId);
-                            // One limit rule per tier and channel covers both operations.
-                            productDb.update(
-                                    "INSERT INTO product.limit_rules (tenant_id, product_version_id, kyc_tier,"
-                                            + " channel, limit_type, max_amount_minor, currency)"
-                                            + " VALUES (?,?, 'TIER_2', 'TELLER', 'PER_TXN', 5000000, 'NGN')",
-                                    tenantId, versionId);
-                            // A flat ₦50 on each, so where the fee lands is visible in the entries.
-                            for (String operation : new String[] {"DEPOSIT", "WITHDRAWAL"}) {
-                                productDb.update(
-                                        "INSERT INTO product.fee_rules (tenant_id, product_version_id, operation,"
-                                                + " kind, flat_minor, currency, fee_account_id)"
-                                                + " VALUES (?,?,?, 'FLAT', 5000, 'NGN', ?)",
-                                        tenantId, versionId, operation, feeAccount);
-                            }
-                            // Published last, because pricing for a live version is immutable (V7):
-                            // a rule added after publish would change what an already-decided transaction
-                            // was priced under, and the database refuses it.
-                            productDb.update(
-                                    "UPDATE product.product_versions SET status = 'PUBLISHED',"
-                                            + " published_by = 'user:publisher' WHERE tenant_id = ? AND id = ?",
-                                    tenantId, versionId);
-                        });
+        // Customer and Product are deployables now (ADR 0020): the premise these blocks
+        // built in SQL is stated directly, and the assertions below are unchanged.
+        customers.clear();
+        customers.eligible(customerId, "TIER_2").holds(customerId, customerAccount, "P", "NGN");
+        pricing.permits(5000, feeAccount, 5000000);
 
         tillId = tills.open(tenantId, "BR-01", null, tillAccount, "NGN", "user:teller-1");
     }

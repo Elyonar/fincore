@@ -1,0 +1,41 @@
+# Tests run against real PostgreSQL — never an in-memory substitute. The trigger, constraint and
+# row-level-security behaviour under test is PostgreSQL's. This schema holds the platform's only
+# PII, so tenant isolation here is the isolation that matters most, and it is a database policy
+# rather than application code — a substitute that did not enforce it would make the suite agree
+# with a guarantee nothing was actually keeping.
+#
+# NOTE: this file *replaces* src/main/resources/application.yml rather than overlaying it —
+# test-classes come first on the classpath and Boot loads one application.yml. Anything the tests
+# need to behave like production has to be repeated here; Core learned that twice, silently.
+spring:
+  profiles:
+    active: test
+  datasource:
+    hikari:
+      maximum-pool-size: 1
+      minimum-idle: 0
+      idle-timeout: 10000
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:55432/customer_test}
+    username: ${SPRING_DATASOURCE_USERNAME:fincore}
+    password: ${SPRING_DATASOURCE_PASSWORD:fincore}
+  flyway:
+    enabled: false
+
+springdoc:
+  swagger-ui:
+    path: /docs
+
+fincore:
+  customer:
+    datasource:
+      app:
+        maximum-pool-size: 1
+        minimum-idle: 0
+        idle-timeout: 10000
+        jdbc-url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:55432/customer_test}
+        username: customer_app
+        password: customer_app
+  auth:
+    # Verifies nothing — and only starts at all because the `test` profile is sanctioned, which
+    # exercises the guard rather than bypassing it.
+    mode: dev

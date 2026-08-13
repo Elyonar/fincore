@@ -10,6 +10,22 @@ a frozen contract.
 
 ---
 
+## [0.5.1] — 2026-08-12 · PATCH
+
+**Staff can be looked up by the name a token spells them with.** `GET /v1/directory/users` takes an
+optional `username`, matched exactly and case-insensitively, alongside the existing `role` and
+`unit` filters.
+
+- Added for Core 2.3.2. An assignment names a principal — `user:ngozi.teller` — and moving the
+  `units` claim with the row means turning that into a user id. Without this the only route was to
+  page through every member of staff looking for one, which is a scan standing in for a lookup and
+  gets slower exactly as an institution grows.
+- Same page shape, same keyset, same tenant scoping. A username belonging to another tenant is not
+  found, which is indistinguishable from one that does not exist — as everywhere else on this
+  surface.
+
+---
+
 ## [0.5.0] — 2026-08-11 · MINOR
 
 **The catalog stops advertising capability the platform does not have.** Lending was withdrawn

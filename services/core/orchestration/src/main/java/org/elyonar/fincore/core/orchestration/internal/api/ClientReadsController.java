@@ -8,7 +8,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.elyonar.fincore.auth.Authorization;
-import org.elyonar.fincore.core.customer.api.CustomerEligibility;
+import org.elyonar.fincore.core.orchestration.api.CustomerEligibility;
 import org.elyonar.fincore.core.orchestration.api.CoreException;
 import org.elyonar.fincore.core.orchestration.api.ErrorCode;
 import org.elyonar.fincore.core.orchestration.internal.approval.ApprovalRecords;

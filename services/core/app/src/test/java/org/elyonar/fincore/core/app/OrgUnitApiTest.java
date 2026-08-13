@@ -6,11 +6,19 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.UUID;
+import org.elyonar.fincore.core.organization.api.UnitClaims;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Import;
+import org.springframework.context.annotation.Primary;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -26,9 +34,11 @@ import tools.jackson.databind.json.JsonMapper;
  * forbidden, it is invisible.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@Import(OrgUnitApiTest.RecordingClaims.class)
 class OrgUnitApiTest {
 
     @Autowired private TenantRegistry tenantRegistry;
+    @Autowired private RecordedUnitClaims claims;
 
     @LocalServerPort private int port;
     private final HttpClient http = HttpClient.newHttpClient();
@@ -161,6 +171,71 @@ class OrgUnitApiTest {
                                 .build());
         assertThat(again.statusCode()).isEqualTo(404);
         assertThat(again.body()).contains("ASSIGNMENT_NOT_FOUND");
+    }
+
+    /**
+     * The claim half of an assignment (ADR 0012).
+     *
+     * <p>An assignment row is only half the fact. Scope is enforced from the token's {@code units}
+     * claim, so a screen that writes the row and stops leaves a teller recorded in a branch and
+     * still carrying yesterday's scope in every token they mint. This asserts the derivation
+     * happens on both writes and that it is read back from the rows rather than echoed from the
+     * request — provisioning follows the system of record, it does not run alongside it.
+     */
+    @Test
+    void assigning_and_revoking_both_re_derive_the_units_claim() throws Exception {
+        JsonNode first = mapper.readTree(create(tenantId, "branch-06", "BRANCH", null).body());
+        JsonNode second = mapper.readTree(create(tenantId, "branch-07", "BRANCH", null).body());
+        String ada = "{\"principal\":\"user:ada.o\"}";
+        claims.seen.clear();
+
+        assign(first, ada);
+        assertThat(claims.seen).containsExactly(List.of("branch-06"));
+
+        // The second assignment carries both, because the claim is the whole of what the rows say
+        // and not the one unit this request happened to name.
+        assign(second, ada);
+        assertThat(claims.seen).last().isEqualTo(List.of("branch-06", "branch-07"));
+
+        send(authed(tenantId, "/v1/org-units/" + first.get("id").asString() + "/assignments/revoke", "org:manage")
+                .POST(HttpRequest.BodyPublishers.ofString(ada))
+                .build());
+        assertThat(claims.seen).last().isEqualTo(List.of("branch-07"));
+
+        // A refused write must not move the claim: the row is the one that can refuse, and it did.
+        int before = claims.seen.size();
+        assign(second, ada);
+        assertThat(claims.seen).hasSize(before);
+    }
+
+    private void assign(JsonNode unit, String principal) {
+        send(authed(tenantId, "/v1/org-units/" + unit.get("id").asString() + "/assignments", "org:manage")
+                .POST(HttpRequest.BodyPublishers.ofString(principal))
+                .build());
+    }
+
+    /**
+     * Stands in for the directory, recording what it was asked to mint.
+     *
+     * <p>A recording bean rather than a mocking framework, because the assertion is about a
+     * sequence of values and reads better as one.
+     */
+    @TestConfiguration
+    static class RecordingClaims {
+        @Bean
+        @Primary
+        RecordedUnitClaims recordedUnitClaims() {
+            return new RecordedUnitClaims();
+        }
+    }
+
+    static class RecordedUnitClaims implements UnitClaims {
+        final List<List<String>> seen = Collections.synchronizedList(new ArrayList<>());
+
+        @Override
+        public void refresh(UUID tenantId, String principal, List<String> unitCodes) {
+            seen.add(List.copyOf(unitCodes));
+        }
     }
 
     @Test

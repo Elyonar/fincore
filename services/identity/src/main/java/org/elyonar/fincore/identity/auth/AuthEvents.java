@@ -86,6 +86,22 @@ public class AuthEvents {
         });
     }
 
+    /**
+     * A tenant-scoped event with no transaction of the caller's to join.
+     *
+     * <p>{@link #record} deliberately writes inside the caller's open tenant transaction, which is
+     * right when the row belongs with something else that is committing. Minting a tenant-scoped
+     * service token (ADR 0019) has nothing to commit alongside it and no tenant scope open, so it
+     * needs its own — the same shape {@link #recordRefusal} uses, without the name that says the
+     * attempt failed.
+     */
+    public void recordScoped(UUID tenantId, String event, String source, Map<String, Object> details) {
+        tx.independently(tenantId, () -> {
+            record(tenantId, null, event, source, details);
+            return null;
+        });
+    }
+
     /** Tenantless events — service-token issuance has no tenant to be scoped by. */
     public void recordTenantless(String event, String source, Map<String, Object> details) {
         tx.plain(() -> {

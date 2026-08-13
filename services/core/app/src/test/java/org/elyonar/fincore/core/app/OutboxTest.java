@@ -22,6 +22,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -37,12 +38,15 @@ import org.springframework.transaction.support.TransactionTemplate;
  * here reproduces exactly that interleaving.
  */
 @SpringBootTest
+@Import(FakeServices.class)
 class OutboxTest {
 
     // Every tenant a test uses must be registered, because Core now refuses one it has
     // never heard of. Registering here rather than weakening the gate for tests: a guard
     // switched off under test is a guard nobody has tested.
     @Autowired private TenantRegistry tenantRegistry;
+    @Autowired private FakeServices.FakeCustomers customers;
+    @Autowired private FakeServices.FakePricing pricing;
 
     private static HttpServer ledger;
     private static final AtomicInteger ledgerStatus = new AtomicInteger(201);
@@ -50,12 +54,8 @@ class OutboxTest {
 
     @Autowired private TransferService transfers;
     @Autowired private OutboxRelay relay;
-    @Autowired @Qualifier("customerJdbcTemplate") private JdbcTemplate customerDb;
-    @Autowired @Qualifier("productJdbcTemplate") private JdbcTemplate productDb;
     @Autowired @Qualifier("relayJdbcTemplate") private JdbcTemplate relayDb;
     @Autowired @Qualifier("orchestrationJdbcTemplate") private JdbcTemplate orchestrationDb;
-    @Autowired @Qualifier("customerTransactionManager") private PlatformTransactionManager customerTx;
-    @Autowired @Qualifier("productTransactionManager") private PlatformTransactionManager productTx;
     @Autowired @Qualifier("orchestrationTransactionManager") private PlatformTransactionManager orchestrationTx;
     // A connection opened outside the pool. The slow writer holds one open across a transfer that
     // needs its own, so borrowing both from the same pool would starve it rather than test
@@ -104,49 +104,11 @@ class OutboxTest {
         ledgerStatus.set(201);
         ledgerBody.set("{\"transactionId\":\"" + UUID.randomUUID() + "\"}");
 
-        new TransactionTemplate(customerTx)
-                .executeWithoutResult(
-                        s -> {
-                            customerDb.queryForObject(
-                                    "SELECT set_config('app.tenant_id', ?, true)", String.class, tenantId.toString());
-                            customerDb.update(
-                                    "INSERT INTO customer.customers (id, tenant_id, external_ref, full_name, kyc_tier)"
-                                            + " VALUES (?,?,?,?, 'TIER_2')",
-                                    customerId, tenantId, "C-" + UUID.randomUUID(), "Ada");
-                            customerDb.update(
-                                    "INSERT INTO customer.customer_accounts (tenant_id, customer_id,"
-                                            + " ledger_account_id, currency, product_code) VALUES (?,?,?, 'NGN', 'P')",
-                                    tenantId, customerId, fromAccount);
-                        });
-
-        new TransactionTemplate(productTx)
-                .executeWithoutResult(
-                        s -> {
-                            productDb.queryForObject(
-                                    "SELECT set_config('app.tenant_id', ?, true)", String.class, tenantId.toString());
-                            UUID productId =
-                                    productDb.queryForObject(
-                                            "INSERT INTO product.products (tenant_id, code, name, type)"
-                                                    + " VALUES (?, 'P', 'P', 'SAVINGS') RETURNING id",
-                                            UUID.class, tenantId);
-                            UUID versionId =
-                                    productDb.queryForObject(
-                                            "INSERT INTO product.product_versions (tenant_id, product_id, version,"
-                                                    + " status, created_by, published_by) VALUES (?,?,1,'DRAFT','user:author',NULL) RETURNING id",
-                                            UUID.class, tenantId, productId);
-                            productDb.update(
-                                    "INSERT INTO product.limit_rules (tenant_id, product_version_id, kyc_tier,"
-                                            + " channel, limit_type, max_amount_minor, currency)"
-                                            + " VALUES (?,?, 'TIER_2', 'TELLER', 'PER_TXN', 5000000, 'NGN')",
-                                    tenantId, versionId);
-                            // Published last, because pricing for a live version is immutable (V7):
-                            // a rule added after publish would change what an already-decided transaction
-                            // was priced under, and the database refuses it.
-                            productDb.update(
-                                    "UPDATE product.product_versions SET status = 'PUBLISHED',"
-                                            + " published_by = 'user:publisher' WHERE tenant_id = ? AND id = ?",
-                                    tenantId, versionId);
-                        });
+        // Customer and Product are deployables now (ADR 0020): the premise these blocks
+        // built in SQL is stated directly, and the assertions below are unchanged.
+        customers.clear();
+        customers.eligible(customerId, "TIER_2").holds(customerId, fromAccount, "P", "NGN");
+        pricing.permits(0, null, Long.MAX_VALUE);
     }
 
     private UUID transfer(String key) {

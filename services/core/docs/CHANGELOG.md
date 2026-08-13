@@ -8,6 +8,75 @@ entry first.
 
 ---
 
+## [2.3.2] — 2026-08-12 · PATCH
+
+**Assigning somebody to a unit now moves the claim as well as the row, which is what the surface
+has always said it does.** ADR 0017 named this gap in as many words and asked for it to be closed
+in the same pass that built Core's realm administration: *"`POST /v1/org-units/{id}/assignments`
+writes Core's `unit_assignments` and stops … assigning a teller to a branch through the API has no
+effect on authorization, and the two stores drift from the first assignment onward."* Half of it
+was built. `PUT /v1/users/{id}/units` wrote both stores; the unit-scoped assign and revoke wrote
+one, and `OrgUnitController`'s own javadoc described a derivation that nothing performed.
+
+- **`UnitClaims`**, a port on `core.organization.api`, implemented by `DirectoryUnitClaims` in
+  Admin. The dependency has to point that way round: Admin already depends on Organization and
+  holds the directory client, so Organization declaring the port is the only arrangement that does
+  not make the two mutually dependent (ADR 0006). Absent implementation falls back to a no-op, so
+  Organization still runs standalone and an assignment is still a record where nothing mints
+  claims.
+- **Assign and revoke re-derive the whole claim from the rows they just wrote**, rather than
+  applying the delta they were handed. Provisioning follows the system of record instead of running
+  alongside it, and the row — the store that can refuse — is written first, so the two cannot
+  disagree because half the operation succeeded.
+- **`machine:` principals are left alone.** A service authenticates by client credentials and has
+  no staff record, which is why revoking one closes the row and stops. A `user:` principal the
+  directory has never heard of is recorded and logged at WARN, not refused: nothing validates the
+  string on the way in, and rejecting it now would refuse principals the surface accepted
+  yesterday.
+- PATCH: no contract moves. Both endpoints keep their request, response and status codes. What
+  changes is that a documented effect starts happening.
+- **What it was worth.** `approvals.made_in_unit` snapshots the maker's scope from the token claim.
+  On a clean install, assigning the administrator to head office through the Assignments screen and
+  raising an approval recorded `made_in_unit = head-office`; before this it recorded null. On a
+  bank where the administrator is also the second signature, that is the audit trail for the
+  approvals that matter most.
+
+---
+
+## [2.3.1] — 2026-08-11 · PATCH
+
+**The rule tables' uniqueness learns what the evaluator already knew: a price is a price in a
+currency.** 2.2.0 made pricing currency-aware — limits are read `AND currency = ?`, and fee rules
+for an operation with none in the transaction's currency refuse as `CURRENCY_MISMATCH` instead of
+pricing free. Both rule tables have carried `currency NOT NULL` since the baseline. Neither unique
+constraint mentioned it, so the schema forbade the very rows the evaluator was written to read.
+
+- **`product.limit_rules`** — `one_limit_per_tier_channel_type` becomes
+  `UNIQUE (tenant_id, product_version_id, kyc_tier, channel, limit_type, currency)`. It gains
+  `currency`, and also `tenant_id`, which the fee side already carried; `product_version_id` is
+  tenant-unique, so that half adds no restriction and only makes the two tables state their scope
+  the same way.
+- **`product.fee_rules`** — `one_fee_rule_per_operation` becomes
+  `UNIQUE (tenant_id, product_version_id, operation, currency)`.
+- **What was broken, and it was worse on the limit side than the fee side.** A version could hold a
+  `PER_TXN` limit in NGN *or* in USD, never both — while a missing limit in the transaction's
+  currency is `OPERATION_NOT_PERMITTED`, deny by default. So a multi-currency product did not merely
+  go unpriced in its second currency: **every transaction in that currency was refused, and no
+  authoring call could fix it**, because storing the second rule violated the constraint. The fee
+  side was the same shape one step on — `CURRENCY_MISMATCH` was detectable and unfixable, the
+  version being allowed only one `TRANSFER` rule.
+- PATCH: the contract does not move. Nothing that was legal becomes illegal, no refusal changes for
+  a caller who was already being served, and a single-currency institution — every deployment today
+  — sees no difference. This only admits rows the design already described.
+- Migration `V2__rules_are_per_currency.sql`, the product schema's first since the squash. Widening
+  a unique key needs no backfill and no rewrite.
+- Caught by `./mvnw verify` on first compile after the MVP bundle: `DailyLimitAndFeeConfigTest`,
+  named in 2.2.0 as the proof of the currency-aware fee reading, could not seed its own fixture —
+  its NGN and USD `PER_TXN` rows collided. The evidence for a fix and the fix's own blocker were the
+  same test.
+
+---
+
 ## [2.3.0] — 2026-08-11 · MINOR
 
 **The administration surface becomes the `admin` module.** A move, not a rewrite: `AdminController`

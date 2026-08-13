@@ -48,6 +48,8 @@
         <module>libs/auth</module>
         <module>libs/events</module>
         <module>services/ledger</module>
+        <module>services/product</module>
+        <module>services/customer</module>
         <module>services/core</module>
         <!--
             The platform's first event consumer (ADR 0011). Built after the publishers, because

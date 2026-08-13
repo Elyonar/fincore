@@ -25,6 +25,29 @@ public interface TransactionAccounts {
      * @param from debited. Null on a reversal, which targets a transaction rather than a pair of
      *     accounts.
      * @param to credited. Null on a reversal, for the same reason.
+     * @param facts what a message may say about this transaction — see {@link Facts}.
      */
-    record Accounts(UUID from, UUID to) {}
+    record Accounts(UUID from, UUID to, Facts facts) {}
+
+    /**
+     * The presentation detail a template renders from.
+     *
+     * <p>Read from the same call as the accounts, off the same response, because it is the same
+     * question asked once. It is deliberately *not* on the event: ADR 0008 keeps the payload a
+     * published contract rather than a database row, and a customer's transaction detail on the
+     * broker is customer data sitting in every consumer's retention window.
+     *
+     * <p>What is missing and why, so the next person does not go looking: there is no narration —
+     * {@code sagas} does not persist the description a teller types — and no balance, which needs
+     * a third call to the ledger per message and is the most sensitive field a stolen phone could
+     * show. Both are additions, neither is an oversight.
+     */
+    record Facts(
+            String reference,
+            String type,
+            long amountMinor,
+            long feeMinor,
+            String currency,
+            String channel,
+            java.time.OffsetDateTime occurredAt) {}
 }

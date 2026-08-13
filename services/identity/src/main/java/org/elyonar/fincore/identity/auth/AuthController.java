@@ -2,6 +2,7 @@ package org.elyonar.fincore.identity.auth;
 
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.Map;
+import java.util.UUID;
 import org.elyonar.fincore.identity.api.IdentityErrors;
 import org.elyonar.fincore.identity.api.IdentityErrors.TokenInvalid;
 import org.elyonar.fincore.identity.internal.IdentityProperties;
@@ -30,7 +31,12 @@ public class AuthController {
 
     public record LogoutRequest(String refreshToken) {}
 
-    public record ServiceTokenRequest(String clientId, String clientSecret) {}
+    /**
+     * {@code tenantId} is optional (ADR 0019): omitted mints the tenantless token the ledger's
+     * caller allowlist expects, supplied mints one scoped to that tenant with the client's
+     * declared permissions.
+     */
+    public record ServiceTokenRequest(String clientId, String clientSecret, String tenantId) {}
 
     private static final String DEFAULT_CLIENT = "fincore-web";
 
@@ -95,10 +101,29 @@ public class AuthController {
 
     @PostMapping("/token")
     public ResponseEntity<Map<String, Object>> serviceToken(@RequestBody ServiceTokenRequest request) {
-        String token = serviceClients.token(request.clientId(), request.clientSecret());
+        String token = serviceClients.token(request.clientId(), request.clientSecret(), tenantOf(request));
         return ResponseEntity.ok(Map.of(
                 "accessToken", token,
                 "expiresIn", (long) properties.getAccessTokenTtlSeconds()));
+    }
+
+    /**
+     * The tenant a service token is asked to be scoped to, or null when none was named.
+     *
+     * <p>A malformed id answers the same refusal a wrong secret does, rather than a parse error:
+     * this endpoint has exactly one voice, and telling an unauthenticated caller that its tenant
+     * was merely misspelled is telling it the credential was accepted.
+     */
+    private static UUID tenantOf(ServiceTokenRequest request) {
+        String raw = request.tenantId();
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        try {
+            return UUID.fromString(raw.trim());
+        } catch (IllegalArgumentException e) {
+            throw new IdentityErrors.AuthFailed();
+        }
     }
 
     /**

@@ -189,6 +189,18 @@ public class Directory {
 
     /** One page of staff, keyset by username. Absent and another tenant's are indistinguishable. */
     public UserPage listUsers(UUID tenantId, String role, String unit, String cursor) {
+        return listUsers(tenantId, role, unit, null, cursor);
+    }
+
+    /**
+     * The same page, narrowed to one username.
+     *
+     * <p>Exists so a caller holding a principal — {@code user:ngozi.teller}, the spelling tokens and
+     * assignment rows use — can reach the user record without knowing its id. Core's organization
+     * surface assigns by principal and has to move the {@code units} claim with it; without this it
+     * could only find the id by walking every page of staff.
+     */
+    public UserPage listUsers(UUID tenantId, String role, String unit, String username, String cursor) {
         var sql = new StringBuilder(
                 "SELECT u.id, u.username, u.email, u.first_name, u.last_name, u.status,"
                         + " u.credential_temporary, u.staff_number, u.job_title, u.started_on,"
@@ -205,6 +217,10 @@ public class Directory {
             sql.append(" AND EXISTS (SELECT 1 FROM auth.user_units uu WHERE uu.tenant_id = u.tenant_id"
                     + " AND uu.user_id = u.id AND uu.unit_code = ?)");
             args.add(unit.trim());
+        }
+        if (username != null && !username.isBlank()) {
+            sql.append(" AND lower(u.username) = ?");
+            args.add(username.trim().toLowerCase(Locale.ROOT));
         }
         if (cursor != null && !cursor.isBlank()) {
             sql.append(" AND lower(u.username) > ?");

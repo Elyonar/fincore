@@ -11,7 +11,7 @@ Numbered, never deleted; superseded ADRs are marked as such.
 | 0003 | AGPL-3.0-only + CLA, open from day one | Accepted |
 | 0004 | Ledger Service is built first | Accepted |
 | 0005 | Broker-agnostic event backbone, Kafka recommended | Accepted |
-| 0006 | Customer, Product and Orchestration ship as one Core deployable | Accepted |
+| 0006 | Customer, Product and Orchestration ship as one Core deployable | Accepted — superseded by 0020 |
 | 0007 | Tenant isolation is a platform pattern, not a per-service invention | Accepted |
 | 0008 | One event envelope for the whole platform | Accepted |
 | 0009 | Authenticated service callers; the ledger enforces its own allowlist | Accepted |
@@ -24,3 +24,5 @@ Numbered, never deleted; superseded ADRs are marked as such.
 | 0016 | Tenants are declared in a manifest and seeded at startup | Proposed |
 | 0017 | Permissions are platform vocabulary; roles are tenant-composed | Proposed |
 | 0018 | Identity is a first-party service; Keycloak is retired | Proposed |
+| 0019 | A service that reads tenant data holds a tenant-scoped service principal | Proposed |
+| 0020 | Customer and Product become deployables of their own | Proposed — supersedes 0006 |
