@@ -53,6 +53,12 @@ fincore:
     core:
       base-url: http://localhost:0
       timeout-ms: 500
+    # Deliberately unreachable, like Core's above. The suite exercises EventIntake against stubs;
+    # leaving this at the production default would let a test reach whatever happens to be
+    # listening on the customer service's port on a developer's machine.
+    customer:
+      base-url: http://localhost:0
+      timeout-ms: 500
     max-event-age-ms: 900000
 
 springdoc:

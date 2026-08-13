@@ -7,6 +7,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.core.importer.ImportOption;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -95,6 +98,51 @@ class BoundaryTest {
                 .haveFullyQualifiedName("java.util.Calendar")
                 .because("quiet hours are evaluated in a tenant's timezone; java.util.Date has none")
                 .check(classesUnderTest);
+    }
+
+    /**
+     * Where the two send-path reads actually point.
+     *
+     * <p>This exists because the failure it prevents produced no signal at all. ADR 0020 moved
+     * {@code GET /v1/customers/by-account/{id}} out of Core and into the customer deployable, and
+     * this service went on asking Core. Core answers 404 for a path it does not route; 404 is this
+     * client's documented "no such customer"; so every side of every transfer recorded an
+     * {@code UNKNOWN_ACCOUNT} suppression and the service reported itself healthy while producing
+     * nothing. No log line at any level said otherwise.
+     *
+     * <p>Asserted over the source rather than over a booted context because a {@code @Value} key is
+     * exactly a string literal referenced twice (AGENTS.md hard rule 10) — the thing worth pinning
+     * is which key each client names, and that is a fact about the file.
+     */
+    @Test
+    @DisplayName("each send-path read addresses the service that owns it")
+    void the_reads_point_at_the_right_services() throws IOException {
+        String contact = source("HttpContactDirectory.java");
+        String transactions = source("HttpTransactionAccounts.java");
+
+        assertThat(contact)
+                .as("who holds an account is the customer service's question since ADR 0020; asking"
+                        + " Core returns 404, which this client reads as 'no such customer'")
+                .contains("fincore.notification.customer.base-url")
+                .doesNotContain("fincore.notification.core.base-url");
+
+        assertThat(transactions)
+                .as("which accounts a transaction moved between is still Core's question")
+                .contains("fincore.notification.core.base-url")
+                .doesNotContain("fincore.notification.customer.base-url");
+    }
+
+    private static String source(String fileName) throws IOException {
+        // Surefire runs with the module directory as its working directory; the second candidate
+        // covers a run rooted at the repository instead.
+        String suffix = "src/main/java/org/elyonar/fincore/notification/internal/contact/" + fileName;
+        for (String prefix : new String[] {"", "services/notification/"}) {
+            Path path = Path.of(prefix + suffix);
+            if (Files.exists(path)) {
+                return Files.readString(path);
+            }
+        }
+        throw new IllegalStateException("cannot find " + suffix + " from " + Path.of("").toAbsolutePath());
     }
 
     @Test

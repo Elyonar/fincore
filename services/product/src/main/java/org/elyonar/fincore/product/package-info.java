@@ -1,11 +1,18 @@
 /**
  * Product — the configuration engine.
  *
- * <h2>How this module is packaged</h2>
+ * <h2>How this deployable is packaged</h2>
  *
- * {@code api} is what Orchestration reads through; {@code internal} is everything else, closed to
- * every other module by {@code ModuleBoundaryTest} and by a database role granted on this schema
- * alone (ADR 0006).
+ * {@code api} carries the shapes this service answers with; {@code internal} is everything else.
+ * The split is inherited from when this was a module inside Core, where it was what stopped
+ * another module importing these internals and was enforced by {@code ModuleBoundaryTest} (ADR
+ * 0006). Since [ADR 0020] this is its own process with its own database, so a process boundary
+ * enforces that already and the split is now organisational rather than load-bearing.
+ *
+ * <p>What is enforced, by {@code BoundaryTest} in this service's own suite, is the thing ADR 0020
+ * attached as an obligation: no client onto the money path, no sibling deployable on the
+ * classpath, no money type, and the internals reachable only from within this service. Core calls
+ * Product; Product does not call Core.
  *
  * <h2>Rules that hold here</h2>
  *

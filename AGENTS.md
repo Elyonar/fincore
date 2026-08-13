@@ -62,10 +62,12 @@ and Product were modules inside Core and are deployables of their own now.
   because [ADR 0018](docs/adr/0018-first-party-identity-service.md) is the
   decision of record and its surface is still moving. Treat the ADR as the
   contract there, not the DRAFT docs. `services/customer` and
-  `services/product` carry no design docs at all: both were designed as Core
-  modules in `services/core/docs/design.md` and left with
-  [ADR 0020](docs/adr/0020-customer-and-product-become-deployables.md), which
-  records what moved and why. Their READMEs are the map.
+  `services/product` carry **AGREED v1.0** docs of their own as of 2026-08-13.
+  Both were designed as Core modules and the original *argument* for their domain
+  rules is still `services/core/docs/design.md`, cited rather than copied; what
+  each service now owns is its own contract and its own changelog, because an
+  amendment recorded under another service's version number is one nobody looking
+  there would find.
 - **Once AGREED, a design is versioned and changes only by amendment.** Every
   design doc in the service carries the same version
   (`AGREED vX.Y (date) — amendments via CHANGELOG.md`), and every change to
@@ -153,11 +155,17 @@ been stale twice, both times claiming less had been built than actually had. If
 you are about to build something this section says does not exist, check the
 service directory first.
 
-Verified by running the suites, not by reading the docs: **624 tests green** —
+Verified by running the suites, not by reading the docs: **642 tests green** —
 26 `libs/auth`, 9 `libs/events`, 245 ledger, 224 Core (39 orchestration, 185
-`app`), 28 Customer, 12 Product, 60 Notification, 20 Identity. CI runs 8 more:
+`app`), 35 Customer, 18 Product, 61 Notification, 24 Identity. CI runs 8 more:
 the Core↔Ledger contract suite, which needs a running Ledger and is excluded
 from the default build so it fails loudly rather than passes vacuously.
+
+Customer and Product each carry a `BoundaryTest` closing
+[ADR 0020](docs/adr/0020-customer-and-product-become-deployables.md)'s third
+obligation, and Notification's pins which service each send-path read addresses —
+the guard for a defect that produced no signal at all, because the wrong service
+answered 404 and 404 is a legitimate business outcome.
 
 - `services/ledger` — **design AGREED v1.11; implemented and merged to main.**
   Every documented endpoint exists. Do not re-implement the schema, posting
@@ -211,7 +219,7 @@ from the default build so it fails loudly rather than passes vacuously.
   never compensated and never reported as success** — it is a 503, the same key
   is retried, and the worker resolves it.
 
-- `services/customer` — **implemented, merged, and running.** The people this
+- `services/customer` — **design AGREED v1.0; implemented, merged, and running.** The people this
   institution banks, their KYC tier, their contact details and consent, the
   numbering series that gives each a reference, and the link from a customer to
   an account they hold. One schema, one database role, its own image and compose
@@ -223,7 +231,7 @@ from the default build so it fails loudly rather than passes vacuously.
   platform's: `TIER_1..3` is Nigeria's answer and wrong everywhere else, so the
   list is a tenant table with a route rather than a CHECK constraint.
 
-- `services/product` — **implemented, merged, and running.** The catalogue, its
+- `services/product` — **design AGREED v1.0; implemented, merged, and running.** The catalogue, its
   versions, and the decision the money path asks for: given a product, a
   customer's tier, a channel and an amount, what does this cost and is it
   allowed. One schema, one database role, its own image and compose service

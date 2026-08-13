@@ -391,6 +391,12 @@ public class Directory {
      */
     public String resetPassword(UUID tenantId, UUID userId, Administrator admin, String source) {
         User target = requireUser(tenantId, userId);
+        // Guardrail 1 again, and it was missing here — which made every other application of it
+        // decoration. Composing a role refuses a permission the author does not hold, and granting
+        // one refuses the same; but handing somebody a credential for an account that holds it is
+        // the same grant with an extra step. An administrator could not give themselves
+        // `cash:transact`, and could reset the super-administrator, sign in as them, and take it.
+        requireNoAuthorityAbove(tenantId, admin, userId, target);
 
         byte[] raw = new byte[18];
         RANDOM.nextBytes(raw);
@@ -933,6 +939,37 @@ public class Directory {
     }
 
     /** Guardrail 1, applied to a bare permission set rather than to roles. */
+    /**
+     * Refuses to act on somebody who holds authority the actor does not.
+     *
+     * <p>Guardrail 1 stated for a *person* rather than for a list of permissions. Taking over an
+     * account is not weaker than being granted what it holds — it is the same thing, arrived at
+     * through the credential rather than through the role — so the check has to be the same.
+     *
+     * <p>Self is always allowed: an administrator resetting their own credential gains nothing,
+     * and refusing it would lock somebody out of their own account for being senior.
+     *
+     * <p>The refusal names the permissions that stopped it, because the alternative is an
+     * administrator who cannot tell whether the platform is broken or they are outranked.
+     */
+    private void requireNoAuthorityAbove(UUID tenantId, Administrator admin, UUID userId, User target) {
+        if (userId.equals(admin.userId())) {
+            return;
+        }
+        Set<String> mine = Set.copyOf(staff.permissions(tenantId, admin.userId()));
+        List<String> theirsAlone =
+                staff.permissions(tenantId, userId).stream()
+                        .filter(permission -> !mine.contains(permission))
+                        .sorted()
+                        .toList();
+        if (!theirsAlone.isEmpty()) {
+            throw refuse(
+                    DirectoryErrors.PERMISSION_NOT_HELD_BY_GRANTOR,
+                    null,
+                    Map.of("permissions", theirsAlone, "username", target.username()));
+        }
+    }
+
     private void requireGrantorHoldsPermissions(UUID tenantId, Administrator admin, List<String> permissions) {
         Set<String> held = Set.copyOf(staff.permissions(tenantId, admin.userId()));
         List<String> exceeded = permissions.stream().filter(p -> !held.contains(p)).sorted().toList();
