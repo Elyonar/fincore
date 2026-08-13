@@ -21,7 +21,9 @@ domain each, one schema each, reached only through their published interfaces.
 A monorepo is NOT a monolith: never share a database across deployables, never
 import across a deployable boundary, and never read another module's tables.
 Vocabulary and the rules that follow: PRD §3.4. Current packaging:
-[ADR 0006](docs/adr/0006-modular-core.md).
+[ADR 0006](docs/adr/0006-modular-core.md), amended by
+[ADR 0020](docs/adr/0020-customer-and-product-become-deployables.md) — Customer
+and Product were modules inside Core and are deployables of their own now.
 
 ## Where truth lives (read in this order)
 
@@ -54,6 +56,16 @@ Vocabulary and the rules that follow: PRD §3.4. Current packaging:
   everything, and the root is never littered with service detail.
 - Designs are agreed before implementation: a service's `docs/design.md` is
   DRAFT until marked AGREED; no domain code lands while DRAFT.
+
+  **`services/identity` is the standing exception, and it is named rather than
+  hidden.** Its docs are DRAFT while the service is implemented and running,
+  because [ADR 0018](docs/adr/0018-first-party-identity-service.md) is the
+  decision of record and its surface is still moving. Treat the ADR as the
+  contract there, not the DRAFT docs. `services/customer` and
+  `services/product` carry no design docs at all: both were designed as Core
+  modules in `services/core/docs/design.md` and left with
+  [ADR 0020](docs/adr/0020-customer-and-product-become-deployables.md), which
+  records what moved and why. Their READMEs are the map.
 - **Once AGREED, a design is versioned and changes only by amendment.** Every
   design doc in the service carries the same version
   (`AGREED vX.Y (date) — amendments via CHANGELOG.md`), and every change to
@@ -141,8 +153,11 @@ been stale twice, both times claiming less had been built than actually had. If
 you are about to build something this section says does not exist, check the
 service directory first.
 
-Verified by running the suites, not by reading the docs: **521 tests green** —
-26 `libs/auth`, 9 `libs/events`, 231 ledger, 198 Core, 57 Notification.
+Verified by running the suites, not by reading the docs: **624 tests green** —
+26 `libs/auth`, 9 `libs/events`, 245 ledger, 224 Core (39 orchestration, 185
+`app`), 28 Customer, 12 Product, 60 Notification, 20 Identity. CI runs 8 more:
+the Core↔Ledger contract suite, which needs a running Ledger and is excluded
+from the default build so it fails loudly rather than passes vacuously.
 
 - `services/ledger` — **design AGREED v1.11; implemented and merged to main.**
   Every documented endpoint exists. Do not re-implement the schema, posting
@@ -164,27 +179,74 @@ Verified by running the suites, not by reading the docs: **521 tests green** —
     and two cross-tenant probes
   - no performance, soak or disaster-recovery evidence exists
 
-- `services/core` — **design AGREED v2.3; implemented, merged, and running.**
-  One deployable holding six modules ([ADR 0006](docs/adr/0006-modular-core.md)):
-  `customer`, `product`, `organization`, `orchestration`, `admin` and `app`. The
-  four domain modules first named carry a schema and a database role each;
-  `admin` — the staff/role administration surface — deliberately owns neither,
-  because it holds no state and proxies every call to the identity service
-  (ADR 0018). Transfers, cash in and out, business reversal with
-  maker-checker approval, customer contact and consent, product versioning with
-  publish control, and organizational units (ADR 0012). A sixth module, lending
-  ([ADR 0013](docs/adr/0013-lending-module-first.md)), was built and has been
-  withdrawn — out of scope for this build. Core has its own image and compose
-  service, and calls the ledger over HTTP.
+- `services/core` — **design AGREED v2.4; implemented, merged, and running.**
+  One deployable holding four modules
+  ([ADR 0006](docs/adr/0006-modular-core.md), amended by
+  [ADR 0020](docs/adr/0020-customer-and-product-become-deployables.md)):
+  `organization`, `orchestration`, `admin` and `app`. The two domain modules
+  carry a schema and a database role each; `admin` — the staff and role
+  administration surface — deliberately owns neither, because it holds no state
+  and proxies every call to the identity service (ADR 0018).
 
-  The domain modules carry no unit tests of their own; all are covered by
-  `app`'s integration suite, which
-  is why Core's 213 sit almost entirely in `app`.
+  What Core does is the money path and what composes it: transfers, cash in and
+  out, business reversal with maker-checker approval, organizational units
+  (ADR 0012), tills, and the compositions that need more than one service at
+  once — opening an account is a ledger account, a product check and a customer
+  record, in that order. It calls the ledger, customer and product services over
+  HTTP, and every one of those calls **fails closed**: any non-2xx except a 404
+  refuses rather than proceeding, because a pricing call that quietly returns
+  nothing prices a transaction at zero.
+
+  Customer and Product were modules here until ADR 0020; they are deployables
+  now. Lending ([ADR 0013](docs/adr/0013-lending-module-first.md)) was built and
+  withdrawn — out of scope for this build, and no trace of it remains in the
+  surface.
+
+  `organization` and `admin` carry no unit tests of their own; they are covered
+  by `app`'s integration suite, which is why Core's 224 sit in `app` and
+  `orchestration`.
 
   Read `services/core/docs/design.md` and then `outcome-protocol.md` before
   touching anything here. The rule that matters most: **an unknown outcome is
   never compensated and never reported as success** — it is a 503, the same key
   is retried, and the worker resolves it.
+
+- `services/customer` — **implemented, merged, and running.** The people this
+  institution banks, their KYC tier, their contact details and consent, the
+  numbering series that gives each a reference, and the link from a customer to
+  an account they hold. One schema, one database role, its own image and compose
+  service (ADR 0020). Holds the platform's only PII, which is why tenant
+  isolation here is enforced by row-level security rather than by application
+  code.
+
+  The KYC tiers an institution recognises are **its own vocabulary**, not the
+  platform's: `TIER_1..3` is Nigeria's answer and wrong everywhere else, so the
+  list is a tenant table with a route rather than a CHECK constraint.
+
+- `services/product` — **implemented, merged, and running.** The catalogue, its
+  versions, and the decision the money path asks for: given a product, a
+  customer's tier, a channel and an amount, what does this cost and is it
+  allowed. One schema, one database role, its own image and compose service
+  (ADR 0020).
+
+  Two database triggers make a published version immutable, and they are the
+  whole reason this service could be extracted at all — the guarantee lives in
+  the database rather than in the caller that happens to be asking. The
+  evaluator **denies by default**: a product with no per-transaction rule
+  refuses everything, because an omission must not read as permission.
+
+- `services/identity` — **design DRAFT v0.1; implemented, merged, and running.**
+  First-party identity (ADR 0018), which retired Keycloak (ADR 0010). Issues
+  the tokens every other service verifies through `libs/auth`, holds the staff
+  directory, and mints the tenant-scoped service principals a service needs to
+  read another's data (ADR 0019).
+
+  The design docs are DRAFT while the service is running, which is deliberate
+  rather than an oversight: ADR 0018 is the record, and the docs are AGREED only
+  once the surface stops moving. **A deployment must set
+  `fincore.identity.signing.private-key-pem`** — without it the service mints an
+  ephemeral development key, announces that at startup, and every token it ever
+  issued becomes invalid on restart.
 
 - `services/notification` — **design AGREED v1.7; implemented, merged, and
   running.** The platform's first event *consumer*, taken ahead of its PRD phase

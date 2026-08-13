@@ -9,11 +9,17 @@
 #
 # WHAT THIS WRITES, AND WHAT IT DELIBERATELY DOES NOT.
 #
-# Five rows per tenant, one per deployable, in the three tenant registries and nowhere else:
+# Five rows per tenant, one per deployable that gates on a registry, and nowhere else:
 #
 #     ledger        tenants                 (id, name)
 #     core          platform.tenants        (id, name, business_timezone)
 #     notification  notification.tenants    (id, name)
+#     product       product.tenants         (id, name)
+#     customer      customer.tenants        (id, name)
+#
+# Product and customer joined the list when they became deployables of their own (ADR 0020).
+# Identity is absent on purpose: it has no tenant gate to pass, because it is the thing that
+# establishes which tenant a caller belongs to.
 #
 # That is provisioning data, not test data: a tenant absent from these registries is refused by
 # TenantGate with a bodiless 404 on every request, so a row here is the minimum a tenant needs to

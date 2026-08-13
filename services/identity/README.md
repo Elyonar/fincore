@@ -1,19 +1,25 @@
 # Identity Service
 
-**Status: implemented and merged (design DRAFT pending AGREED).** Recorded by
-[ADR 0018](../../docs/adr/0018-first-party-identity-service.md) — identity is
-a first-party deployable and Keycloak is retired. The swap slice in
-[`docs/design.md`](docs/design.md) §7 is built: login, forced credential
-change, refresh rotation with family revocation, logout, service tokens,
-JWKS with kid rotation, and TOTP MFA. The staff directory (`/v1/directory/**`)
-remains planned; `docs/testing.md` carries the honest suite-by-suite status.
-Independent security review still gates any non-dev deployment.
+**Status: implemented, merged and running (design DRAFT pending AGREED).**
+Recorded by [ADR 0018](../../docs/adr/0018-first-party-identity-service.md) —
+identity is a first-party deployable and Keycloak is retired. **20 tests green
+against real PostgreSQL**, running in CI like every other service.
+
+Built: login, forced credential change, refresh rotation with family revocation,
+logout and revoke-all, service tokens (ADR 0019), JWKS with kid rotation, TOTP
+MFA, **and the staff directory** — users, roles, permissions, job titles and
+staff numbering, which Core's `admin` module proxies rather than duplicating.
+
+> **A deployment must set `fincore.identity.signing.private-key-pem`.** Without
+> it the service generates an ephemeral development key and says so at startup —
+> which means every token it ever issued becomes invalid the moment it restarts.
+> Independent security review still gates any non-development deployment.
 
 ## Purpose
 
 The platform's identity provider: verifies staff and service credentials,
 mints the tokens every other service already verifies via `libs/auth`, owns
-the staff directory that Core's administration surface drives, and holds
+the staff directory Core's administration surface drives, and holds
 per-tenant authentication policy. Client-driven by product decision — every
 flow is a first-party API; there is no hosted login page.
 
@@ -30,10 +36,10 @@ ADR 0017). No customer credentials in v1. No money. Full list:
 | Doc | Contents |
 |---|---|
 | [`docs/design.md`](docs/design.md) | Decisions, token contract, bootstrap, swap slice |
-| [`docs/api.md`](docs/api.md) | Planned surface: authentication + service-facing directory, error catalog |
+| [`docs/api.md`](docs/api.md) | The surface: authentication + service-facing directory, error catalog |
 | [`docs/data-model.md`](docs/data-model.md) | Schema, the constraints that carry security, retention |
 | [`docs/threat-model.md`](docs/threat-model.md) | Threats → controls → the suite that proves each |
-| [`docs/testing.md`](docs/testing.md) | Every suite, all PLANNED, none gating |
+| [`docs/testing.md`](docs/testing.md) | Every suite and its status |
 
 ## The full API (Swagger)
 
@@ -51,10 +57,11 @@ rotation with theft detection, logout/revoke-all, service tokens, JWKS) and
 **Delivery-gated (not yet functional):** email/phone verification, SMS OTP and
 self-service password reset — they send a code to a person, and the platform's
 messaging connector does not exist yet (notification senders are log adapters by
-decision); administrator-initiated reset covers the gap. **Planned:** the
-directory admin API (lands with Core's admin-surface §5), roles/policy/audit
-query, customer identity, and federation.
+decision); administrator-initiated reset covers the gap. **Planned:** policy and
+audit query, customer identity, and federation.
 
-**Not compiled in the authoring sandbox** (no Maven access there); CI is the
-build/test gate. Independent security review gates any non-development
-deployment.
+**The design docs are DRAFT while the service runs**, which the platform
+convention otherwise forbids. It is deliberate and named in
+[`AGENTS.md`](../../AGENTS.md): ADR 0018 is the decision of record and this
+surface is still moving, so treat the ADR as the contract rather than the DRAFT
+docs. They go AGREED when the surface settles.

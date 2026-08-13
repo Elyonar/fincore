@@ -70,11 +70,12 @@ it creates a second one and orphans the first.
 
 ### Secrets are never in the manifest
 
-There is no password field and no secret field, and the renderer **refuses a
-manifest that contains one**. The core client secret and the administrator's
-temporary password are generated at render time, written to the rendered realm
-and to `bootstrap/.rendered-secrets.txt` (mode 600, gitignored), and shown once.
-`AGENTS.md` hard rule 8: the manifest is committed and reviewed.
+There is no password field and no secret field, and the seeder **refuses a
+manifest that contains one**. The administrator's temporary password is
+generated at seed time, written once to `bootstrap/.seeded-credentials.txt`
+(mode 600, gitignored), and never written anywhere else. `AGENTS.md` hard
+rule 8: the manifest is committed and reviewed, so anything secret in it is a
+secret in the repository.
 
 ## 2. What gets written, and what deliberately does not
 
@@ -147,62 +148,67 @@ PostgreSQL volume is first created, before any service has started, so the table
 Flyway owns do not exist yet — `db/init/20-dev-tenant.sql` records exactly this.
 The registries can only be written once the services have migrated.
 
-`render-realms.sh` writes one `<realm>-realm.json` per tenant into
+### Retired: how this worked under Keycloak
+
+Kept for the record of *why* ADR 0016 exists, and written in the past tense
+because none of it runs any more.
+
+`render-realms.sh` **wrote** one `<realm>-realm.json` per tenant into
 `keycloak/import/`, substituting the entry's identifiers and origin into
 `keycloak/realm-template.json` and appending the super-administrator with
-`job:admin` and a forced password change. The template is otherwise untouched and
-remains the single source of the permission vocabulary.
+`job:admin` and a forced password change.
 
-**Import semantics, stated because they decide the operational story.** The
-provider imports realms that are absent and leaves existing realms alone. So
-adding a tenant and restarting provisions it, while editing an *existing*
-tenant's realm in the manifest does **not** take effect — the realm already
-exists and is not overwritten. That asymmetry is the sharpest edge in this
-design. It is what stops a redeploy from destroying a tenant's authored roles,
-and it is one of ADR 0016's triggers for building the control plane instead.
+**Import semantics decided the operational story, and they were the sharpest
+edge in that design.** The provider imported realms that were absent and left
+existing realms alone. Adding a tenant and restarting provisioned it; editing an
+*existing* tenant in the manifest did **not** take effect, because the realm
+already existed and was never overwritten. That asymmetry is what stopped a
+redeploy from destroying a tenant's authored roles — and it is one of ADR 0016's
+triggers for building a control plane rather than living with it.
 
-**These scripts are the interim path.** ADR 0016's `TenantSeeder` does the
-registry half inside each service at startup, which is where it belongs — a
-service that converges to the manifest on every boot needs no operator to
-remember step 4. Until that is built, `seed-registries.sh` is the sanctioned way.
+The first-party identity service has no such asymmetry: `ManifestSeeder` reads
+the manifest on every boot and converges to it, which is the property this
+section was written wishing for.
 
 ## 5. Adding an institution
 
 1. Add an entry to `bootstrap/tenants.json` with a freshly generated UUID.
 2. Open a pull request. The manifest is a reviewed artefact; that review is the
    control that stands in for an audit trail.
-3. Deploy, then run the two scripts. The provider imports the new realm; the
-   registries gain one row each.
+3. Deploy. The identity service seeds the tenant and its super-administrator at
+   startup; run `bootstrap/seed-registries.sh` once the services are up to
+   register it with the five deployables that gate on a registry.
 4. Hand the administrator their temporary credential from
-   `bootstrap/.rendered-secrets.txt`. They sign in, are required to change it,
-   and land on the portal.
+   `bootstrap/.seeded-credentials.txt` (written once, mode 600, gitignored).
+   They sign in, are required to change it and to give a contact number, and
+   land in setup.
 
-## 6. What the super-administrator can and cannot do on arrival
+## 6. What the super-administrator can do on arrival
 
 Stated here because it is the thing most likely to be assumed rather than
-checked, and because ADR 0016 delivers a login screen rather than a working bank.
+checked. ADR 0016 delivers a login; what follows is how an institution gets from
+there to taking its first deposit.
 
-**Available today**, verified against the route list: organizational units
-(create, list, close, assign, revoke); tills (provision, list, close);
-customers (create, search, KYC tier, consent, link an existing
-account); and products — a code and a name only.
+**Everything needed to transact is reachable**, and the portal walks it in
+order: organizational units and branches; staff, with roles composed from the
+platform's permission vocabulary (ADR 0017); the institution's own internal
+accounts; a product, its fee and limit rules, and publishing a version; and a
+till to take cash through. Account opening composes a ledger account, a product
+check and a customer record in one call.
 
-**Not available, and each blocks the institution from transacting:**
+**What is still not reachable**, and each is a deliberate omission rather than
+an oversight:
 
-1. **Product pricing cannot be authored.** No endpoint writes `fee_rules`
-   or `limit_rules`, none reads them back, and a product can only
-   ever have version 1. Nothing prices, so no deposit, withdrawal or transfer
-   resolves a product version.
-2. **No ledger account can be opened.** Blocks customer accounts, the
-   fee-income, funding and penalty-income accounts every configured product
-   needs, and the account a till *is*.
-3. **No second member of staff can be created, and no role can be changed.** The
-   seven `job:*` composites are identical for every tenant.
+1. **Deactivating a member of staff.** It needs a second administrator's
+   signature and that approval flow does not exist yet, so the control is not
+   offered rather than offered and ignored.
+2. **Anything a customer receives.** Notification's senders are log adapters
+   until the messaging connector exists, so a message is queued, recorded, and
+   delivered nowhere.
+3. **Inter-bank movement.** No rails connector, so money moves only between
+   accounts within one institution.
 
-All three are designed in
-[`admin-surface.md`](../../services/core/docs/admin-surface.md) (Core v1.20) and
-built in none. Roles seeded here are the only roles a tenant has until
-[ADR 0017](../adr/0017-tenant-defined-roles.md) lands; once it does, nothing
-seeded here is privileged — the super-administrator may rename, recompose or
-delete any of it. **The manifest is a starting position, not a permanent
-structure.**
+Roles seeded here are a starting position, not a permanent structure: under
+[ADR 0017](../adr/0017-tenant-defined-roles.md) nothing seeded is privileged, and
+the super-administrator may rename, recompose or delete any of it. **The manifest
+is where an institution begins, not what it is.**

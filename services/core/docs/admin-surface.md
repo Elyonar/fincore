@@ -1,6 +1,6 @@
 # Core — The Administration Surface
 
-**Status:** AGREED v2.3 (2026-08-11) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
+**Status:** AGREED v2.4 (2026-08-11) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
 
 What a tenant's own administrator needs in order to turn a provisioned tenant
 into an institution that can transact. Three capabilities, designed as one batch
@@ -11,6 +11,20 @@ Recorded by [ADR 0016](../../../docs/adr/0016-tenant-bootstrap-manifest.md)
 (which seeds the administrator this surface exists for) and
 [ADR 0017](../../../docs/adr/0017-tenant-defined-roles.md) (which decides the
 permission/role split §4 implements).
+
+> **Amended v2.4 — "realm" now means the tenant.** This document was written
+> while identity was Keycloak, so it says *realm* where the platform now says
+> *tenant*, and §8 lists a realm template that no longer exists.
+> [ADR 0018](../../../docs/adr/0018-first-party-identity-service.md) retired
+> Keycloak and made identity first-party; the permission catalog it describes is
+> now `PermissionCatalog` in the identity service, and the `job:*` composites are
+> seeded roles a tenant may copy, rename or delete. **Every decision in §4 and §5
+> survived the swap unchanged** — role names are still namespaced server-side,
+> a grant beyond the granter's own access is still refused, and the permissions
+> claim is still a flat set. Read *realm* as *tenant* throughout.
+>
+> §3 (product authoring), §5 (users and roles) and account opening are **built**;
+> this document is the design they were built to, not a plan.
 
 **Planned rows enter `api.md` only as they are built.**
 `ApiSurfaceCatalogTest` fails a documented-but-unbuilt route in both directions,
@@ -30,8 +44,8 @@ and that is a feature this document must not fight — the same rule
 
 ## 1. Why this exists
 
-A tenant seeded by ADR 0016 has a realm, three registry rows, and one
-super-administrator who can sign in. That administrator can create
+A tenant seeded by ADR 0016 has five registry rows — one per deployable that
+gates on a registry — and one super-administrator who can sign in. That administrator can create
 organizational units, tills, approval tiers and customers — and cannot make the
 institution able to take a single deposit. Three gaps stand in the way, and each
 is a capability the schema already models and no endpoint reaches:
@@ -189,13 +203,13 @@ the tenant's composition over it.
 
 ### Decisions
 
-**Core administers its own realm and no other.** The tenant's existing service
-client is granted realm administration scoped to that realm, so a flaw here
+**Core administers its own tenant and no other.** Core's service principal is
+scoped to the tenant in the token it is acting for (ADR 0019), so a flaw here
 reaches one institution's directory and cannot reach another's.
 
 **Role names are namespaced by the service, never by the caller.** ADR 0017's
-guardrail 0: the permissions claim is a flat set of effective realm roles, so a
-role named `transfers:reverse` would grant that permission invisibly. Created
+guardrail 0: the permissions claim is a flat set of effective roles, so a role
+named `transfers:reverse` would grant that permission invisibly. Created
 roles get a `role:` prefix applied server-side, and any name colliding with the
 permission catalog or a reserved prefix is refused.
 
@@ -283,12 +297,12 @@ merges.
 
 ## 8. What this changes elsewhere
 
-- **`keycloak/realm-template.json`** — four new permissions (`accounts:read`,
+- **The permission catalog** — four new permissions (`accounts:read`,
   `accounts:manage`, `users:read`, `users:manage`) added to the catalog and to
-  `job:admin`; the tenant's service client granted administration of its own
-  realm. The seven `job:*` composites are reframed as templates a tenant may
-  copy, rename or delete, which is a documentation change and not a behavioural
-  one.
+  `job:admin`. It lives in the identity service's `PermissionCatalog` now rather
+  than a realm template (ADR 0018). The `job:*` composites are seeded roles a
+  tenant may copy, rename or delete, which is a documentation change and not a
+  behavioural one.
 - **`libs/auth`** — unchanged. ADR 0017 turns on a resolution the platform
   already performs on every request; no service's enforcement moves.
 - **The ledger** — unchanged. `LedgerClient.open` calls an endpoint that has

@@ -1,6 +1,11 @@
 # ADR 0010 — One Keycloak realm per tenant, and identity lands before Core
 
-**Status:** Accepted · 2026-08-05
+**Status:** Superseded · 2026-08-05 — by
+[ADR 0018](0018-first-party-identity-service.md) (2026-08-09): identity is a
+first-party service and Keycloak is retired. Nothing in the platform runs
+Keycloak any more. What survived is the *shape* this ADR argued for — one tenant
+boundary per institution, tokens as the only bridge, enforcement staying in the
+owning service — which is why the swap changed the issuer and very little else.
 **Supersedes:** nothing. Implements PRD §4.10 and completes
 [ADR 0009](0009-service-to-service-identity.md).
 

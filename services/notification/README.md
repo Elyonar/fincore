@@ -6,9 +6,9 @@
 > knowing exactly once that a message is owed, and being able to say why one
 > was not sent.
 
-**Status: design AGREED v1.5.1 — implemented, pre-1.0.** The schema, the intake
+**Status: design AGREED v1.7 — implemented, pre-1.0.** The schema, the intake
 pipeline, the send worker, the Kafka listener and every endpoint `api.md`
-documents exist, with **57 tests green against real PostgreSQL**. It is not
+documents exist, with **60 tests green against real PostgreSQL**. It is not
 production-ready: nothing is delivered to a customer until the messaging
 connector exists, and [`docs/testing.md`](docs/testing.md) carries the honest
 list of what is still PARTIAL. Read [`docs/design.md`](docs/design.md),
@@ -28,12 +28,12 @@ Recorded in [ADR 0011](../../docs/adr/0011-first-consumer-before-phase-three.md)
 
 | You want to know… | Read | Status |
 |---|---|---|
-| The design at a glance + the decision log | [`docs/design.md`](docs/design.md) | AGREED v1.5.1 |
-| Boundaries, traffic, the intake pipeline, DR posture | [`docs/architecture.md`](docs/architecture.md) | AGREED v1.5.1 |
-| The eight tables, ownership rules, decided edge cases | [`docs/data-model.md`](docs/data-model.md) | AGREED v1.5.1 |
-| Endpoint surface, error catalog, suppression reasons | [`docs/api.md`](docs/api.md) | AGREED v1.5.1 — **built**, `ApiTest` proves the document and the surface agree |
-| The nine invariants and every test suite | [`docs/testing.md`](docs/testing.md) | AGREED v1.5.1 |
-| Every amendment since the design was agreed | [`docs/CHANGELOG.md`](docs/CHANGELOG.md) | v1.5.1 |
+| The design at a glance + the decision log | [`docs/design.md`](docs/design.md) | AGREED v1.7 |
+| Boundaries, traffic, the intake pipeline, DR posture | [`docs/architecture.md`](docs/architecture.md) | AGREED v1.7 |
+| The eight tables, ownership rules, decided edge cases | [`docs/data-model.md`](docs/data-model.md) | AGREED v1.7 |
+| Endpoint surface, error catalog, suppression reasons | [`docs/api.md`](docs/api.md) | AGREED v1.7 — **built**, `ApiTest` proves the document and the surface agree |
+| The nine invariants and every test suite | [`docs/testing.md`](docs/testing.md) | AGREED v1.7 |
+| Every amendment since the design was agreed | [`docs/CHANGELOG.md`](docs/CHANGELOG.md) | v1.7 |
 | Why this is built before Phase 3 | [ADR 0011](../../docs/adr/0011-first-consumer-before-phase-three.md) | Accepted |
 | The event contract this service consumes | [ADR 0008](../../docs/adr/0008-event-contract.md) | Accepted |
 | Why the backbone retains history | [ADR 0005](../../docs/adr/0005-kafka-event-backbone.md) | Accepted |

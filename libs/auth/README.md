@@ -3,18 +3,20 @@
 > **Mechanics written once, decisions left to the owning service.**
 
 Every fincore service validates tokens, extracts who is calling, and enforces
-permissions. Doing that in four places means four chances to get token
-verification subtly wrong, and four things to re-audit. This library holds the
+permissions. Doing that in six places means six chances to get token
+verification subtly wrong, and six things to re-audit. This library holds the
 mechanics; the decisions stay where the domain knowledge is.
 
-Recorded in [ADR 0009](../../docs/adr/0009-service-to-service-identity.md) and
-[ADR 0010](../../docs/adr/0010-keycloak-realm-per-tenant.md); the platform
-rationale is PRD §6.3.
+Recorded in [ADR 0009](../../docs/adr/0009-service-to-service-identity.md); the
+tokens it verifies are issued by the first-party identity service
+([ADR 0018](../../docs/adr/0018-first-party-identity-service.md), which
+superseded the Keycloak decision this library was first written against). The
+platform rationale is PRD §6.3.
 
 **Why it exists now.** `AGENTS.md` says a library is extracted only when a second
-consumer exists. Two do: Core needs identity from its first endpoint, and the
-ledger needs it to retire the tenant-header posture its own README lists as a
-known limitation.
+consumer exists. Every deployable is one: ledger, core, customer, product and
+notification all verify tokens through it, and identity is the only service that
+issues rather than verifies.
 
 ## What it does
 
@@ -101,15 +103,21 @@ Both are tested — "impossible to enable accidentally" is a claim, and
 from the ledger's `log` event adapter: a component that silently does nothing
 while the system reports itself working.
 
-## Local Keycloak
+## Signing in locally
 
 ```bash
-docker compose --profile identity up -d keycloak   # http://localhost:8180
+docker compose up -d identity       # http://localhost:58183/docs
 ```
 
-Development mode, no persistence, throwaway credentials. Real deployments
-configure this properly, and those specifics live with the deployment rather
-than in this repository.
+The identity service seeds the tenants in `bootstrap/tenants.json` on every
+boot and writes each super-administrator's temporary credential once to
+`bootstrap/.seeded-credentials.txt`.
+
+**It mints an ephemeral signing key unless `fincore.identity.signing.private-key-pem`
+is set,** and says so loudly at startup. That is fine on a laptop and fatal in a
+deployment: every token it ever issued becomes invalid the moment it restarts.
+Real deployments configure the key properly, and those specifics live with the
+deployment rather than in this repository.
 
 ## Tests
 

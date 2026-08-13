@@ -1,7 +1,9 @@
 # ADR 0020 — Customer and Product become deployables of their own
 
-**Status:** Proposed · 2026-08-12
-**Supersedes:** [0006](0006-core-is-one-deployable.md), whose extraction triggers this fires.
+**Status:** Accepted · 2026-08-12 · **implemented and merged** — `services/customer`
+and `services/product` each run as their own deployable, with their own database,
+role, migrations and tenant registry
+**Supersedes:** [0006](0006-modular-core.md), whose extraction triggers this fires.
 
 ## Context
 

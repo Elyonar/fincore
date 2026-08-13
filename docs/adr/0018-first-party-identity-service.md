@@ -1,6 +1,8 @@
 # ADR 0018 — Identity is a first-party service; Keycloak is retired
 
-**Status:** Proposed · 2026-08-09
+**Status:** Accepted · 2026-08-09 · **implemented and running** — `services/identity`
+issues every token the platform verifies; no Keycloak remains in compose, in
+`db/init/`, or in any script
 **Supersedes:** [ADR 0010](0010-keycloak-realm-per-tenant.md) (one Keycloak
 realm per tenant). Overrides the build decision of PRD §4.10 ("implemented on
 Keycloak, not built from scratch") until the PRD is revised, per the standing

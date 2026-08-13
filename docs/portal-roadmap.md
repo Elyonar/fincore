@@ -1,28 +1,40 @@
 # What's left to get to a client portal
 
-**Date:** 2026-08-08 · working note, not an AGREED design
+**Date:** 2026-08-08 · working note, not an AGREED design ·
+**superseded by delivery, 2026-08-13**
 
-Everything below is verified against source in this session rather than inferred
-from documentation. Estimates are engineer-weeks at this repo's standard —
-design doc, CHANGELOG, catalog tests, deny-by-default and cross-tenant probes per
-endpoint — not at prototype speed.
+> **Read this first.** The critical path below is **delivered**. Tenant
+> bootstrap, product authoring, account opening, and user and role
+> administration are all built and running, and the portal exists. The note is
+> kept because the *analysis* is still worth reading — it is a record of what was
+> actually broken and what each gap cost — but nothing in §1–§3 is outstanding
+> work, and the effort estimates are history.
+>
+> What remains genuinely open is in **"Independent of the critical path"** and in
+> each service's own known-limitations section, which are maintained.
+
+Everything below was verified against source at the time of writing rather than
+inferred from documentation. Estimates are engineer-weeks at this repo's
+standard — design doc, CHANGELOG, catalog tests, deny-by-default and
+cross-tenant probes per endpoint — not at prototype speed.
 
 ---
 
 ## Where we actually are
 
-**Landed as running code: one thing.** Keycloak now persists to its own
-`keycloak` database with an `auth` schema, so tenant-authored identity survives a
-restart. That was a precondition for everything else, and it is done.
+*As at 2026-08-08, when this note was written.* Keycloak persisted to its own
+database so tenant-authored identity survived a restart; ADR 0015 (control
+plane, Deferred), ADR 0016 (tenant manifest) and ADR 0017 (tenant-defined roles)
+existed as agreed-shaped design and no code; and every backend gap the
+client-readiness analysis found was unchanged. That was the honest starting
+line.
 
-**Landed as agreed-shaped design, not yet code:** ADR 0015 (control plane,
-Deferred), ADR 0016 (tenant manifest), ADR 0017 (tenant-defined roles),
-`tenant-bootstrap.md`, and `bootstrap/tenants.json`. The `services/platform`
-design set was removed with the 2026-08-11 MVP trim — the ADRs remain the
-record; the docs return with the deployable, if it returns.
-
-**Unchanged:** every backend gap the client-readiness analysis found. No API has
-been added this session. That is the honest starting line.
+**As at 2026-08-13:** Keycloak is retired entirely
+([ADR 0018](adr/0018-first-party-identity-service.md)); ADR 0016, 0017, 0018,
+0019 and 0020 are Accepted and implemented; Customer and Product are deployables
+of their own; and all three blockers below are closed. The `services/platform`
+design set was removed with the 2026-08-11 MVP trim — the ADRs remain the record;
+the docs return with the deployable, if it returns.
 
 ---
 
@@ -32,9 +44,13 @@ Four things stand between today and a super-administrator who can log in and
 build their institution. They are strictly ordered only at the first step;
 after that they fan out.
 
-### 1. Tenant bootstrap — ADR 0016 implementation · ~1 week
+### 1. Tenant bootstrap — ADR 0016 implementation · ~1 week · **DONE**
 
 Nothing else can be demonstrated until a tenant exists and someone can sign in.
+Delivered, though not as written: the realm half was overtaken by ADR 0018, so
+the identity service's `ManifestSeeder` converges to the manifest on every boot
+instead, and `bootstrap/seed-registries.sh` registers the tenant with the five
+deployables that gate on a registry.
 
 - Mark ADR 0016 Accepted and `tenant-bootstrap.md` AGREED (review, no code)
 - `TenantSeeder` in each of ledger, core, notification — generalize the existing
@@ -49,22 +65,22 @@ Nothing else can be demonstrated until a tenant exists and someone can sign in.
 **Done means:** a fresh deployment reads the array, three registries agree, a
 realm exists, and a named human signs in and is forced to change their password.
 
-### 2. The three blockers · ~5–7 weeks, parallelizable
+### 2. The three blockers · ~5–7 weeks, parallelizable · **ALL THREE CLOSED**
 
-A seeded administrator today can create organizational units, tills, approval
-tiers and customers — and cannot make the institution able to transact. Three
-gaps, each verified in source.
+A seeded administrator could create organizational units, tills, approval tiers
+and customers — and could not make the institution able to transact. Three gaps,
+each verified in source at the time, and each now built. The evidence columns are
+left as they were: they are the record of what was actually wrong.
 
 | # | Gap | Evidence | Effort |
 |---|---|---|---|
-| A | **Product pricing cannot be authored.** `POST /v1/products` accepts `(code, name, type)`. No endpoint writes `fee_rules` or `limit_rules`; none reads them back; `create()` hardcodes `version=1` so a product can only ever have one version; `effective_from` is unsettable. Nothing prices, so no deposit, withdrawal or transfer resolves a product version. | `ProductController.java:73`, `ProductRecords.java:53-59`; zero non-test writers of the rule tables | 2.5–3.5 wk |
-| B | **No ledger account can be opened.** `POST /v1/customers/{id}/accounts` links an id the caller must already hold; `LedgerClient` has `post`/`reverse`/`read`/`get` and no open operation; the edge deliberately does not route to the ledger. Blocks customer accounts, the fee-income, funding and penalty-income accounts every configured product needs, and the account a till *is*. | `CustomerController.java:133-143`, `LedgerClient.java` | 1–1.5 wk |
-| C | **No user or role administration** — ADR 0017. No endpoint creates a staff user; the seven `job:*` composites are identical for every tenant. ~~Includes the live `units` derivation gap~~ — **closed**: assigning a principal to a unit now moves the claim as well as the row, through the `UnitClaims` port Organization declares and Admin implements against the directory. Both stores move together or the write fails. | no user endpoint anywhere | 2–3 wk |
+| A | ~~**Product pricing cannot be authored.**~~ **Built.** `POST /v1/products` accepts `(code, name, type)`. No endpoint writes `fee_rules` or `limit_rules`; none reads them back; `create()` hardcodes `version=1` so a product can only ever have one version; `effective_from` is unsettable. Nothing prices, so no deposit, withdrawal or transfer resolves a product version. | `ProductController.java:73`, `ProductRecords.java:53-59`; zero non-test writers of the rule tables | 2.5–3.5 wk |
+| B | ~~**No ledger account can be opened.**~~ **Built** — `POST /v1/customers/{customerId}/accounts/open`. `POST /v1/customers/{id}/accounts` links an id the caller must already hold; `LedgerClient` has `post`/`reverse`/`read`/`get` and no open operation; the edge deliberately does not route to the ledger. Blocks customer accounts, the fee-income, funding and penalty-income accounts every configured product needs, and the account a till *is*. | `CustomerController.java:133-143`, `LedgerClient.java` | 1–1.5 wk |
+| C | ~~**No user or role administration**~~ **Built** — ADR 0017. No endpoint creates a staff user; the seven `job:*` composites are identical for every tenant. ~~Includes the live `units` derivation gap~~ — **closed**: assigning a principal to a unit now moves the claim as well as the row, through the `UnitClaims` port Organization declares and Admin implements against the directory. Both stores move together or the write fails. | no user endpoint anywhere | 2–3 wk |
 
-**All three change Core's `api.md`**, so `design-changes.md` rule 1 wants the
-amendment in its own PR before implementation.
+**All three changed Core's `api.md`**, and each landed with its amendment.
 
-### 3. Portal-quality fixes · ~1–1.5 weeks
+### 3. Portal-quality fixes · ~1–1.5 weeks · **DONE**
 
 Small, independent, and each one is a screen the portal cannot finish without a
 workaround.
@@ -86,16 +102,13 @@ workaround.
 - **Customer search cannot find by phone or account number**, which is how a
   walk-in is identified.
 
-### 4. The portal itself
+### 4. The portal itself · **BUILT**
 
-Next.js, one app, role-gated navigation — not four SPAs. The realm's job
-composites already describe the navigation trees. Order: setup (products, org
-units, accounts, staff) → teller → supervisor/ops.
-
-**It can start before the backend is finished.** Once the api.md amendment in
-step 2 is agreed, the contract is stable enough to build against mocks. That is
-the main parallelisation win available here and the reason the design PR is worth
-doing before the implementation.
+Next.js, one app, role-gated navigation — not four SPAs, which is what shipped.
+The `job:*` composites describe the navigation trees. Order as planned: setup
+(branches, staff, accounts, product, pricing, publish, till) → teller →
+supervisor/ops. Setup is a sequence of its own that gates the dashboard, so a
+new institution is set up rather than dropped into an empty screen.
 
 ---
 
@@ -103,18 +116,20 @@ doing before the implementation.
 
 Real work, none of it blocking the portal.
 
-- **`restore-drill.sh` covers only the ledger** (`DB=ledger`, hardcoded). The
-  Keycloak database now holds state that exists nowhere else and is not in any
-  backup drill.
-- **The 35 permissions are string literals** with no constant and no catalog
-  test — a hard-rule-10 violation, and the thing ADR 0017's guardrail 0 needs to
-  check proposed role names against. Code and realm agree exactly today; nothing
-  keeps them that way.
-- **No real integration lane in CI.** `ui-runway.md` §2 claims a compose-profile
-  Keycloak lane driving a money path; what exists is
-  `JwtEndToEndTest`, an in-JVM JWKS stub with a stubbed ledger, no Keycloak, no
-  realm template, no edge. Every provisioning defect found this session is one CI
-  is structurally incapable of catching.
+- **`restore-drill.sh` covers only the ledger** (`DB=ledger`, hardcoded). Five
+  other databases now hold state that exists nowhere else — `identity` most
+  sharply, since it holds staff credentials and roles — and none is in any backup
+  drill.
+- **Permissions are string literals at each call site.** The catalog itself is
+  now code — `PermissionCatalog` in the identity service, which ADR 0017's
+  guardrail 0 checks proposed role names against — but nothing fails the build
+  when a controller requires a permission the catalog does not contain.
+- **No full-stack integration lane in CI.** CI runs every service's suite against
+  real PostgreSQL and the Core↔Ledger contract suite against a real Ledger, which
+  is more than this note found. What it still does not do is stand the whole
+  stack up behind the edge and drive a money path through it, so every
+  provisioning and routing defect remains one CI is structurally incapable of
+  catching.
 - **Edge hardening** — origin-reflecting CORS with no `Vary`, no `Max-Age`,
   methods limited to GET/POST/OPTIONS, `listen 80` with no TLS config, no rate
   limits.
@@ -123,10 +138,13 @@ Real work, none of it blocking the portal.
 
 ## Recommended next move
 
+*Superseded — the amendment this section asked for was made, and all three
+blockers shipped. What it recommended is left below as a record of the reasoning,
+which held.*
+
 **One design amendment PR against Core covering all three blockers at once** —
 product rule authoring, account opening, and user/role administration — as
-`api.md` rows plus a CHANGELOG entry and a version bump (core v1.19 → v1.20,
-MINOR).
+`api.md` rows plus a CHANGELOG entry and a version bump.
 
 One PR rather than three, because they share error codes, permission checks and
 pagination conventions, and because it unblocks two workstreams simultaneously:

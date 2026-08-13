@@ -1,6 +1,8 @@
 # ADR 0016 — Tenants are declared in a manifest and seeded at startup; the control plane waits
 
-**Status:** Proposed · 2026-08-08
+**Status:** Accepted · 2026-08-08 · **implemented** — `bootstrap/tenants.json` and
+`bootstrap/seed-registries.sh`, which registers every tenant with all five
+deployables that gate on a registry
 **Relates to:** defers [ADR 0015](0015-control-plane-and-tenant-provisioning.md),
 which stays on record as the destination. Implements
 [ADR 0010](0010-keycloak-realm-per-tenant.md)'s provisioning consequence by the
