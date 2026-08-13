@@ -2,7 +2,7 @@
 
 **Status:** DRAFT · 2026-08-12 — a proposal, not a decision. Nothing here is
 implemented. When agreed, this becomes amendments to
-[`design.md`](design.md) (AGREED v1.6) plus the ADRs named in §7.
+[`design.md`](design.md) (AGREED v1.7) plus the ADRs named in §7.
 
 **Why this document exists.** v1 answers one question well: *how does a customer
 learn their money moved?* It was never asked the other two — *how does a member

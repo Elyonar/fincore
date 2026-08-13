@@ -1,6 +1,6 @@
 # Notification — Data Model
 
-**Status:** AGREED v1.6 (2026-08-11) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
+**Status:** AGREED v1.7 (2026-08-11) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
 
 One schema, `notification`, in its own database. Nine tables: eight the design
 names, plus Flyway's own history.

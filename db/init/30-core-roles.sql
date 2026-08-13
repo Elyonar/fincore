@@ -13,6 +13,13 @@
 
 CREATE DATABASE core OWNER fincore;
 
+-- core_customer and core_product outlive the modules that named them. Customer and Product are
+-- deployables now (ADR 0020), with a database and a role each of their own (46-, 47-), and
+-- nothing connects as these two any more. They stay because the platform baseline has already
+-- run in every database that has one and its GRANTs name them: dropping the roles would make
+-- that migration fail on a fresh volume, and editing an applied migration to remove the grants
+-- changes its checksum and fails validation on every database that already ran it. A dead role
+-- nothing can log in to is the cheaper of the two, and it goes with the next baseline.
 CREATE ROLE core_customer      LOGIN PASSWORD 'core_customer'      NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
 CREATE ROLE core_product       LOGIN PASSWORD 'core_product'       NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
 CREATE ROLE core_orchestration LOGIN PASSWORD 'core_orchestration' NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;

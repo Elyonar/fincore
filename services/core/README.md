@@ -93,10 +93,11 @@ docker compose exec postgres psql -U fincore -d postgres \
   -c "CREATE DATABASE core_test OWNER fincore;"
 ```
 
-**Four database roles, deliberately.** Migrations run as the owner; each module's
-traffic connects as `core_customer`, `core_product` or `core_orchestration`,
-granted on its own schema and nothing else, with `core_worker` and `core_relay`
-for the background components. A cross-module query fails at runtime rather than
+**A database role per module, deliberately.** Migrations run as the owner; each
+module's traffic connects as `core_organization` or `core_orchestration`, granted
+on its own schema and nothing else, with `core_worker` and `core_relay` for the
+background components. Customer and Product had roles here until they became
+deployables of their own (ADR 0020); they now hold a database and a role each. A cross-module query fails at runtime rather than
 surviving until someone tries to extract a module. `db/init/` creates them
 locally; CI creates them in a workflow step.
 

@@ -8,6 +8,43 @@ entry first.
 
 ---
 
+## [1.11.0] — 2026-08-13 · MINOR
+
+**The currency registry is more than one country, and a currency it does not carry is a
+refusal rather than a 500.**
+
+- **Docs:** `api.md` (one new endpoint, `GET /v1/currencies`; one new code,
+  `CURRENCY_UNKNOWN`, with its reason `UNKNOWN_CURRENCY`)
+- **Why:** the registry held one row. `V8` seeded NGN and deferred the rest to "one migration
+  per country pack" — caution that read well and behaved as a fault, because it conflated two
+  questions that have different owners:
+  - **which currencies exist, and what each one's decimal places are.** A fact about ISO 4217,
+    and this table's business, because `accounts`, `entries` and `holds` all reference it and
+    the exponent is immutable once a currency is in use.
+  - **which of them an institution deals in.** A fact about that institution, held in Core and
+    editable from its settings.
+
+  With one row in the first, the second had nothing to choose from. A Nigerian bank opening an
+  ordinary domiciliary account in dollars — a product almost every bank on the continent sells
+  — hit the foreign key on `accounts.currency`, and the violation surfaced as a **500 carrying
+  a Postgres constraint name**. That is worse than untidy: under the retry rule a 5xx means
+  "outcome unknown, retry the same key", so a caller retried forever a request that could never
+  succeed, while whoever was watching went looking for a database fault instead of a settings
+  mistake.
+- **What changed:**
+  - **Membership is checked before the insert**, and refused as a terminal `422
+    CURRENCY_UNKNOWN` naming the currency in `details`.
+  - **The registry is seeded properly** (`V10`). Chosen for correctness of exponent rather than
+    completeness of list: every currency whose decimal places are not 2 is present, so none can
+    later be added by somebody assuming the default. Everything else on the list takes 2.
+  - **`GET /v1/currencies` makes it readable**, so an institution can be told what it may offer
+    before it offers it rather than finding out at a counter. Not tenant-scoped and carrying no
+    tenant header: the exponent of the yen is not a fact about a tenant.
+- **Compatibility:** additive. No existing code changes meaning, no existing row moves. A caller
+  that met the old 500 now meets a 4xx, which is the correction.
+
+---
+
 ## [1.10.1] — 2026-08-11 · PATCH
 
 **Four silent failures fixed: the invariant report shows its findings, the outbox gauges
