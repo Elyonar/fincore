@@ -1,6 +1,6 @@
 # Core — Saga Protocol & Recovery
 
-**Status:** AGREED v1.24 (2026-08-10) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
+**Status:** AGREED v2.3 (2026-08-11) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
 
 Read [`outcome-protocol.md`](outcome-protocol.md) first. This document describes
 execution; that one describes the rule execution must obey.
@@ -183,7 +183,11 @@ type `REVERSAL` that references the original:
   centralized, workflow enforced by the owning service). The approval is bound to
   its target and amount, is single-use, and enforces checker ≠ maker. An approval
   that could be replayed, or applied to a different amount, is not maker-checker.
-- It calls the ledger's reverse endpoint with its own derived key.
+- It calls the ledger's reverse endpoint with its own derived key — and so does
+  the worker. A claimed `REVERSAL` saga is resolved by re-driving that same
+  reverse call under that same key, never by rebuilding a posting: a reversal
+  names a transaction, not a pair of accounts, and only a replay of the original
+  call is a replay the ledger's registry can recognise.
 - `409 ALREADY_REVERSED` classifies as `SUCCESS`: the response carries the
   winning reversal's id and the saga converges on it rather than retry-looping.
 - The original saga stays `COMPLETED`. It is not rewritten; the reversal is a

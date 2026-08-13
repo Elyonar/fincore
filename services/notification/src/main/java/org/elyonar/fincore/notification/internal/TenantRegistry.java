@@ -38,6 +38,20 @@ public class TenantRegistry {
         return "ACTIVE".equals(status);
     }
 
+    /**
+     * The institution's name, as a message signs itself.
+     *
+     * <p>An SMS about somebody's money that does not say who it is from is indistinguishable from
+     * the ones criminals send, and a customer who cannot tell is a customer who either ignores a
+     * real alert or answers a fake one. Null only if the tenant vanished between the gate and here.
+     */
+    public String displayName(UUID tenantId) {
+        return read.query(
+                "SELECT name FROM notification.tenants WHERE id = ?",
+                rs -> rs.next() ? rs.getString(1) : null,
+                tenantId);
+    }
+
     /** Provisioning only, and deliberately not reachable from any request or event path. */
     public void register(UUID tenantId, String name, String createdBy) {
         provision.update(

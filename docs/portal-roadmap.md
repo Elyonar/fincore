@@ -17,8 +17,9 @@ restart. That was a precondition for everything else, and it is done.
 
 **Landed as agreed-shaped design, not yet code:** ADR 0015 (control plane,
 Deferred), ADR 0016 (tenant manifest), ADR 0017 (tenant-defined roles),
-`tenant-bootstrap.md`, `bootstrap/tenants.json`, and the deferred
-`services/platform` design set.
+`tenant-bootstrap.md`, and `bootstrap/tenants.json`. The `services/platform`
+design set was removed with the 2026-08-11 MVP trim — the ADRs remain the
+record; the docs return with the deployable, if it returns.
 
 **Unchanged:** every backend gap the client-readiness analysis found. No API has
 been added this session. That is the honest starting line.
@@ -56,9 +57,9 @@ gaps, each verified in source.
 
 | # | Gap | Evidence | Effort |
 |---|---|---|---|
-| A | **Product pricing cannot be authored.** `POST /v1/products` accepts `(code, name, type)`. No endpoint writes `fee_rules`, `limit_rules` or `loan_rules`; none reads them back; `create()` hardcodes `version=1` so a product can only ever have one version; `effective_from` is unsettable. Nothing prices, so no deposit, withdrawal or loan resolves a product version. | `ProductController.java:73`, `ProductRecords.java:53-59`; zero non-test writers of the three rule tables | 2.5–3.5 wk |
+| A | **Product pricing cannot be authored.** `POST /v1/products` accepts `(code, name, type)`. No endpoint writes `fee_rules` or `limit_rules`; none reads them back; `create()` hardcodes `version=1` so a product can only ever have one version; `effective_from` is unsettable. Nothing prices, so no deposit, withdrawal or transfer resolves a product version. | `ProductController.java:73`, `ProductRecords.java:53-59`; zero non-test writers of the rule tables | 2.5–3.5 wk |
 | B | **No ledger account can be opened.** `POST /v1/customers/{id}/accounts` links an id the caller must already hold; `LedgerClient` has `post`/`reverse`/`read`/`get` and no open operation; the edge deliberately does not route to the ledger. Blocks customer accounts, the fee-income, funding and penalty-income accounts every configured product needs, and the account a till *is*. | `CustomerController.java:133-143`, `LedgerClient.java` | 1–1.5 wk |
-| C | **No user or role administration** — ADR 0017. No endpoint creates a staff user; the eight `job:*` composites are identical for every tenant. Includes the live `units` derivation gap: `OrgUnitController` documents that provisioning derives the `units` claim from `unit_assignments`, and nothing does, so assigning a teller to a branch has no effect on authorization. | no user endpoint anywhere; `OrgUnitController.java:25-26` | 2–3 wk |
+| C | **No user or role administration** — ADR 0017. No endpoint creates a staff user; the seven `job:*` composites are identical for every tenant. ~~Includes the live `units` derivation gap~~ — **closed**: assigning a principal to a unit now moves the claim as well as the row, through the `UnitClaims` port Organization declares and Admin implements against the directory. Both stores move together or the write fails. | no user endpoint anywhere | 2–3 wk |
 
 **All three change Core's `api.md`**, so `design-changes.md` rule 1 wants the
 amendment in its own PR before implementation.
@@ -89,7 +90,7 @@ workaround.
 
 Next.js, one app, role-gated navigation — not four SPAs. The realm's job
 composites already describe the navigation trees. Order: setup (products, org
-units, accounts, staff) → teller → supervisor/ops → loan desk.
+units, accounts, staff) → teller → supervisor/ops.
 
 **It can start before the backend is finished.** Once the api.md amendment in
 step 2 is agreed, the contract is stable enough to build against mocks. That is

@@ -36,6 +36,8 @@ public interface ContactDirectory {
             UUID customerId,
             String status,
             String locale,
+            /** The account this contact was found by — what a message names so a customer can act on it. */
+            String accountNumber,
             Map<String, String> addresses,
             List<Consent> consent) {
 

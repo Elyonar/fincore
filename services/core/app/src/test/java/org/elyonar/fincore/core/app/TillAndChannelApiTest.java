@@ -107,6 +107,55 @@ class TillAndChannelApiTest {
                 .isEqualTo(200);
     }
 
+    /**
+     * A till can change hands after it is opened.
+     *
+     * <p>It could not, until now. {@code assigned_to} was writable only in the INSERT, so a drawer
+     * opened before anybody knew whose it would be — which is the ordinary case during setup, and
+     * exactly what the setup flow's "nobody yet" option produces — stayed unassigned for its whole
+     * life. The only remedy was to close it and open another, which is a different till against the
+     * same physical drawer.
+     *
+     * <p>The closed case is the point of the second half. Reassigning a closed till would rewrite
+     * who was answerable for cash already counted and signed off.
+     */
+    @Test
+    void an_open_till_can_change_hands_and_a_closed_one_cannot() throws Exception {
+        createBranch("branch-20", "BRANCH");
+        String tillId = mapper.readTree(openTill("branch-20").body()).get("tillId").asString();
+
+        HttpResponse<String> reassigned = assign(tillId, "\"user:ngozi.teller\"", "tills:manage");
+        assertThat(reassigned.statusCode()).isEqualTo(200);
+        assertThat(send(authed("/v1/tills", "tills:read").GET().build()).body())
+                .contains("user:ngozi.teller");
+
+        // Nobody is a state, not an omission: a teller leaves and the drawer stays.
+        assertThat(assign(tillId, "null", "tills:manage").statusCode()).isEqualTo(200);
+        assertThat(send(authed("/v1/tills", "tills:read").GET().build()).body())
+                .doesNotContain("user:ngozi.teller");
+
+        // Reading a till does not license handing it to somebody.
+        assertThat(assign(tillId, "\"user:ada\"", "tills:read").statusCode()).isEqualTo(403);
+
+        send(authed("/v1/tills/" + tillId + "/close", "tills:manage")
+                .POST(HttpRequest.BodyPublishers.noBody())
+                .build());
+        HttpResponse<String> tooLate = assign(tillId, "\"user:ada\"", "tills:manage");
+        assertThat(tooLate.statusCode()).isEqualTo(422);
+        assertThat(tooLate.body()).contains("TILL_NOT_OPEN");
+
+        // An id nothing owns is the same refusal, so a probe learns nothing from the difference.
+        assertThat(assign(UUID.randomUUID().toString(), "\"user:ada\"", "tills:manage").statusCode())
+                .isEqualTo(422);
+    }
+
+    private HttpResponse<String> assign(String tillId, String assignedTo, String permissions) {
+        return send(authed("/v1/tills/" + tillId + "/assignment", permissions)
+                        .PUT(HttpRequest.BodyPublishers.ofString(
+                                "{\"assignedTo\":%s}".formatted(assignedTo)))
+                        .build());
+    }
+
     @Test
     void a_unit_that_is_not_a_branch_cannot_take_a_till() {
         createBranch("ops-team", "OPERATIONS_TEAM");

@@ -144,7 +144,7 @@ service directory first.
 Verified by running the suites, not by reading the docs: **521 tests green** —
 26 `libs/auth`, 9 `libs/events`, 231 ledger, 198 Core, 57 Notification.
 
-- `services/ledger` — **design AGREED v1.10; implemented and merged to main.**
+- `services/ledger` — **design AGREED v1.11; implemented and merged to main.**
   Every documented endpoint exists. Do not re-implement the schema, posting
   engine, holds, reversal, outbox, value dating, statements or invariants: they
   are done.
@@ -164,18 +164,21 @@ Verified by running the suites, not by reading the docs: **521 tests green** —
     and two cross-tenant probes
   - no performance, soak or disaster-recovery evidence exists
 
-- `services/core` — **design AGREED v1.20; implemented, merged, and running.**
-  One deployable holding five modules ([ADR 0006](docs/adr/0006-modular-core.md)):
-  `customer`, `product`, `organization`, `orchestration` and `app`, with a schema
-  and a database role each. Transfers, cash in and out, business reversal with
+- `services/core` — **design AGREED v2.3; implemented, merged, and running.**
+  One deployable holding six modules ([ADR 0006](docs/adr/0006-modular-core.md)):
+  `customer`, `product`, `organization`, `orchestration`, `admin` and `app`. The
+  four domain modules first named carry a schema and a database role each;
+  `admin` — the staff/role administration surface — deliberately owns neither,
+  because it holds no state and proxies every call to the identity service
+  (ADR 0018). Transfers, cash in and out, business reversal with
   maker-checker approval, customer contact and consent, product versioning with
   publish control, and organizational units (ADR 0012). A sixth module, lending
   ([ADR 0013](docs/adr/0013-lending-module-first.md)), was built and has been
-  withdrawn — out of scope for this build. It has its own image and compose
+  withdrawn — out of scope for this build. Core has its own image and compose
   service, and calls the ledger over HTTP.
 
   The domain modules carry no unit tests of their own; all are covered by
-  `app`'s integration suite (plus `ScheduleEngineTest`'s seeded sweep), which
+  `app`'s integration suite, which
   is why Core's 213 sit almost entirely in `app`.
 
   Read `services/core/docs/design.md` and then `outcome-protocol.md` before
@@ -183,7 +186,7 @@ Verified by running the suites, not by reading the docs: **521 tests green** —
   never compensated and never reported as success** — it is a 503, the same key
   is retried, and the worker resolves it.
 
-- `services/notification` — **design AGREED v1.5; implemented, merged, and
+- `services/notification` — **design AGREED v1.7; implemented, merged, and
   running.** The platform's first event *consumer*, taken ahead of its PRD phase
   for the reasons in [ADR 0011](docs/adr/0011-first-consumer-before-phase-three.md):
   nothing had ever consumed an event, and designing a consumer immediately found

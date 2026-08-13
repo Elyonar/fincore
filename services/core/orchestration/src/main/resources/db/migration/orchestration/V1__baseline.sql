@@ -140,7 +140,7 @@ CREATE TABLE orchestration.internal_accounts (
     opened_by text NOT NULL,
     closed_at timestamp with time zone,
     closed_by text,
-    CONSTRAINT internal_accounts_purpose_check CHECK ((purpose = ANY (ARRAY['TILL'::text, 'VAULT'::text, 'FEE_INCOME'::text, 'INTEREST_INCOME'::text, 'PENALTY_INCOME'::text, 'LOAN_FUNDING'::text, 'SUSPENSE'::text, 'SETTLEMENT'::text, 'OTHER'::text]))),
+    CONSTRAINT internal_accounts_purpose_check CHECK ((purpose = ANY (ARRAY['TILL'::text, 'VAULT'::text, 'FEE_INCOME'::text, 'INTEREST_INCOME'::text, 'PENALTY_INCOME'::text, 'SUSPENSE'::text, 'SETTLEMENT'::text, 'OTHER'::text]))),
     CONSTRAINT internal_accounts_status_check CHECK ((status = ANY (ARRAY['ACTIVE'::text, 'CLOSED'::text])))
 );
 
@@ -309,6 +309,24 @@ CREATE SEQUENCE orchestration.transaction_reference_seq
     CACHE 1;
 
 --
+-- Name: transaction_reference(); Type: FUNCTION; Schema: orchestration; Owner: -
+--
+-- Customer-facing reference: TXN-YYYYMMDD-NNNNN. Zero-padded to five digits for
+-- teller legibility, but the width GROWS past 99,999 rather than overflowing —
+-- to_char's 'FM00000' template renders 100000 as '#####', which would collide on
+-- sagas_reference_per_tenant and refuse every insert on the money path from the
+-- 100,000th posting onward. lpad alone is no better: it truncates. Hence the CASE.
+--
+
+CREATE FUNCTION orchestration.transaction_reference() RETURNS text
+    LANGUAGE sql
+    AS $$
+    SELECT 'TXN-' || to_char(now(), 'YYYYMMDD') || '-'
+        || CASE WHEN n < 100000 THEN lpad(n::text, 5, '0') ELSE n::text END
+    FROM (SELECT nextval('orchestration.transaction_reference_seq') AS n) numbered;
+$$;
+
+--
 -- Name: sagas; Type: TABLE; Schema: orchestration; Owner: -
 --
 
@@ -342,7 +360,7 @@ CREATE TABLE orchestration.sagas (
     from_account_id uuid,
     to_account_id uuid,
     fee_account_id uuid,
-    reference text DEFAULT ((('TXN-'::text || to_char(now(), 'YYYYMMDD'::text)) || '-'::text) || to_char(nextval('orchestration.transaction_reference_seq'::regclass), 'FM00000'::text)) NOT NULL,
+    reference text DEFAULT orchestration.transaction_reference() NOT NULL,
     CONSTRAINT completed_has_a_ledger_transaction CHECK (((state <> 'COMPLETED'::text) OR (ledger_transaction_id IS NOT NULL))),
     CONSTRAINT failed_has_no_ledger_transaction CHECK (((state <> 'FAILED'::text) OR (ledger_transaction_id IS NULL))),
     CONSTRAINT reversal_shape CHECK ((((type = 'REVERSAL'::text) AND (reverses_saga_id IS NOT NULL) AND (approval_id IS NOT NULL)) OR ((type <> 'REVERSAL'::text) AND (reverses_saga_id IS NULL) AND (approval_id IS NULL)))),
@@ -351,7 +369,7 @@ CREATE TABLE orchestration.sagas (
     CONSTRAINT sagas_channel_idempotency_key_check CHECK ((length(channel_idempotency_key) <= 200)),
     CONSTRAINT sagas_fee_minor_check CHECK ((fee_minor >= 0)),
     CONSTRAINT sagas_state_check CHECK ((state = ANY (ARRAY['RECEIVED'::text, 'POSTING'::text, 'COMPLETED'::text, 'FAILED'::text, 'PENDING_RESOLUTION'::text]))),
-    CONSTRAINT sagas_type_check CHECK ((type = ANY (ARRAY['TRANSFER'::text, 'DEPOSIT'::text, 'WITHDRAWAL'::text, 'REVERSAL'::text, 'DISBURSEMENT'::text, 'REPAYMENT'::text, 'RECOGNITION'::text]))),
+    CONSTRAINT sagas_type_check CHECK ((type = ANY (ARRAY['TRANSFER'::text, 'DEPOSIT'::text, 'WITHDRAWAL'::text, 'REVERSAL'::text]))),
     CONSTRAINT terminal_states_are_stamped CHECK ((((state = ANY (ARRAY['COMPLETED'::text, 'FAILED'::text])) AND (terminal_at IS NOT NULL)) OR ((state <> ALL (ARRAY['COMPLETED'::text, 'FAILED'::text])) AND (terminal_at IS NULL))))
 );
 

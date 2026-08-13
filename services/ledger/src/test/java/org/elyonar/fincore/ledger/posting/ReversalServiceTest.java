@@ -6,9 +6,11 @@ import static org.elyonar.fincore.ledger.posting.EntryLine.Direction.CREDIT;
 import static org.elyonar.fincore.ledger.posting.EntryLine.Direction.DEBIT;
 
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.UUID;
 import javax.sql.DataSource;
+import org.elyonar.fincore.ledger.period.PeriodService;
 import org.elyonar.fincore.ledger.shared.ErrorCode;
 import org.elyonar.fincore.ledger.shared.LedgerException;
 import org.elyonar.fincore.ledger.support.LedgerPostgresTest;
@@ -24,6 +26,7 @@ class ReversalServiceTest extends LedgerPostgresTest {
 
     @Autowired PostingService posting;
     @Autowired ReversalService reversals;
+    @Autowired PeriodService periods;
     @Autowired DataSource dataSource;
 
     private UUID tenant;
@@ -125,9 +128,32 @@ class ReversalServiceTest extends LedgerPostgresTest {
                         db.count(
                                 "SELECT count(*) FROM entries WHERE transaction_id = ? AND value_date = ?",
                                 reversal,
-                                LocalDate.now()))
-                .as("posting into the past would rewrite a period that may be closed and signed off")
+                                LocalDate.now(ZoneId.of("Africa/Lagos"))))
+                .as("posting into the past would rewrite a period that may be closed and signed off;"
+                        + " and the date is the tenant's business date, not the JVM host's —"
+                        + " a 00:30 WAT reversal on a UTC host belongs to that day's business")
                 .isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("a reversal refuses to book into a closed period — undone is not un-signed-off")
+    void reversal_respects_closed_periods() {
+        UUID original = credit("tx-1", 500_00);
+        // Close through today: the reversal's own business date now falls inside a closed
+        // period, which is the same-day-after-close window in which a reversal would change a
+        // FINAL statement after the fact.
+        periods.close(tenant, LocalDate.now(ZoneId.of("Africa/Lagos")), "user:ops");
+
+        assertThatThrownBy(() -> reversals.reverse(reversalOf(original, "rev-1")))
+                .isInstanceOf(LedgerException.class)
+                .extracting(e -> ((LedgerException) e).errorCode())
+                .as("the same refusal the posting path gives; closed-period is not a third bypass")
+                .isEqualTo(ErrorCode.VALUE_DATE_INVALID);
+
+        assertThat(balance(customer)).as("the rejection is total — no money moved").isEqualTo(500_00);
+        assertThat(db.count("SELECT count(*) FROM ledger_transactions WHERE id=? AND status='REVERSED'", original))
+                .as("the original stays POSTED and remains reversible in the next open period")
+                .isZero();
     }
 
     @Test

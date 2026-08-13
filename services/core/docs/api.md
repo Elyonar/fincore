@@ -1,6 +1,6 @@
 # Core — API Surface (v1)
 
-**Status:** AGREED v1.20 (2026-08-08) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
+**Status:** AGREED v2.3 (2026-08-11) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
 
 REST/JSON. Every request carries a validated identity token — **the tenant comes
 from the token, never from a header**
@@ -25,6 +25,22 @@ the first place.
 
 ## Endpoints
 
+> **Customer and Product left this service (ADR 0020).** Their endpoints are served by the
+> `customer` and `product` deployables and are documented with them — `/api/customer/**` and
+> `/api/product/**` at the edge. What stays here is what Core genuinely composes: opening an
+> account (a ledger account, a product check and a customer record, in that order), and the 360
+> view that joins held accounts with the ledger's balances. A documented endpoint that nothing
+> serves is worse than an undocumented one, because an integrator plans against it — which is why
+> `ApiSurfaceCatalogTest` refuses to let this table drift from what is actually built.
+>
+> Two vocabularies moved with them and are worth naming here because Core enforces something about
+> each. `/v1/kyc-tiers` belongs to the customer service and `/v1/product-types` to the product
+> service — but Core checks a limit rule's tier against the first before writing it through, for the
+> same reason it checks a fee rule's account against its own register: a rule naming a tier nobody
+> can hold stores cleanly and then never matches, which reads as a configured ceiling and behaves as
+> a blanket refusal.
+
+
 | Method & path | Purpose | Module | Permission | Caller |
 |---|---|---|---|---|
 | `POST /v1/deposits` | cash in: till → customer account; priced by the account's own product | orchestration | `cash:transact` | teller, API |
@@ -32,62 +48,56 @@ the first place.
 | `POST /v1/transfers` | intra-tenant book transfer | orchestration | `transfers:create` | teller, API |
 | `GET  /v1/transactions/{id}` | saga state and the accounts it moved between — **non-mutating recovery read** | orchestration | `transfers:read` | teller, API, ops, consumers |
 | `POST /v1/transactions/{id}/reverse` | **business** reversal of a completed transaction — approval required | orchestration | `transfers:reverse` | ops, supervisor |
-| `POST /v1/customers` | create a customer | customer | `customers:create` | admin, API |
-| `GET  /v1/customers/{id}` | customer profile, tier, status, linked accounts | customer | `customers:read` | teller, API |
-| `GET  /v1/customers` | search by name or reference, keyset-paged (`q`, `page`) | customer | `customers:read` | teller, API |
 | `GET  /v1/customers/{id}/accounts` | held accounts with the ledger's balances joined on | orchestration | `customers:read` | teller, API |
 | `GET  /v1/accounts/{ledgerAccountId}/statement` | the ledger's period statement, passed through byte-for-byte (`from`, `to`) | orchestration | `transfers:read` | teller, API |
 | `GET  /v1/tills/{id}/activity` | the till's day: its sagas and net position (`date`) | orchestration | `tills:read` | supervisor |
 | `GET  /v1/approvals/pending` | the checker's queue, oldest first | orchestration | `approvals:check` | supervisor |
-| `POST /v1/customers/{id}/tier` | change KYC tier (attributed, reason required) | customer | `customers:tier` | compliance, admin |
-| `POST /v1/customers/{id}/accounts` | link a ledger account to a customer | customer | `customers:link` | admin |
-| `POST /v1/customers/{customerId}/accounts/open` | open a ledger account for a customer, number it, and record the product it is held under | app (onboarding) | `customers:link` | admin, teller |
+| `POST /v1/customers/{customerId}/accounts/open` | open a ledger account for a customer, number it, and record the product it is held under — a code the catalogue does not know is refused (`PRODUCT_NOT_FOUND`) before the account exists | app (onboarding) | `customers:link` | admin, teller |
 | `GET  /v1/customer-numbering` | how customers and their accounts are numbered, and the next of each | app (onboarding) | `customers:read` | admin |
-| `PUT  /v1/customer-numbering/{series}` | change a series — prefix, width, next value | app (onboarding) | `customers:create` | admin |
-| `GET  /v1/customers/by-account/{ledgerAccountId}` | contact addresses, language and consent for the holder of an account — **no name, no tier** | customer | `customers:contact` | notification, API |
-| `POST /v1/customers/{id}/consent` | record what a customer agreed to, per category and channel | customer | `customers:consent` | admin, compliance |
-| `GET  /v1/products` | list products and their versions | product | `products:read` | teller, admin |
-| `POST /v1/products` | create a product with a DRAFT version 1 | product | `products:create` | admin |
-| `POST /v1/products/{id}/versions/{v}/publish` | publish a version (attributed; maker-checker) | product | `products:publish` | admin |
+| `PUT  /v1/customer-numbering/{series}` | change a series — prefix, width, next value (forward only: a `nextValue` below the current one is refused, `COMMAND_INVALID`) | app (onboarding) | `org:manage` | admin |
 | `POST /v1/products/{productId}/versions` | draft the next version, optionally copying an existing one's rules | app (pricing) | `products:create` | admin |
-| `GET  /v1/products/{productId}/versions/{version}` | one version with its fee, limit and loan rules | app (pricing) | `products:read` | admin |
+| `GET  /v1/products/{productId}/versions/{version}` | one version with its fee and limit rules | app (pricing) | `products:read` | admin |
 | `PUT  /v1/products/{productId}/versions/{version}/fee-rules` | replace the draft's fee schedule; accounts validated against the institution's own | app (pricing) | `products:create` | admin |
 | `PUT  /v1/products/{productId}/versions/{version}/limit-rules` | replace the draft's limits — without a PER_TXN rule the product refuses everything | app (pricing) | `products:create` | admin |
-| `PUT  /v1/products/{productId}/versions/{version}/loan-rules` | replace the draft's loan terms, rates and penalties | app (pricing) | `products:create` | admin |
 | `PATCH /v1/products/{productId}/versions/{version}` | schedule when the version becomes live once published | app (pricing) | `products:create` | admin |
 | `POST /v1/approvals` | raise a maker-checker approval, bound to a target and amount | orchestration | `approvals:make` | supervisor |
 | `POST /v1/approvals/{id}/check` | approve or reject (checker ≠ maker, enforced) | orchestration | `approvals:check` | supervisor |
 | `GET  /v1/ops/cases` | unresolved-outcome cases | orchestration | `ops:read` | ops |
 | `POST /v1/ops/cases/{id}/resolve` | **re-attempt resolution now.** Does not accept an outcome | orchestration | `ops:resolve` | ops |
+| `GET  /v1/currencies` | what this institution deals in, and each one's ISO 4217 exponent — **not** an allow-list, the ledger is the authority on what may be posted | orchestration | `org:read` | everyone |
+| `POST /v1/currencies` | offer a currency, or bring a withdrawn one back (upsert; withdrawing deactivates rather than deletes, because its accounts still have to render) | orchestration | `org:manage` | admin |
+| `GET  /v1/currencies/registry` | every currency the ledger will carry, with its ISO 4217 exponent — the list an institution's own offering is chosen from | orchestration | `org:read` | admin |
+| `DELETE /v1/currencies/{code}` | stop offering a currency; its existing accounts keep their balances and keep rendering | orchestration | `org:manage` | admin |
 | `POST /v1/org-units` | create an organizational unit (ADR 0012) | organization | `org:manage` | admin |
 | `GET  /v1/org-units` | the tenant's units | organization | `org:read` | admin, supervisor |
 | `GET  /v1/org-units/{id}` | one unit | organization | `org:read` | admin, supervisor |
 | `POST /v1/org-units/{id}/close` | close a unit; its history stays attributed to it | organization | `org:manage` | admin |
-| `POST /v1/org-units/{id}/assignments` | assign a principal to a unit, attributed | organization | `org:manage` | admin |
-| `POST /v1/org-units/{id}/assignments/revoke` | revoke a live assignment, attributed; history kept | organization | `org:manage` | admin |
+| `POST /v1/org-units/{id}/assignments` | assign a principal to a unit, attributed; a person's `units` claim moves with it | organization | `org:manage` | admin |
+| `POST /v1/org-units/{id}/assignments/revoke` | revoke a live assignment, attributed; history kept, and a person's claim drops it | organization | `org:manage` | admin |
 | `GET  /v1/org-units/{id}/assignments` | the unit's live assignments — what identity provisioning reads | organization | `org:read` | admin |
-| `GET  /v1/permissions` | the platform's permission vocabulary, with what each grants | app (directory) | `users:read` | admin |
-| `GET  /v1/roles` | the tenant's roles — seeded templates and anything authored — with contents | app (directory) | `users:read` | admin |
-| `POST /v1/users` | create a member of staff with roles and units; temporary credential returned once | app (directory) | `users:manage` | admin |
-| `GET  /v1/users` | staff, filtered by role and unit, keyset-paged | app (directory) | `users:read` | admin |
-| `GET  /v1/users/{id}` | one user with roles, units and status | app (directory) | `users:read` | admin |
-| `PUT  /v1/users/{id}/units` | replace unit assignments — Core's record and the token claim together | app (directory) | `users:manage` | admin |
-| `POST /v1/users/{id}/reset-password` | fresh temporary credential, forced change, sessions revoked | app (directory) | `users:manage` | admin |
-| `POST /v1/users/{id}/unlock` | clear a lockout early | app (directory) | `users:manage` | admin |
-| `PUT  /v1/users/{id}/employment` | set the administered facts — staff number, job title, start date | app (directory) | `users:manage` | admin |
-| `POST /v1/roles` | author a tenant role; name namespaced `role:`, permissions must be ones you hold | app (directory) | `users:manage` | admin |
-| `PUT  /v1/roles/{role}/permissions` | recompose a role; refused for any permission the grantor lacks | app (directory) | `users:manage` | admin |
-| `DELETE /v1/roles/{role}` | delete a tenant-authored role; refused while held, and for templates | app (directory) | `users:manage` | admin |
-| `PUT  /v1/users/{id}/roles` | replace a user's role grants; refused if it would remove the last administrator | app (directory) | `users:manage` | admin |
-| `GET  /v1/job-titles` | the institution's job vocabulary, with how many hold each | app (directory) | `users:read` | admin |
-| `POST /v1/job-titles` | add a title to the vocabulary | app (directory) | `users:manage` | admin |
-| `DELETE /v1/job-titles/{title}` | retire a title; refused while anybody holds it | app (directory) | `users:manage` | admin |
-| `GET  /v1/staff-numbering` | the numbering rule, and the number the next hire would take | app (directory) | `users:read` | admin |
-| `PUT  /v1/staff-numbering` | change prefix, width or next value | app (directory) | `users:manage` | admin |
+| `GET  /v1/permissions` | the platform's permission vocabulary, with what each grants | admin | `users:read` | admin |
+| `GET  /v1/roles` | the tenant's roles — seeded templates and anything authored — with contents | admin | `users:read` | admin |
+| `POST /v1/users` | create a member of staff with roles and units; temporary credential returned once | admin | `users:manage` | admin |
+| `GET  /v1/users` | staff, filtered by role and unit, keyset-paged | admin | `users:read` | admin |
+| `GET  /v1/users/{id}` | one user with roles, units and status | admin | `users:read` | admin |
+| `PUT  /v1/users/{id}/units` | replace unit assignments — Core's record and the token claim together | admin | `users:manage` | admin |
+| `POST /v1/users/{id}/reset-password` | fresh temporary credential, forced change, sessions revoked | admin | `users:manage` | admin |
+| `POST /v1/users/{id}/unlock` | clear a lockout early | admin | `users:manage` | admin |
+| `PUT  /v1/users/{id}/employment` | set the administered facts — staff number, job title, start date | admin | `users:manage` | admin |
+| `POST /v1/roles` | author a tenant role; name namespaced `role:`, permissions must be ones you hold | admin | `users:manage` | admin |
+| `PUT  /v1/roles/{role}/permissions` | recompose a role; refused for any permission the grantor lacks | admin | `users:manage` | admin |
+| `DELETE /v1/roles/{role}` | delete a tenant-authored role; refused while held, and for templates | admin | `users:manage` | admin |
+| `PUT  /v1/users/{id}/roles` | replace a user's role grants; refused if it would remove the last administrator | admin | `users:manage` | admin |
+| `GET  /v1/job-titles` | the institution's job vocabulary, with how many hold each | admin | `users:read` | admin |
+| `POST /v1/job-titles` | add a title to the vocabulary | admin | `users:manage` | admin |
+| `DELETE /v1/job-titles/{title}` | retire a title; refused while anybody holds it | admin | `users:manage` | admin |
+| `GET  /v1/staff-numbering` | the numbering rule, and the number the next hire would take | admin | `users:read` | admin |
+| `PUT  /v1/staff-numbering` | change prefix, width or next value | admin | `users:manage` | admin |
 | `GET  /v1/internal-accounts` | the institution's own accounts, with what each is called and for | orchestration | `accounts:read` | admin |
 | `POST /v1/internal-accounts` | open one in the ledger and name it — till, fee income, suspense | orchestration | `accounts:manage` | admin |
 | `POST /v1/tills` | provision a till inside a validated branch | orchestration | `tills:manage` | admin |
 | `GET  /v1/tills` | the tenant's tills | orchestration | `tills:read` | admin, supervisor |
+| `PUT  /v1/tills/{id}/assignment` | hand an open till to a staff member, or to nobody (`assignedTo: null`) | orchestration | `tills:manage` | admin |
 | `POST /v1/tills/{id}/close` | close a till; cash cannot move through it afterwards | orchestration | `tills:manage` | admin |
 
 **The channel is permission-gated, never free-asserted.** The channel a
@@ -132,6 +142,15 @@ that table, both because it may not depend on Orchestration and because an
 approval there is bound to a saga id and an amount, neither of which a product
 version has.
 
+Two consequences of taking that control seriously: a draft records its
+*caller* as author — never an inferred or inherited name — because the
+comparison at publish is only as honest as that field; and publish holds the
+version row locked while it re-checks what it is signing, so a rule write
+racing the publish waits its turn and then meets the trigger, rather than
+landing unsigned in a live version. Publish also refuses a version whose fee
+rules name no fee account (`PRICING_ACCOUNT_INVALID`) — that row would
+otherwise surface on the money path, one stranded transaction at a time.
+
 **There is no endpoint for a compensating reversal, deliberately.** A saga
 undoing its own posting after a downstream `DEFINITE_FAILURE` is automated and
 internal — it has no caller, no approval, and no API surface, because exposing it
@@ -148,7 +167,7 @@ exception: even after a Ledger restore, resolution is mechanical replay rather
 than human judgement ([`saga-protocol.md`](saga-protocol.md)).
 
 Not in v1, deliberately: inter-bank transfers, bulk disbursement, standing
-orders, holds, interest accrual, lending. The connector seam is designed
+orders, holds, interest accrual. The connector seam is designed
 ([`saga-protocol.md`](saga-protocol.md)) and not built.
 
 ## The contract property that matters most
@@ -223,12 +242,12 @@ tenant renders its own string from `code`, `reason` and `details`.
 | `CUSTOMER_NOT_ACTIVE` | customer is dormant or closed | no |
 | `ACCOUNT_NOT_LINKED` | the account is not linked to this customer | no |
 | `ACCOUNT_HAS_NO_PRODUCT` | the account records no product, so nothing prices the transaction | no |
-| `PRODUCT_NOT_FOUND` | no product, or no published version in effect | no |
+| `PRODUCT_NOT_FOUND` | no product, or no published version in effect. Also at account opening, for a code the catalogue has never heard of → 422, `details.field` | no |
 | `OPERATION_NOT_PERMITTED` | the product forbids this operation for this tier or channel | no |
 | `LIMIT_EXCEEDED` | per-transaction or daily limit would be breached | no — new key after the window rolls |
 | `AMOUNT_INVALID` | zero, negative, or above the platform cap | no |
 | `COMMAND_INVALID` | a required field is absent or malformed — see reasons | no |
-| `CURRENCY_MISMATCH` | entry currency ≠ account currency | no |
+| `CURRENCY_MISMATCH` | entry currency ≠ account currency — or the product prices this operation only in other currencies, which refuses rather than pricing free | no |
 | `WASH_TRANSACTION` | source and destination are the same account | no |
 | `TILL_NOT_OPEN` | the teller's till is not open | no |
 | `FEE_EXCEEDS_DEPOSIT` | the fee would consume more than the deposit | no |
@@ -268,8 +287,8 @@ tenant renders its own string from `code`, `reason` and `details`.
 | `PUBLISHER_IS_AUTHOR` | the principal wrote this version and may not publish it → 403 | no — a colleague must publish |
 | `VERSION_NOT_DRAFT` | a write against a version that is already live → 409 | no — draft the next version |
 | `RULES_INVALID` | a rule set this version cannot hold; `reason` names which → 422 | no — caller bug |
-| `LOAN_RULES_ON_NON_LOAN_PRODUCT` | loan terms on a product that is not a LOAN → 422 | no |
 | `EFFECTIVE_FROM_IN_THE_PAST` | a draft dated to become effective before it existed → 422 | no |
+| `DRAFT_CONFLICT` | another draft of the same next version was created concurrently → 409 | yes — the retry drafts the version after the winner's |
 
 `NOT_REVERSIBLE` is checked **before** the approval is examined. A transaction
 that has already been reversed is refused no matter what authority accompanies

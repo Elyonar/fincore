@@ -21,14 +21,6 @@
     <dependencies>
         <dependency>
             <groupId>org.elyonar</groupId>
-            <artifactId>customer</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.elyonar</groupId>
-            <artifactId>product</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.elyonar</groupId>
             <artifactId>organization</artifactId>
         </dependency>
         <dependency>

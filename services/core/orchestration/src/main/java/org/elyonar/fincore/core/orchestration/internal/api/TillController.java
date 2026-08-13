@@ -13,6 +13,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
@@ -69,6 +70,32 @@ public class TillController {
         return Map.of("tillId", id.toString(), "status", "OPEN");
     }
 
+    /**
+     * Hands a till to somebody, or takes it back.
+     *
+     * <p>{@code tills:manage}, not {@code tills:read}: every teller holds the read, and who is
+     * answerable for a drawer of cash is a supervisor's decision.
+     *
+     * <p>Attribution rather than access — an unassigned till still transacts, and deliberately so,
+     * because a branch that cannot take a deposit until the paperwork catches up is a branch that
+     * stops. But attribution is what an audit reads afterwards, and a drawer nobody is named
+     * against is a drawer nobody has to explain.
+     */
+    @PutMapping("/tills/{id}/assignment")
+    public Assigned assign(@PathVariable UUID id, @RequestBody Assign request) {
+        var identity = Authorization.require("tills:manage");
+        String principal =
+                request.assignedTo() == null || request.assignedTo().isBlank()
+                        ? null
+                        : request.assignedTo().trim();
+
+        if (!tills.assign(identity.tenantId(), id, principal)) {
+            // Closed, unknown, or another tenant's — one refusal for all three, as at open time.
+            throw new CoreException(ErrorCode.TILL_NOT_OPEN, "no open till has id " + id);
+        }
+        return new Assigned(id, principal);
+    }
+
     /** The tenant's tills. */
     @GetMapping("/tills")
     public List<TillRecords.TillSummary> list() {
@@ -86,4 +113,9 @@ public class TillController {
     /** @param branchCode the code of an active organizational unit of type BRANCH */
     public record OpenTill(
             String branchCode, UUID ledgerAccountId, String currency, String assignedTo) {}
+
+    /** @param assignedTo the principal, spelled as tokens spell it, or null to hand it to nobody */
+    public record Assign(String assignedTo) {}
+
+    public record Assigned(UUID tillId, String assignedTo) {}
 }

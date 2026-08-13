@@ -4,17 +4,17 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import org.elyonar.fincore.core.customer.api.CustomerEligibility;
-import org.elyonar.fincore.core.customer.api.EligibilityResult;
+import org.elyonar.fincore.core.orchestration.api.CustomerEligibility;
+import org.elyonar.fincore.core.orchestration.api.EligibilityResult;
 import org.elyonar.fincore.core.orchestration.api.CashCommand;
 import org.elyonar.fincore.core.orchestration.api.CoreException;
 import org.elyonar.fincore.core.orchestration.api.LedgerOutcome;
 import org.elyonar.fincore.core.orchestration.api.LedgerPosting;
 import org.elyonar.fincore.core.orchestration.api.TransferResult;
 import org.elyonar.fincore.core.orchestration.internal.ledger.LedgerClient;
-import org.elyonar.fincore.core.product.api.ProductDecision;
-import org.elyonar.fincore.core.product.api.ProductDecisions;
-import org.elyonar.fincore.core.product.api.ProductRequest;
+import org.elyonar.fincore.core.orchestration.api.ProductDecision;
+import org.elyonar.fincore.core.orchestration.api.ProductDecisions;
+import org.elyonar.fincore.core.orchestration.api.ProductRequest;
 import org.springframework.stereotype.Service;
 import org.elyonar.fincore.core.orchestration.api.ErrorCode;
 
@@ -31,8 +31,6 @@ import org.elyonar.fincore.core.orchestration.api.ErrorCode;
  */
 @Service
 public class CashService {
-
-    private static final String POST_STEP = "post";
 
     private final SagaRecords sagas;
     private final TillRecords tills;
@@ -132,7 +130,7 @@ public class CashService {
         LedgerOutcome outcome =
                 ledger.post(
                         command.tenantId(),
-                        postingFor(command, decision, till, IdempotencyKeys.forStep(sagaId, POST_STEP)));
+                        postingFor(command, decision, till, IdempotencyKeys.forStep(sagaId, IdempotencyKeys.POST_STEP)));
 
         // ---- Phase C ---------------------------------------------------------
         return switch (outcome) {

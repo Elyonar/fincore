@@ -183,21 +183,21 @@ Stated here because it is the thing most likely to be assumed rather than
 checked, and because ADR 0016 delivers a login screen rather than a working bank.
 
 **Available today**, verified against the route list: organizational units
-(create, list, close, assign, revoke); tills (provision, list, close); lending
-approval tiers; customers (create, search, KYC tier, consent, link an existing
+(create, list, close, assign, revoke); tills (provision, list, close);
+customers (create, search, KYC tier, consent, link an existing
 account); and products — a code and a name only.
 
 **Not available, and each blocks the institution from transacting:**
 
-1. **Product pricing cannot be authored.** No endpoint writes `fee_rules`,
-   `limit_rules` or `loan_rules`, none reads them back, and a product can only
-   ever have version 1. Nothing prices, so no deposit, withdrawal or loan
+1. **Product pricing cannot be authored.** No endpoint writes `fee_rules`
+   or `limit_rules`, none reads them back, and a product can only
+   ever have version 1. Nothing prices, so no deposit, withdrawal or transfer
    resolves a product version.
 2. **No ledger account can be opened.** Blocks customer accounts, the
    fee-income, funding and penalty-income accounts every configured product
    needs, and the account a till *is*.
 3. **No second member of staff can be created, and no role can be changed.** The
-   eight `job:*` composites are identical for every tenant.
+   seven `job:*` composites are identical for every tenant.
 
 All three are designed in
 [`admin-surface.md`](../../services/core/docs/admin-surface.md) (Core v1.20) and

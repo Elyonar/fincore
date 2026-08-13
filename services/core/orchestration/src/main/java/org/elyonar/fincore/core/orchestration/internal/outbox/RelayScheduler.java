@@ -22,7 +22,7 @@ public class RelayScheduler {
     // Initial delay = interval, like every other job here: a scheduler that fires at t=0 runs a
     // pass during every context boot, which in a shared test database is a concurrent publisher
     // nobody asked for — and in production is a pass racing an instance that has not finished
-    // starting. The worker, reconciliation and lending jobs all follow this pattern already.
+    // starting. The worker and reconciliation jobs both follow this pattern already.
     @Scheduled(
             initialDelayString = "${fincore.core.outbox.relay.interval-ms:1000}",
             fixedDelayString = "${fincore.core.outbox.relay.interval-ms:1000}")

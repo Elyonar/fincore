@@ -1,6 +1,6 @@
 # Core — The UI Runway
 
-**Status:** AGREED v1.24 (2026-08-10) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
+**Status:** AGREED v2.3 (2026-08-11) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
 
 The bridge between the APIs that exist and the client apps that will consume
 them ([ADR 0014](../../../docs/adr/0014-ui-runway.md)): identity made real,
@@ -50,7 +50,7 @@ and Core must not blur it.
 
 **Jwt-mode is CI-tested with a real realm.** A compose-profile integration
 lane starts Keycloak with the template realm, mints real tokens, and drives
-one money path and one lending path end-to-end — so "works with real tokens"
+one money path end-to-end — so "works with real tokens"
 is a claim with a test, and the dev-mode lockout keeps its existing suite.
 
 ## 3. The read audit — Phase 0 screens against today's surface
@@ -70,16 +70,11 @@ today. **Planned** rows are this design's implementation checklist and enter
 | Statement print | period statement, final/interim label | **Built** (`GET /v1/accounts/{ledgerAccountId}/statement?from=&to=`, byte-for-byte proxy) |
 | Deposit / withdraw / transfer | the money paths | **Built** |
 | Reversal + approvals | pending approvals for this checker | **Built** (`GET /v1/approvals/pending`) |
-| Loan desk | applications by state / awaiting my signature | **Built** (`GET /v1/loan-applications?state=&awaiting=me&page=`) |
-| Loan desk | a customer's loans | **Built** (`GET /v1/customers/{id}/loans`) |
-| Loan account | balances, schedule, payoff | **Built** (`/v1/loans/{id}…`) |
-| Loan account | repayment history | **Built** (`GET /v1/loans/{id}/repayments`) |
 | Product config | products and versions | **Built** (`GET /v1/products`) |
-| Report preview | PAR by bucket × product × officer × unit | **Built** (`GET /v1/portfolio/par`) |
 | Ops | unresolved-outcome cases | **Built** (`GET /v1/ops/cases`) |
 
 Conventions the planned rows inherit unchanged: deny-by-default permission per
-endpoint (existing vocabulary — `customers:read`, `tills:read`, `loans:read`,
+endpoint (existing vocabulary — `customers:read`, `tills:read`,
 `transfers:read`; no new permissions), tenant from token, absent and
 another-tenant's indistinguishable, money as decimal strings, keyset
 pagination (`page` is an opaque cursor, never an offset).
@@ -101,7 +96,7 @@ pagination (`page` is an opaque cursor, never an offset).
 
 ## 5. Testing
 
-The jwt lane (real realm, real tokens, one money path + one lending path);
+The jwt lane (real realm, real tokens, one money path);
 propagation (ledger receives and attributes the originating principal;
 worker-context postings attribute the system principal); the proxy preserves
 the statement contract byte-for-byte including the interim label; every

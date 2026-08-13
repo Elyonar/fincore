@@ -71,11 +71,13 @@ public class DirectoryController {
     public Directory.UserPage users(
             @RequestParam(required = false) String role,
             @RequestParam(required = false) String unit,
+            @RequestParam(required = false) String username,
             @RequestParam(required = false) String cursor,
             HttpServletRequest http) {
         var caller = auth.identify(http);
         return tx.inTenant(
-                caller.tenantId(), () -> directory.listUsers(caller.tenantId(), role, unit, cursor));
+                caller.tenantId(),
+                () -> directory.listUsers(caller.tenantId(), role, unit, username, cursor));
     }
 
     /** One user with roles, units and status. */

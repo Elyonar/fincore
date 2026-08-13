@@ -35,12 +35,12 @@ COPY libs/auth/pom.xml libs/auth/pom.xml
 COPY libs/events/pom.xml libs/events/pom.xml
 COPY services/ledger/pom.xml services/ledger/pom.xml
 COPY services/core/pom.xml services/core/pom.xml
-COPY services/core/customer/pom.xml services/core/customer/pom.xml
-COPY services/core/product/pom.xml services/core/product/pom.xml
 COPY services/core/organization/pom.xml services/core/organization/pom.xml
-COPY services/core/lending/pom.xml services/core/lending/pom.xml
 COPY services/core/orchestration/pom.xml services/core/orchestration/pom.xml
+COPY services/core/admin/pom.xml services/core/admin/pom.xml
 COPY services/core/app/pom.xml services/core/app/pom.xml
+COPY services/product/pom.xml services/product/pom.xml
+COPY services/customer/pom.xml services/customer/pom.xml
 COPY services/notification/pom.xml services/notification/pom.xml
 COPY services/identity/pom.xml services/identity/pom.xml
 RUN chmod +x mvnw && ./mvnw -B -pl services/ledger -am dependency:go-offline

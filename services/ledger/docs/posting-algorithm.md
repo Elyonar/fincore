@@ -1,6 +1,6 @@
 # Ledger — Posting Algorithm & Concurrency
 
-**Status:** AGREED v1.10 (2026-08-08) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
+**Status:** AGREED v1.11 (2026-08-08) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
 
 **The global lock protocol (two tiers, one rule, everywhere):** every
 operation that locks anything acquires locks in this order — **tier 1:
@@ -92,14 +92,21 @@ rolls back the whole thing: complete or absent, never partial.
 - If the original carries compensations (transactions with
   `relates_to_transaction_id` pointing at it), plain reversal is rejected —
   partial refund + full reversal must never double-credit.
-- Mirrored entries carry the **current business date** as value_date (posting
+- Mirrored entries carry the **current business date** as value_date —
+  resolved in the tenant's timezone, exactly as a posting resolves it (posting
   into the past would rewrite closed/backdated periods); the link to the
   original preserves traceability.
+- If that business date itself falls in a **closed period** — the
+  same-day-after-close window — the reversal is refused with
+  `VALUE_DATE_INVALID` / `PERIOD_CLOSED`, the same error the posting path
+  gives. Booking it would change a FINAL statement after the fact, which is
+  the exact guarantee period close exists to give.
 - Reversals bypass **two** guards, deliberately: the negative-balance guard
   and the CLOSED-account check — undoing a posting must always be possible,
   even into an account closed since. Both bypasses are recorded and surface
   in the **authorized-exposure report**, not as invariant violations (see
-  testing.md — this distinction keeps the invariant alarm meaningful).
+  testing.md — this distinction keeps the invariant alarm meaningful). The
+  closed-period rule is **not** a third bypass.
 
 ## Holds
 

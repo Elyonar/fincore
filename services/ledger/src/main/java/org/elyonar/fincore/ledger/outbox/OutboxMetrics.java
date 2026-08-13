@@ -1,7 +1,7 @@
 package org.elyonar.fincore.ledger.outbox;
 
 import io.micrometer.core.instrument.MeterRegistry;
-import org.springframework.jdbc.core.JdbcTemplate;
+import java.util.function.LongSupplier;
 import org.springframework.stereotype.Component;
 
 /**
@@ -20,50 +20,38 @@ import org.springframework.stereotype.Component;
  *       against
  * </ul>
  *
- * <p>Both are read straight from the table rather than counted in memory, so a relay that has
- * stopped running still reports honestly. An in-memory counter maintained by the relay would go
- * quiet exactly when the relay did.
+ * <p>Both reads delegate to the <em>injected</em> {@link OutboxRelay} bean — that reference is the
+ * Spring proxy, so its {@code @Transactional} relay-scope opt-out genuinely applies. Handing
+ * Micrometer a raw {@code this} and querying directly was the previous shape, and it failed
+ * silently: the gauge called an unproxied method, {@code set_config('app.relay', ...)} died with
+ * its own statement, RLS matched no rows without a tenant context, and both gauges read zero
+ * forever — the staleness alarm reporting healthy is exactly the failure it exists to catch.
  */
 @Component
 public class OutboxMetrics {
 
-    private final JdbcTemplate jdbc;
-
-    public OutboxMetrics(JdbcTemplate jdbc, MeterRegistry registry) {
-        this.jdbc = jdbc;
-
-        registry.gauge(
-                "ledger.outbox.pending",
-                this,
-                self -> self.scalar("SELECT count(*) FROM outbox_events WHERE published_at IS NULL"));
+    public OutboxMetrics(OutboxRelay relay, MeterRegistry registry) {
+        registry.gauge("ledger.outbox.pending", relay, r -> zeroOnFailure(r::pendingCount));
 
         registry.gauge(
                 "ledger.outbox.oldest_pending_seconds",
-                this,
-                self ->
-                        self.scalar(
-                                "SELECT COALESCE(FLOOR(EXTRACT(EPOCH FROM (now() - MIN(created_at))))::bigint, 0)"
-                                        + " FROM outbox_events WHERE published_at IS NULL"));
+                relay,
+                r -> zeroOnFailure(() -> r.oldestPendingAgeSeconds().orElse(0L)));
     }
 
     /**
-     * Reads one number, in relay scope so RLS does not hide the queue.
+     * Never throws: a broken gauge must read zero rather than take the scrape endpoint down with
+     * it, since that endpoint is also how liveness is observed.
      *
      * <p>Returns {@code long}, not {@code double}, even though Micrometer's gauge takes a
      * {@code ToDoubleFunction}: the no-floating-point rule is enforced across the whole service
      * rather than only on money, and an absolute rule needs no judgement at review time. The
      * widening happens at the lambda boundary above, so no method here declares a floating-point
      * return.
-     *
-     * <p>Never throws: a broken gauge must read zero rather than take the scrape endpoint down with
-     * it, since that endpoint is also how liveness is observed.
      */
-    @org.springframework.transaction.annotation.Transactional(readOnly = true)
-    long scalar(String sql) {
+    private static long zeroOnFailure(LongSupplier read) {
         try {
-            jdbc.queryForObject("SELECT set_config('app.relay', 'on', true)", String.class);
-            Long value = jdbc.queryForObject(sql, Long.class);
-            return value == null ? 0L : value;
+            return read.getAsLong();
         } catch (RuntimeException e) {
             return 0L;
         }

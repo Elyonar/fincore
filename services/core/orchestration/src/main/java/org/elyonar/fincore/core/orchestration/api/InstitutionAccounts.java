@@ -6,8 +6,8 @@ import java.util.UUID;
 /**
  * The institution's own accounts, as a neighbour may ask about them.
  *
- * <p>Published because pricing points at them. A fee rule names the account a fee credits, a loan
- * rule names where interest is recognised and where a disbursement is funded — and until this port
+ * <p>Published because pricing points at them. A fee rule names the account a fee credits — and
+ * until this port
  * existed the only way to check that such a UUID was a real account of the right kind was not to
  * check. That is exactly the hole {@code V4__fee_account_configuration.sql} was written to close
  * and could not, because the module that owns pricing may not reach into the module that owns the
@@ -20,7 +20,7 @@ import java.util.UUID;
 public interface InstitutionAccounts {
 
     /**
-     * @param purpose the bank's own vocabulary — TILL, FEE_INCOME, LOAN_FUNDING and so on — rather
+     * @param purpose the bank's own vocabulary — TILL, FEE_INCOME, SUSPENSE and so on — rather
      *     than the ledger's posting type, because that is the question a caller is actually asking
      */
     record Account(

@@ -64,6 +64,19 @@ class EventIntakeTest {
     private long nextEventId;
 
     private final Map<UUID, ContactDirectory.Contact> contacts = new LinkedHashMap<>();
+    /**
+     * The presentation detail Core would answer with. Fixed rather than random: these values end up
+     * inside rendered message bodies, and a test asserting on a body wants a body it can write down.
+     */
+    private static final TransactionAccounts.Facts FACTS = new TransactionAccounts.Facts(
+            "TXN-20260812-00001",
+            "TRANSFER",
+            250_000L,
+            5_000L,
+            "NGN",
+            "TELLER",
+            java.time.OffsetDateTime.parse("2026-08-12T09:23:00Z"));
+
     private TransactionAccounts.Accounts accounts;
 
     @BeforeEach
@@ -74,7 +87,7 @@ class EventIntakeTest {
         sender = UUID.randomUUID();
         receiver = UUID.randomUUID();
         nextEventId = Math.abs(UUID.randomUUID().getMostSignificantBits() % 1_000_000_000L);
-        accounts = new TransactionAccounts.Accounts(fromAccount, toAccount);
+        accounts = new TransactionAccounts.Accounts(fromAccount, toAccount, FACTS);
 
         contacts.clear();
         contacts.put(fromAccount, contact(sender, Map.of("PHONE", "+2348000000001"), List.of()));
@@ -420,6 +433,9 @@ class EventIntakeTest {
                 app,
                 appTx,
                 tenantRegistry,
+                // No starters here. This suite asserts what the intake decides when a template is
+                // absent, and a seeder that quietly supplies one would make that unreachable.
+                tenantId -> {},
                 (t, id) -> Optional.ofNullable(accounts),
                 (t, account) -> Optional.ofNullable(contacts.get(account)),
                 policies,
@@ -439,7 +455,7 @@ class EventIntakeTest {
     /** @param locale null is the normal case — a customer nobody asked, who gets the tenant default */
     private static ContactDirectory.Contact contact(
             UUID id, String locale, Map<String, String> addresses, List<ContactDirectory.Consent> consent) {
-        return new ContactDirectory.Contact(id, "ACTIVE", locale, addresses, consent);
+        return new ContactDirectory.Contact(id, "ACTIVE", locale, "0000000001", addresses, consent);
     }
 
     private String transferCompleted() {

@@ -1,0 +1,41 @@
+# Tests run against real PostgreSQL — never an in-memory substitute. The trigger, constraint and
+# row-level-security behaviour under test is PostgreSQL's, and the two triggers that make a
+# published version immutable are the whole reason this service could be extracted at all
+# (ADR 0020). A substitute that did not enforce them would make the suite agree with a claim the
+# database is the only thing actually keeping.
+#
+# NOTE: this file *replaces* src/main/resources/application.yml rather than overlaying it —
+# test-classes come first on the classpath and Boot loads one application.yml. Anything the tests
+# need to behave like production has to be repeated here; Core learned that twice, silently.
+spring:
+  profiles:
+    active: test
+  datasource:
+    hikari:
+      maximum-pool-size: 1
+      minimum-idle: 0
+      idle-timeout: 10000
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:55432/product_test}
+    username: ${SPRING_DATASOURCE_USERNAME:fincore}
+    password: ${SPRING_DATASOURCE_PASSWORD:fincore}
+  flyway:
+    enabled: false
+
+springdoc:
+  swagger-ui:
+    path: /docs
+
+fincore:
+  product:
+    datasource:
+      app:
+        maximum-pool-size: 1
+        minimum-idle: 0
+        idle-timeout: 10000
+        jdbc-url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:55432/product_test}
+        username: product_app
+        password: product_app
+  auth:
+    # Verifies nothing — and only starts at all because the `test` profile is sanctioned, which
+    # exercises the guard rather than bypassing it.
+    mode: dev

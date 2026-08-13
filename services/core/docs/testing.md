@@ -1,6 +1,6 @@
 # Core — Invariants & Test Strategy
 
-**Status:** AGREED v1.24 (2026-08-10) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
+**Status:** AGREED v2.3 (2026-08-11) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
 
 **Suites are marked `IMPLEMENTED` / `PARTIAL` / `DEFERRED` individually, and only
 `IMPLEMENTED` ones gate merges.** An unmarked suite is not yet written. This
@@ -232,35 +232,14 @@ reservation, no event), a smaller amount still fits, and the fee credits the
 account the *product* names — asserted against the posting the stub ledger
 actually received and the saga row a worker retry would rebuild from.
 
-**Lending suites (v1.16).** `ScheduleEngineTest` — a seeded 500-case sweep per kind proving the
-sums exact, components non-negative, dates monotone and grace principal-free, plus golden vectors
-(annuity level-payment, flat totals, bullet ACT/365, zero-rate). `LendingApiTest` — the spectrum
-property (zero-tier auto-approval attributed to the policy; the applicant refused as signer;
-duplicate signers refused by the index; the two-signature chain generating the offer; the
-unconfigured tenant degrading to one human, never to auto-approval), the full lifecycle to
-closure, over-payoff refused at intake, refused disbursement returning to ACCEPTED, deny-by-
-default and cross-tenant invisibility. `LendingJobsAndSchemaTest` — ACT/365 to the kobo with
-idempotent reruns, bucket edges exact, recovery transitions, and the evidence tables refusing
-edits.
-
-**Lending v1.17 additions.** Penalty accrual: the flat charge lands once per late installment and
-the daily charge advances `penalty_through` exactly (same-day rerun charges zero); the cap binds;
-allocation reaches the `PENALTY` component in the configured order and payoff includes penalty
-due, with `REPAYMENT_EXCEEDS_PAYOFF` refusing a kobo above it. Recognition: an allocated
-repayment's interest lands in the configured income account as a `RECOGNITION` saga under the
-per-repayment derived key, replays converge (job rerun posts nothing twice),
-`recognized_interest_minor` advances only by posted amounts, and an unconfigured version resolves
-as a recorded no-op. Funding account: the configured `loan_rules.funding_account_id` overrides
-the caller's on disburse.
-
 **UI-runway suites (v1.19).** `UiReadsApiTest` — every screen-opener from `ui-runway.md` §3
 with the standing probes: search by name and reference with keyset pages that stay disjoint and
 ordered under an opaque cursor; balances joined from the ledger with "could not ask" answered as
 503 and never as zero; the statement passed through byte-identical including a 404; the till's
-day with a consistent net; the checker's queue; the loan desk's awaiting-me filter reproducing
-the approve guard's own conditions; deny-by-default and cross-tenant emptiness on all of them.
+day with a consistent net; the checker's queue; deny-by-default and cross-tenant emptiness on
+all of them.
 `JwtEndToEndTest` — Core in jwt mode against a local JWKS: dev headers inert, health open,
-missing permission 403, and a full disbursement on real tokens with the outbound side asserted —
+missing permission 403, and a full money path on real tokens with the outbound side asserted —
 the ledger stub must receive Core's service credential and the forwarded user bearer. The
 ledger's own `LedgerJwtAuthTest` covers the receiving half.
 

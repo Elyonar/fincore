@@ -53,7 +53,11 @@ public class InvariantController {
                         : (report.clean() ? InvariantStatus.CLEAN.value() : InvariantStatus.VIOLATIONS.value()),
                 report.violations(),
                 report.exposures(),
-                List.of());
+                // The findings themselves, not just their counts: "3 violations" without the
+                // accounts they name is not actionable at three in the morning.
+                report.findings().stream()
+                        .map(f -> new FindingResponse(f.kind().name(), f.invariant(), f.subject(), f.detail()))
+                        .toList());
     }
 
     @PostMapping("/invariants/run")

@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.elyonar</groupId>
+        <artifactId>core</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
+        <relativePath>../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>admin</artifactId>
+    <name>fincore :: core :: admin</name>
+    <description>Admin module: the staff and role administration surface (admin-surface §5, ADR
+        0018). Core owns the surface; the identity service owns the records beneath it. One
+        deliberate deviation from ADR 0006's module shape, stated rather than discovered: this
+        module owns no schema and no database role, because it holds no state — every read and
+        write is a proxied HTTP call to the identity service. A module exists to own a boundary;
+        this one's boundary is the identity service's client, not a schema.</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.elyonar</groupId>
+            <artifactId>auth</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!--
+            Organization's published api only — never its internals. Creating a member of staff and
+            replacing unit assignments write both stores (Core's assignment record and the
+            directory's claim), and the assignment half goes through OrganizationUnits.
+        -->
+        <dependency>
+            <groupId>org.elyonar</groupId>
+            <artifactId>organization</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+
+        <!--
+            OpenAPI annotations only, never the springdoc starter — same reasoning as the other
+            modules: this module contributes controllers to Core's document but serves no document
+            of its own. The starter lives in services/core/app.
+        -->
+        <dependency>
+            <groupId>io.swagger.core.v3</groupId>
+            <artifactId>swagger-annotations-jakarta</artifactId>
+            <version>2.2.52</version>
+        </dependency>
+    </dependencies>
+</project>

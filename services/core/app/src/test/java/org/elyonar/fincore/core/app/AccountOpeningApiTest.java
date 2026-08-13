@@ -17,10 +17,15 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -39,9 +44,26 @@ import tools.jackson.databind.json.JsonMapper;
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @DisplayName("account opening — a customer can hold an account, numbered by the institution")
+@Import(FakeServices.class)
 class AccountOpeningApiTest {
 
+    /*
+     * What is left here after ADR 0020, and what left.
+     *
+     * Opening an account is Core's: only Orchestration may address the Ledger, so Core opens the
+     * ledger account, asks Product whether the code is real, and asks Customer to record who holds
+     * it. That composition is the thing worth testing here and it is what remains below.
+     *
+     * The numbering assertions went with the Customer service. They were always about how *that*
+     * service issues and guards a series — that a rewind is refused, that two tellers cannot be
+     * handed the same number — and proving those against a fake would prove only that the fake
+     * agrees with itself.
+     */
+
     @Autowired private TenantRegistry tenantRegistry;
+    @Autowired private FakeServices.FakeCustomers customers;
+    @Autowired private FakeServices.FakePricing pricing;
+    @Autowired private FakeServices.FakeCatalogue catalogue;
 
     /**
      * A ledger that opens whatever it is asked to, and remembers what it was asked.
@@ -79,7 +101,9 @@ class AccountOpeningApiTest {
 
     private UUID tenantId;
 
-    private static final String ALL = "customers:create,customers:read,customers:link";
+    // org:manage because the numbering rule is institution configuration, not customer business —
+    // the same grant that administers organizational units, and asserted separately below.
+    private static final String ALL = "customers:create,customers:read,customers:link,org:manage";
 
     @DynamicPropertySource
     static void quiet(DynamicPropertyRegistry registry) {
@@ -92,16 +116,35 @@ class AccountOpeningApiTest {
     void freshTenant() {
         tenantId = UUID.randomUUID();
         tenantRegistry.register(tenantId, "test tenant", "test");
+
+        // The catalogue must know 'P' before an account can be held under it — opening now refuses
+        // a code the catalogue has never heard of. A DRAFT version suffices deliberately: an
+        // unpublished product is configuration in progress, not a typo.
+        // Customer and Product are deployables now (ADR 0020). Account opening is the one thing
+        // that still belongs to Core, because it composes all three: only Orchestration may address
+        // the Ledger, Product says whether the code is real, and Customer records who holds it.
+        customers.clear();
+        // Static across the class, so a test asserting the ledger was *not* called has to
+        // start from a clean slate rather than inherit the previous test's request.
+        lastRequest.set(null);
+        pricing.permits(0, null, Long.MAX_VALUE);
+        // Only P is real, so a typo'd code is refused at the one moment it is still
+        // a keystroke rather than a bricked account.
+        catalogue.only("P");
     }
 
     // ------------------------------------------------------------------ harness
 
     private HttpResponse<String> send(String method, String path, String body) {
+        return sendAs(ALL, method, path, body);
+    }
+
+    private HttpResponse<String> sendAs(String permissions, String method, String path, String body) {
         HttpRequest.Builder request = HttpRequest.newBuilder(URI.create("http://localhost:" + port + path))
                 .header("Content-Type", "application/json")
                 .header("X-Dev-Tenant-Id", tenantId.toString())
                 .header("X-Dev-Principal", "user:ada")
-                .header("X-Dev-Permissions", ALL);
+                .header("X-Dev-Permissions", permissions);
         request = "GET".equals(method)
                 ? request.GET()
                 : request.method(method, HttpRequest.BodyPublishers.ofString(body));
@@ -116,91 +159,27 @@ class AccountOpeningApiTest {
         return mapper.readTree(response.body());
     }
 
+    /**
+     * A customer who exists, as far as Core is concerned.
+     *
+     * <p>Core cannot create one any more — {@code POST /v1/customers} is the Customer service's
+     * (ADR 0020). What Core needs from a customer here is only that they exist and may transact,
+     * which is exactly what the port says, so the premise is stated rather than posted.
+     */
     private String newCustomer(String externalRef) {
-        String body = externalRef == null
-                ? "{\"fullName\":\"Amaka Obi\",\"kycTier\":\"TIER_1\"}"
-                : "{\"externalRef\":\"%s\",\"fullName\":\"Amaka Obi\",\"kycTier\":\"TIER_1\"}".formatted(externalRef);
-        HttpResponse<String> created = send("POST", "/v1/customers", body);
-        assertThat(created.statusCode()).isEqualTo(201);
-        return json(created).get("customerId").asString();
+        UUID id = UUID.randomUUID();
+        customers.eligible(id, "TIER_1");
+        return id.toString();
     }
 
     // ------------------------------------------------------------------ numbering
 
-    @Test
-    @DisplayName("a customer created without a reference is numbered by the institution")
-    void the_institution_numbers_its_own_customers() {
-        JsonNode first = json(send("GET", "/v1/customers/" + newCustomer(null), null));
-        JsonNode second = json(send("GET", "/v1/customers/" + newCustomer(null), null));
 
-        // Ten digits by default, because that is the shape of the number a Nigerian customer is
-        // used to quoting. Sequential, and never the same one twice.
-        assertThat(first.get("externalRef").asString()).hasSize(10).containsOnlyDigits();
-        assertThat(second.get("externalRef").asString()).isNotEqualTo(first.get("externalRef").asString());
-    }
 
-    @Test
-    @DisplayName("an institution that already numbers its customers keeps its own")
-    void a_supplied_reference_is_honoured() {
-        JsonNode read = json(send("GET", "/v1/customers/" + newCustomer("ACME-0042"), null));
-        assertThat(read.get("externalRef").asString()).isEqualTo("ACME-0042");
-    }
 
-    @Test
-    @DisplayName("an institution that already numbers its accounts keeps its own")
-    void a_supplied_account_number_is_honoured() {
-        // The same shape `externalRef` already has, and for the same reason. An institution moving
-        // an existing book onto this platform arrives with numbers printed on passbooks and known
-        // to the settlement switch; a column that could only be generated would renumber every one
-        // of them on migration day, and every inbound payment would resolve to nothing.
-        JsonNode opened = json(send(
-                "POST",
-                "/v1/customers/" + newCustomer(null) + "/accounts/open",
-                "{\"currency\":\"NGN\",\"productCode\":\"P\",\"accountNumber\":\"LEGACY-77301\"}"));
-        assertThat(opened.get("accountNumber").asString()).isEqualTo("LEGACY-77301");
 
-        // Blank still means "give me the next one", so the ordinary counter path is untouched.
-        JsonNode generated = json(send(
-                "POST", "/v1/customers/" + newCustomer(null) + "/accounts/open", "{\"currency\":\"NGN\",\"productCode\":\"P\"}"));
-        assertThat(generated.get("accountNumber").asString()).isNotEqualTo("LEGACY-77301");
-    }
 
-    @Test
-    @DisplayName("a number another live account already carries is refused as its own thing")
-    void a_duplicate_account_number_is_refused() {
-        String body = "{\"currency\":\"NGN\",\"productCode\":\"P\",\"accountNumber\":\"LEGACY-88402\"}";
-        assertThat(send("POST", "/v1/customers/" + newCustomer(null) + "/accounts/open", body).statusCode())
-                .isEqualTo(201);
 
-        // Not ACCOUNT_ALREADY_HELD: that means this customer already holds the account, this means
-        // the number belongs to somebody else. A caller that cannot tell them apart cannot write
-        // either sentence.
-        HttpResponse<String> clash =
-                send("POST", "/v1/customers/" + newCustomer(null) + "/accounts/open", body);
-        assertThat(clash.statusCode()).isEqualTo(409);
-        assertThat(clash.body()).contains("ACCOUNT_NUMBER_TAKEN");
-    }
-
-    @Test
-    @DisplayName("the numbering rule is readable and settable, and the preview shows its effect")
-    void numbering_can_be_changed() {
-        JsonNode before = json(send("GET", "/v1/customer-numbering", null));
-        assertThat(before).hasSize(2);
-
-        HttpResponse<String> changed = send(
-                "PUT", "/v1/customer-numbering/ACCOUNT", "{\"prefix\":\"ACC-\",\"width\":6,\"nextValue\":500}");
-        assertThat(changed.statusCode()).isEqualTo(200);
-        assertThat(json(changed).get("preview").asString()).isEqualTo("ACC-000500");
-
-        // A width outside the column's CHECK is refused before it reaches the database, so the
-        // caller gets a sentence rather than a constraint violation.
-        assertThat(send("PUT", "/v1/customer-numbering/ACCOUNT", "{\"prefix\":\"\",\"width\":99,\"nextValue\":1}")
-                        .statusCode())
-                .isEqualTo(422);
-        assertThat(send("PUT", "/v1/customer-numbering/NONSENSE", "{\"prefix\":\"\",\"width\":6,\"nextValue\":1}")
-                        .statusCode())
-                .isEqualTo(422);
-    }
 
     // ------------------------------------------------------------------ opening
 
@@ -222,9 +201,9 @@ class AccountOpeningApiTest {
         // from the request body, so an account that did not record it could not transact at all.
         assertThat(account.get("productCode").asString()).isEqualTo("P");
 
-        // And the customer now reads back holding it — the link, not just the ledger account.
-        JsonNode profile = json(send("GET", "/v1/customers/" + customerId, null));
-        assertThat(profile.get("accounts")).hasSize(1);
+        // That the customer then reads back holding it is the Customer service's to prove, and it
+        // does (ADR 0020). What Core owes is that it asked for the right things in the right order,
+        // which is what the ledger request below shows.
 
         // What the ledger was asked for: a CUSTOMER account that refuses negatives, referenced by
         // the institution's own customer number and never by a name — the ledger holds no PII.
@@ -235,24 +214,6 @@ class AccountOpeningApiTest {
                 .doesNotContain("Amaka");
     }
 
-    @Test
-    @DisplayName("two accounts never share a number")
-    void numbers_are_not_handed_out_twice() {
-        String first = json(send(
-                        "POST",
-                        "/v1/customers/" + newCustomer(null) + "/accounts/open",
-                        "{\"currency\":\"NGN\",\"productCode\":\"P\"}"))
-                .get("accountNumber")
-                .asString();
-        String second = json(send(
-                        "POST",
-                        "/v1/customers/" + newCustomer(null) + "/accounts/open",
-                        "{\"currency\":\"NGN\",\"productCode\":\"P\"}"))
-                .get("accountNumber")
-                .asString();
-
-        assertThat(second).isNotEqualTo(first);
-    }
 
     @Test
     @DisplayName("what cannot be opened is refused with a reason, not a stack trace")
@@ -277,4 +238,30 @@ class AccountOpeningApiTest {
         assertThat(noProduct.statusCode()).isEqualTo(422);
         assertThat(json(noProduct).get("message").asString()).contains("productCode");
     }
+
+    @Test
+    @DisplayName("a product code the catalogue has never heard of is refused before the account exists")
+    void an_unknown_product_code_is_refused() {
+        // A typo'd code used to be accepted verbatim, and nothing can edit product_code on a live
+        // link — so the account opened, and then every transaction on it refused with
+        // PRODUCT_NOT_FOUND, forever. The same code now answers here, at the one moment the
+        // mistake is a keystroke rather than a bricked account.
+        String customerId = newCustomer(null);
+        HttpResponse<String> refused = send(
+                "POST",
+                "/v1/customers/" + customerId + "/accounts/open",
+                "{\"currency\":\"NGN\",\"productCode\":\"PP\"}");
+
+        assertThat(refused.statusCode()).isEqualTo(422);
+        JsonNode error = json(refused);
+        assertThat(error.get("code").asString()).isEqualTo("PRODUCT_NOT_FOUND");
+        assertThat(error.get("details").get("field").asString()).isEqualTo("productCode");
+        assertThat(error.get("details").get("supplied").asString()).isEqualTo("PP");
+
+        // Refused before anything was created — the point of checking the code here rather than on
+        // the money path. Core proves that by never having called the ledger; that the customer
+        // holds nothing is the Customer service's read and is asserted there.
+        assertThat(lastRequest.get()).isNull();
+    }
+
 }

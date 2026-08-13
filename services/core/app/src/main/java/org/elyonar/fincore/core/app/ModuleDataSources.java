@@ -13,8 +13,6 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.elyonar.fincore.core.orchestration.api.CoreProperties;
-import org.elyonar.fincore.core.customer.api.CustomerBeans;
-import org.elyonar.fincore.core.product.api.ProductBeans;
 import org.elyonar.fincore.core.organization.api.OrganizationBeans;
 
 /**
@@ -53,18 +51,6 @@ public class ModuleDataSources {
                 .username(username)
                 .password(password)
                 .build();
-    }
-
-    @Bean
-    @ConfigurationProperties("fincore.core.datasource.customer")
-    public DataSource customerDataSource() {
-        return DataSourceBuilder.create().type(HikariDataSource.class).build();
-    }
-
-    @Bean
-    @ConfigurationProperties("fincore.core.datasource.product")
-    public DataSource productDataSource() {
-        return DataSourceBuilder.create().type(HikariDataSource.class).build();
     }
 
     @Bean
@@ -125,16 +111,6 @@ public class ModuleDataSources {
     }
 
     @Bean
-    public JdbcTemplate customerJdbcTemplate(@Qualifier(CustomerBeans.DATA_SOURCE) DataSource ds) {
-        return new JdbcTemplate(ds);
-    }
-
-    @Bean
-    public JdbcTemplate productJdbcTemplate(@Qualifier(ProductBeans.DATA_SOURCE) DataSource ds) {
-        return new JdbcTemplate(ds);
-    }
-
-    @Bean
     public JdbcTemplate organizationJdbcTemplate(@Qualifier(OrganizationBeans.DATA_SOURCE) DataSource ds) {
         return new JdbcTemplate(ds);
     }
@@ -157,18 +133,6 @@ public class ModuleDataSources {
     @Primary
     public PlatformTransactionManager orchestrationTransactionManager(
             @Qualifier(CoreProperties.Beans.ORCHESTRATION_DATA_SOURCE) DataSource ds) {
-        return new DataSourceTransactionManager(ds);
-    }
-
-    @Bean
-    public PlatformTransactionManager customerTransactionManager(
-            @Qualifier(CustomerBeans.DATA_SOURCE) DataSource ds) {
-        return new DataSourceTransactionManager(ds);
-    }
-
-    @Bean
-    public PlatformTransactionManager productTransactionManager(
-            @Qualifier(ProductBeans.DATA_SOURCE) DataSource ds) {
         return new DataSourceTransactionManager(ds);
     }
 

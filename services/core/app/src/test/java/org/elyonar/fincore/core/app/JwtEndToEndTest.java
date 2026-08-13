@@ -29,6 +29,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -40,13 +41,14 @@ import tools.jackson.databind.json.JsonMapper;
 /**
  * The jwt lane, end to end (ui-runway.md §2): Core in {@code mode=jwt} against a local JWKS —
  * real RS256 tokens, verified locally per request, no identity provider in the loop — driving a
- * full lending disbursement, with the outbound side asserted too: the ledger stub must receive
+ * full money path, with the outbound side asserted too: the ledger stub must receive
  * Core's <em>service credential</em> and the originating user's <em>forwarded token</em> (outbound
  * propagation), which is exactly what {@code LedgerAuth} on the other side requires.
  *
  * <p>"Works with real tokens" is a claim; this suite is what makes it one.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@Import(FakeServices.class)
 class JwtEndToEndTest {
 
     // Static init, not @BeforeAll: @DynamicPropertySource reads these while the context builds.
@@ -139,11 +141,9 @@ class JwtEndToEndTest {
     }
 
     @Autowired private TenantRegistry tenantRegistry;
+    @Autowired private FakeServices.FakeCustomers customers;
+    @Autowired private FakeServices.FakePricing pricing;
     @LocalServerPort private int port;
-    @Autowired @Qualifier("customerJdbcTemplate") private JdbcTemplate customerDb;
-    @Autowired @Qualifier("productJdbcTemplate") private JdbcTemplate productDb;
-    @Autowired @Qualifier("customerTransactionManager") private PlatformTransactionManager customerTx;
-    @Autowired @Qualifier("productTransactionManager") private PlatformTransactionManager productTx;
 
     private final HttpClient http = HttpClient.newHttpClient();
     private final JsonMapper mapper = JsonMapper.builder().build();
@@ -170,50 +170,11 @@ class JwtEndToEndTest {
         tenantRegistry.register(tenantId, "jwt tenant", "test");
         customerId = UUID.randomUUID();
         customerAccount = UUID.randomUUID();
-        new TransactionTemplate(customerTx)
-                .executeWithoutResult(
-                        s -> {
-                            customerDb.queryForObject(
-                                    "SELECT set_config('app.tenant_id', ?, true)", String.class, tenantId.toString());
-                            customerDb.update(
-                                    "INSERT INTO customer.customers (id, tenant_id, external_ref, full_name, kyc_tier)"
-                                            + " VALUES (?,?,?,?, 'TIER_2')",
-                                    customerId, tenantId, "C-" + UUID.randomUUID(), "Ada");
-                            customerDb.update(
-                                    "INSERT INTO customer.customer_accounts (tenant_id, customer_id,"
-                                            + " ledger_account_id, currency, product_code) VALUES (?,?,?, 'NGN', 'P')",
-                                    tenantId, customerId, customerAccount);
-                        });
-        new TransactionTemplate(productTx)
-                .executeWithoutResult(
-                        s -> {
-                            productDb.queryForObject(
-                                    "SELECT set_config('app.tenant_id', ?, true)", String.class, tenantId.toString());
-                            UUID productId =
-                                    productDb.queryForObject(
-                                            "INSERT INTO product.products (tenant_id, code, name, type)"
-                                                    + " VALUES (?, 'P', 'Savings', 'SAVINGS') RETURNING id",
-                                            UUID.class, tenantId);
-                            UUID versionId =
-                                    productDb.queryForObject(
-                                            "INSERT INTO product.product_versions (tenant_id, product_id, version,"
-                                                    + " status, created_by, published_by)"
-                                                    + " VALUES (?,?,1,'DRAFT','user:author',NULL)"
-                                                    + " RETURNING id",
-                                            UUID.class, tenantId, productId);
-                            productDb.update(
-                                    "INSERT INTO product.limit_rules (tenant_id, product_version_id, kyc_tier,"
-                                            + " channel, limit_type, max_amount_minor, currency)"
-                                            + " VALUES (?,?, 'TIER_2', 'TELLER', 'PER_TXN', 5000000, 'NGN')",
-                                    tenantId, versionId);
-                            // Published last, because pricing for a live version is immutable (V7):
-                            // a rule added after publish would change what an already-decided
-                            // transaction was priced under, and the database refuses it.
-                            productDb.update(
-                                    "UPDATE product.product_versions SET status = 'PUBLISHED',"
-                                            + " published_by = 'user:publisher' WHERE tenant_id = ? AND id = ?",
-                                    tenantId, versionId);
-                        });
+        // Customer and Product are deployables now (ADR 0020): the premise these blocks
+        // built in SQL is stated directly, and the assertions below are unchanged.
+        customers.clear();
+        customers.eligible(customerId, "TIER_2").holds(customerId, customerAccount, "P", "NGN");
+        pricing.permits(0, null, 5000000);
     }
 
     private HttpResponse<String> call(String method, String path, String token, String body) {
@@ -254,8 +215,10 @@ class JwtEndToEndTest {
 
     @Test
     void a_verified_token_without_the_permission_is_a_403() throws Exception {
+        // Probes an endpoint Core still serves. `/v1/customers?q=` moved to the Customer service
+        // with ADR 0020; the assertion is about the token, not the route, so the route followed.
         String token = userToken("ada", List.of("transfers:read"));
-        assertThat(call("GET", "/v1/customers?q=Ada", token, null).statusCode()).isEqualTo(403);
+        assertThat(call("GET", "/v1/org-units", token, null).statusCode()).isEqualTo(403);
     }
 
     /**

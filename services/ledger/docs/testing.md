@@ -1,6 +1,6 @@
 # Ledger — Invariants & Test Strategy
 
-**Status:** AGREED v1.10 (2026-08-08) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
+**Status:** AGREED v1.11 (2026-08-08) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
 
 The test suite is the product's argument for correctness — public, runnable
 by anyone. If you want to contribute: **try to break the ledger and encode
@@ -146,7 +146,10 @@ pushing the caller toward a new key — the retry rule and the fingerprint rule
 must not be able to contradict each other); different entry order, same
 entries → same fingerprint; changed
 amount → 409. Retry-rule conformance: 5xx/timeout → same-key retry replays;
-4xx → same key rejected as terminal. Monetary serialization: response
+4xx → same key rejected as terminal; a malformed `valueDate` is a documented
+422 — `VALUE_DATE_INVALID` / `VALUE_DATE_MALFORMED`, retryable false — rather
+than a retryable 500, and posts nothing (`TransactionHttpTest`).
+Monetary serialization: response
 fields are decimal strings, request parsing accepts numbers ≤ 10^15 and
 strings, rejects floats. Currency exponent: NGN(2)/JPY(0) render and
 validate from the `currencies` table, never from hardcoded assumptions.

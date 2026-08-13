@@ -8,14 +8,17 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.Map;
+import org.elyonar.fincore.ledger.period.PeriodService;
 import org.elyonar.fincore.ledger.outbox.LedgerEvent;
 import org.elyonar.fincore.ledger.outbox.OutboxWriter;
 import org.elyonar.fincore.ledger.shared.ErrorCode;
 import org.elyonar.fincore.ledger.shared.LedgerException;
+import org.elyonar.fincore.ledger.tenant.TenantConfigService;
 import org.elyonar.fincore.ledger.tenant.TenantScope;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.elyonar.fincore.ledger.shared.TransactionStatus;
+import org.elyonar.fincore.ledger.shared.ErrorReason;
 
 /**
  * Undoes a posted transaction by mirroring its entries.
@@ -30,6 +33,11 @@ import org.elyonar.fincore.ledger.shared.TransactionStatus;
  * onward. Both bypasses are recorded and surface in the authorized-exposure report rather than as
  * invariant violations, which is what keeps the invariant alarm meaningful: a violation page always
  * means bug.
+ *
+ * <p>The closed-<em>period</em> check is not a third bypass. A reversal books at the current
+ * business date, and if that date falls inside a closed period — a same-day-after-close reversal —
+ * writing it would change a FINAL statement after the fact, the exact guarantee period close
+ * exists to give. Such a reversal is refused with the same error the posting path uses.
  */
 @Service
 public class ReversalService {
@@ -37,11 +45,20 @@ public class ReversalService {
     private final TenantScope tenantScope;
     private final JdbcTemplate jdbc;
     private final OutboxWriter outbox;
+    private final TenantConfigService tenantConfig;
+    private final PeriodService periods;
 
-    public ReversalService(TenantScope tenantScope, JdbcTemplate jdbc, OutboxWriter outbox) {
+    public ReversalService(
+            TenantScope tenantScope,
+            JdbcTemplate jdbc,
+            OutboxWriter outbox,
+            TenantConfigService tenantConfig,
+            PeriodService periods) {
         this.tenantScope = tenantScope;
         this.jdbc = jdbc;
         this.outbox = outbox;
+        this.tenantConfig = tenantConfig;
+        this.periods = periods;
     }
 
     public PostingResult reverse(ReverseTransactionCommand command) {
@@ -118,6 +135,20 @@ public class ReversalService {
                     ErrorCode.UNBALANCED, "transaction " + command.originalTransactionId() + " has no entries");
         }
 
+        // Mirrored entries carry the *current* business date, never the original's: posting into
+        // the past would rewrite a period that may already be closed and signed off. The link to
+        // the original preserves traceability instead. The date is the tenant's, not the JVM's —
+        // a 00:30 Lagos reversal on a UTC host belongs to that day's business, exactly as a
+        // posting does (see TenantConfig.businessDate).
+        LocalDate businessDate = tenantConfig.currentFor(command.tenantId()).businessDate();
+        if (periods.isClosed(command.tenantId(), businessDate)) {
+            // See the class comment: not a third bypass. Booking today into a period closed
+            // through today would change a FINAL statement after the fact.
+            throw LedgerException.of(ErrorCode.VALUE_DATE_INVALID, ErrorReason.PERIOD_CLOSED)
+                    .with("valueDate", businessDate)
+                    .message("business date " + businessDate + " falls in a closed accounting period");
+        }
+
         UUID reversalId = UUID.randomUUID();
         int registered =
                 jdbc.update(
@@ -155,10 +186,6 @@ public class ReversalService {
             lockBalance(command.tenantId(), accountId);
         }
 
-        // Mirrored entries carry the *current* business date, never the original's: posting into
-        // the past would rewrite a period that may already be closed and signed off. The link to
-        // the original preserves traceability instead.
-        LocalDate businessDate = LocalDate.now();
         for (EntryLine entry : mirrored) {
             jdbc.update(
                     """

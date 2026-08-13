@@ -228,6 +228,34 @@ class InvariantServiceTest extends LedgerPostgresTest {
     }
 
     @Test
+    @DisplayName("a run that finds a violation shows it through the endpoint's read path")
+    void latest_report_carries_the_violations_the_run_found() {
+        credit("tx-1", 500_00);
+        db.execute("UPDATE balances SET current_minor = current_minor + 45000 WHERE account_id = ?", customer);
+
+        invariants.verify(tenant);
+
+        // Read back through latest(), the query GET /v1/invariants answers from — not the object
+        // the run returned. The endpoint once answered CLEAN for every completed run because this
+        // path substituted an empty findings list for the ones the run had persisted, which made
+        // "zero violations in production, ever" unfalsifiable rather than true.
+        InvariantReport latest = invariants.latest(tenant);
+
+        assertThat(latest.clean()).isFalse();
+        assertThat(latest.violations()).isPositive();
+        assertThat(latest.findings())
+                .anySatisfy(
+                        f -> {
+                            assertThat(f.kind()).isEqualTo(Finding.Kind.VIOLATION);
+                            assertThat(f.invariant()).isEqualTo("balance_matches_entries");
+                            assertThat(f.subject())
+                                    .as("the violation names its account, so an operator can act on it")
+                                    .isEqualTo(customer.toString());
+                            assertThat(f.detail()).contains("95000").contains("50000");
+                        });
+    }
+
+    @Test
     @DisplayName("one tenant's findings never appear in another's report")
     void reports_are_tenant_scoped() {
         credit("tx-1", 500_00);

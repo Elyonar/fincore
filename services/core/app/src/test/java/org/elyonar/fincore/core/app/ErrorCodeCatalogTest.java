@@ -17,20 +17,20 @@ import java.util.TreeSet;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-import org.elyonar.fincore.core.customer.api.CustomerErrorCode;
+import org.elyonar.fincore.core.orchestration.api.CustomerErrorCode;
 import org.elyonar.fincore.core.organization.api.OrganizationErrorCode;
-import org.elyonar.fincore.core.product.api.ProductDecision;
-import org.elyonar.fincore.core.product.api.ProductErrorCode;
-import org.elyonar.fincore.core.product.api.ProductErrorReason;
+import org.elyonar.fincore.core.orchestration.api.ProductDecision;
+import org.elyonar.fincore.core.orchestration.api.ProductErrorCode;
+import org.elyonar.fincore.core.orchestration.api.ProductErrorReason;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
  * Core's published error catalog must match the code that produces it.
  *
- * <p>Lives in {@code app} — the one module that sees every other — because the catalog spans five
- * modules and the union cannot be assembled anywhere a boundary rule would not have to bend
- * (orchestration must not know lending; ADR 0013).
+ * <p>Lives in {@code app} — the one module that sees every other — because the catalog spans four
+ * modules' own enums and the union cannot be assembled anywhere a boundary rule would not have to
+ * bend (no module may import a neighbour's catalog; ADR 0006).
  *
  * <p>The Ledger's twin of this test found four miscatalogued entries on its first run. Core needs
  * it more, not less: its catalog listed fifteen codes while the source threw a different set, and
@@ -137,11 +137,11 @@ class ErrorCodeCatalogTest {
     }
 
     /**
-     * Every code Core can return, across all five modules.
+     * Every code Core can return, across all four module catalogs.
      *
      * <p>Core is one deployable holding several modules, and each owns its own catalog — a shared
      * enum would make every module compile against Orchestration (ADR 0006). The published API is
-     * still one surface, so the doc is one table and this test unions the five.
+     * still one surface, so the doc is one table and this test unions the four.
      */
     private static Set<String> allCoreCodes() {
         return Stream.of(

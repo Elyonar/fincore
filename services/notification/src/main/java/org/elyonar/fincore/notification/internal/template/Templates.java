@@ -1,5 +1,8 @@
 package org.elyonar.fincore.notification.internal.template;
 
+import java.time.OffsetDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.Locale;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -31,8 +34,16 @@ public class Templates {
 
     private static final JsonMapper JSON = JsonMapper.builder().build();
 
-    /** {@code {{name}}} — deliberately not a scripting syntax. A template is tenant content. */
-    private static final Pattern PLACEHOLDER = Pattern.compile("\\{\\{\\s*([a-zA-Z0-9_.]+)\\s*}}");
+    /**
+     * {@code {{name}}} or {@code {{name | filter}}} — deliberately not a scripting syntax.
+     *
+     * <p>A template is tenant content, and content a tenant writes must not be able to loop, call
+     * anything, or read anything the context did not hand it. Substitution plus a closed set of
+     * named filters is the whole language, and the filters exist so that formatting money is
+     * decided once by the platform rather than a hundred times, differently, by administrators.
+     */
+    private static final Pattern PLACEHOLDER =
+            Pattern.compile("\\{\\{\\s*([a-zA-Z0-9_.]+)\\s*(?:\\|\\s*([a-zA-Z0-9_]+)\\s*)?}}");
 
     private final JdbcTemplate jdbc;
     private final Channels channels;
@@ -67,6 +78,79 @@ public class Templates {
     }
 
     /**
+     * The closed set of filters a template may use.
+     *
+     * <p>Closed on purpose. Every one of these is a decision about how this platform presents money
+     * or identity to a customer, and a decision made once is a decision that can be corrected once.
+     * The alternative — each tenant formatting minor units in their own template — produces a
+     * portfolio where ₦2,500.00, 2500.00 and 250000 all appear, and the third one is a support call.
+     *
+     * <ul>
+     *   <li>{@code money} — minor units to the major unit, grouped: {@code 250000} → {@code 2,500.00}
+     *   <li>{@code date} — an ISO instant to something a person reads: {@code 12-Aug-2026}
+     *   <li>{@code time} — the clock part, for an alert where the minute matters: {@code 09:23}
+     *   <li>{@code mask} — all but the last four digits: {@code 0000000001} → {@code ******0001}
+     * </ul>
+     *
+     * <p>An unknown filter is a **missing variable**, not a silent pass-through. A template
+     * referring to a filter this platform does not have is a template written against a version
+     * that does not exist, and rendering it unfiltered would put raw minor units in front of a
+     * customer while looking like it worked.
+     */
+    private static String apply(String filter, String value, List<String> missing, String name) {
+        if (filter == null) {
+            return value;
+        }
+        try {
+            return switch (filter) {
+                case "money" -> money(value);
+                case "date" -> DATE.format(OffsetDateTime.parse(value));
+                case "time" -> TIME.format(OffsetDateTime.parse(value));
+                case "mask" -> mask(value);
+                default -> {
+                    missing.add(name + "|" + filter);
+                    yield "";
+                }
+            };
+        } catch (RuntimeException e) {
+            // A value the filter cannot read is reported the same way a missing one is: the message
+            // is not sent, and the reason names the pair that failed.
+            missing.add(name + "|" + filter);
+            return "";
+        }
+    }
+
+    private static final DateTimeFormatter DATE = DateTimeFormatter.ofPattern("dd-MMM-yyyy", Locale.ENGLISH);
+    private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("HH:mm", Locale.ENGLISH);
+
+    /**
+     * Minor units to major, with grouping and exactly two decimal places.
+     *
+     * <p>Integer arithmetic throughout, and `BoundaryTest` enforces it: this service may not so
+     * much as import {@code BigDecimal}, "because units are integers; a decimal here is a rounding
+     * argument with a gateway". The rule holds for *displaying* money as much as for holding it —
+     * the moment a formatter is allowed a decimal type, the argument for one in a calculation is
+     * already half made. Splitting on 100 and grouping the whole part is all this ever needed.
+     */
+    private static String money(String minorUnits) {
+        long minor = Long.parseLong(minorUnits.trim());
+        boolean negative = minor < 0;
+        long absolute = Math.abs(minor);
+        long major = absolute / 100;
+        long fraction = absolute % 100;
+        String grouped = new java.text.DecimalFormat("#,##0").format(major);
+        return (negative ? "-" : "") + grouped + "." + (fraction < 10 ? "0" + fraction : Long.toString(fraction));
+    }
+
+    /** All but the last four, so a customer recognises the account and a thief learns nothing. */
+    private static String mask(String value) {
+        if (value.length() <= 4) {
+            return value;
+        }
+        return "*".repeat(value.length() - 4) + value.substring(value.length() - 4);
+    }
+
+    /**
      * Renders every part, or refuses.
      *
      * <p>Returns the missing variable names rather than throwing on the first one: an operator
@@ -82,10 +166,13 @@ public class Templates {
             StringBuilder out = new StringBuilder();
             while (matcher.find()) {
                 String name = matcher.group(1);
+                String filter = matcher.group(2);
                 String value = variables.get(name);
                 if (value == null) {
                     missing.add(name);
                     value = "";
+                } else {
+                    value = apply(filter, value, missing, name);
                 }
                 matcher.appendReplacement(out, Matcher.quoteReplacement(value));
             }

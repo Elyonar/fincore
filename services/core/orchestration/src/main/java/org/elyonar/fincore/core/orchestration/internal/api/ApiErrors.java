@@ -9,6 +9,7 @@ import org.elyonar.fincore.core.orchestration.api.DetailKey;
 import org.elyonar.fincore.core.orchestration.api.ErrorCode;
 import org.elyonar.fincore.core.orchestration.internal.approval.ApprovalRecords;
 import org.elyonar.fincore.core.orchestration.internal.saga.InternalAccounts;
+import org.elyonar.fincore.core.orchestration.internal.saga.SagaRecords;
 import org.elyonar.fincore.core.orchestration.internal.saga.TransferService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -117,6 +118,21 @@ public class ApiErrors {
     public ResponseEntity<ApiError> keyReused(TransferService.IdempotencyKeyReused e) {
         return ResponseEntity.status(HttpStatus.CONFLICT)
                 .body(ApiError.of(ErrorCode.IDEMPOTENCY_KEY_REUSED.code(), e.getMessage()));
+    }
+
+    /**
+     * A posting that can never be built — today, a priced fee whose rule names no fee account.
+     *
+     * <p>422 with the documented code, not the 500 this used to be: the refusal is configuration,
+     * not weather, and {@code api.md} has promised {@code FEE_ACCOUNT_NOT_CONFIGURED} since the
+     * caller-supplied fallback was removed. Retrying the same key without fixing the product's fee
+     * rule cannot succeed, and the body should say which knob to turn rather than shrug.
+     */
+    @ExceptionHandler(SagaRecords.Unretryable.class)
+    public ResponseEntity<ApiError> unbuildable(SagaRecords.Unretryable e) {
+        log.warn("posting cannot be built: {}", e.getMessage());
+        return ResponseEntity.unprocessableEntity()
+                .body(ApiError.of(ErrorCode.FEE_ACCOUNT_NOT_CONFIGURED.code(), e.getMessage()));
     }
 
     /**

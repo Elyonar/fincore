@@ -1,8 +1,8 @@
 package org.elyonar.fincore.core.app.pricing;
 
 import java.util.Map;
-import org.elyonar.fincore.core.product.api.ProductAuthoring;
-import org.elyonar.fincore.core.product.api.ProductErrorCode;
+import org.elyonar.fincore.core.orchestration.api.ProductAuthoring;
+import org.elyonar.fincore.core.orchestration.api.ProductErrorCode;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -68,6 +68,38 @@ public class PricingApiErrors {
         return ResponseEntity.unprocessableEntity()
                 .body(Map.of(
                         "code", ProductErrorCode.PRICING_ACCOUNT_INVALID.code(),
+                        "message", e.getMessage(),
+                        "details", Map.of()));
+    }
+
+    /**
+     * A rule set the version cannot hold — wrong shape rather than wrong account.
+     *
+     * <p>One code with a {@code reason}, per the error contract: the caller renders a sentence from
+     * the reason and details in its own language, and the message stays developer English.
+     */
+    @ExceptionHandler(ProductAuthoring.RulesInvalid.class)
+    public ResponseEntity<Map<String, Object>> rulesInvalid(ProductAuthoring.RulesInvalid e) {
+        return ResponseEntity.unprocessableEntity()
+                .body(Map.of(
+                        "code", ProductErrorCode.RULES_INVALID.code(),
+                        "reason", e.reason.name(),
+                        "message", e.getMessage(),
+                        "details", e.details));
+    }
+
+    /**
+     * Two administrators drafted the next version at once; the unique index picked a winner.
+     *
+     * <p>409, and the remedy is simply to retry: the loser's next attempt drafts the version after
+     * the winner's. This used to surface as the constraint violation itself — a 500 for losing a
+     * race the caller could not even see.
+     */
+    @ExceptionHandler(ProductAuthoring.DraftConflict.class)
+    public ResponseEntity<Map<String, Object>> draftConflict(ProductAuthoring.DraftConflict e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(Map.of(
+                        "code", ProductErrorCode.DRAFT_CONFLICT.code(),
                         "message", e.getMessage(),
                         "details", Map.of()));
     }

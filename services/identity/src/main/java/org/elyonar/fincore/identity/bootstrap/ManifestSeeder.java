@@ -68,7 +68,6 @@ public class ManifestSeeder implements ApplicationRunner {
             "Branch manager",
             "Teller",
             "Supervisor",
-            "Loan officer",
             "Compliance officer",
             "Operations officer",
             "Customer service officer");
@@ -191,7 +190,7 @@ public class ManifestSeeder implements ApplicationRunner {
         // user insert then converges, never repaired on a re-run. All three commit together or none.
         Boolean inserted = tx.inTenant(tenantId, () -> {
             // Every job template, not only the administrator's. An institution has to be able to
-            // staff itself on day one — a teller, a supervisor, a loan officer — and authoring a
+            // staff itself on day one — a teller, a supervisor, a compliance officer — and authoring a
             // role is the operation that needs a second signature and therefore a second human.
             // Seeding the starting position is what breaks that circle. ADR 0017: nothing here is
             // privileged after provisioning; these are a starting position, not a structure.

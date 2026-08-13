@@ -60,5 +60,44 @@ public class TenantRegistry {
                 "INSERT INTO platform.tenants (id, name, created_by) VALUES (?,?,?)"
                         + " ON CONFLICT (id) DO NOTHING",
                 tenantId, name, createdBy);
+        offerTheStartingCurrencies(tenantId);
+    }
+
+    /**
+     * A new tenant starts with currencies to choose from.
+     *
+     * <p>The migration that created {@code platform.currencies} seeded every tenant that existed
+     * when it ran, and nothing seeded the ones that arrived afterwards. So the platform worked and
+     * the next institution provisioned onto it did not: an empty list means every currency dropdown
+     * is empty, which means no internal account, no till and no customer account can be opened, on
+     * a system whose own screens report nothing wrong.
+     *
+     * <p>Seeded rather than left to setup because it is not a decision anybody should have to make
+     * before they can do anything. The list is trimmed on the Currencies screen, where withdrawing
+     * one is a deliberate act rather than the consequence of an omission.
+     *
+     * <p>Exponents are ISO 4217's and match the ledger's registry, which is the authority. The three
+     * that are not 2 are here on purpose: they are what a hardcoded two decimal places got wrong.
+     */
+    private void offerTheStartingCurrencies(UUID tenantId) {
+        provision.update(
+                """
+                INSERT INTO platform.currencies (tenant_id, code, name, exponent)
+                SELECT ?, c.code, c.name, c.exponent
+                  FROM (VALUES
+                        ('NGN', 'Nigerian naira',         2),
+                        ('USD', 'US dollar',              2),
+                        ('EUR', 'Euro',                   2),
+                        ('GBP', 'Pound sterling',         2),
+                        ('KES', 'Kenyan shilling',        2),
+                        ('GHS', 'Ghanaian cedi',          2),
+                        ('ZAR', 'South African rand',     2),
+                        ('XOF', 'West African CFA franc', 0),
+                        ('JPY', 'Japanese yen',           0),
+                        ('KWD', 'Kuwaiti dinar',          3)
+                  ) AS c(code, name, exponent)
+                ON CONFLICT (tenant_id, code) DO NOTHING
+                """,
+                tenantId);
     }
 }

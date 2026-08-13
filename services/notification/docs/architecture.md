@@ -1,6 +1,6 @@
 # Notification — Architecture & Boundaries
 
-**Status:** AGREED v1.5.1 (2026-08-08) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
+**Status:** AGREED v1.7 (2026-08-11) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
 
 ## The shape
 

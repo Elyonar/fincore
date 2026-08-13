@@ -29,6 +29,14 @@ import org.springframework.test.context.DynamicPropertySource;
 @DisplayName("tenant gate — a tenant must exist before Core will serve it")
 class TenantGateTest {
 
+    /*
+     * Probes `/v1/org-units` rather than `/v1/products`, which is not a change of subject: this
+     * suite is about the gate, and it needs any endpoint Core actually serves to probe it with.
+     * Products moved to their own deployable under ADR 0020 and took their route with them — the
+     * probe followed. Each service now enforces this same gate over its own registry, and Product's
+     * copy is tested there.
+     */
+
     @LocalServerPort private int port;
     @Autowired private TenantRegistry tenantRegistry;
     @Autowired @Qualifier("ownerDataSource") private javax.sql.DataSource owner;
@@ -48,7 +56,7 @@ class TenantGateTest {
 
         // A perfectly valid identity: the right permission, a well-formed tenant. The only thing
         // wrong with it is that nobody ever provisioned that tenant — which used to be enough.
-        assertThat(get("/v1/products", neverProvisioned, "products:read")).isEqualTo(404);
+        assertThat(get("/v1/org-units", neverProvisioned, "org:read")).isEqualTo(404);
     }
 
     @Test
@@ -59,8 +67,8 @@ class TenantGateTest {
         // A 403 would say "that tenant is real, you just may not touch it", which is an
         // enumeration oracle. The same choice the ledger made, and the same one Core already makes
         // for a customer belonging to someone else.
-        assertThat(get("/v1/products", neverProvisioned, "products:read")).isEqualTo(404);
-        assertThat(get("/v1/products", neverProvisioned, "nothing:useful")).isEqualTo(404);
+        assertThat(get("/v1/org-units", neverProvisioned, "org:read")).isEqualTo(404);
+        assertThat(get("/v1/org-units", neverProvisioned, "nothing:useful")).isEqualTo(404);
     }
 
     @Test
@@ -69,9 +77,9 @@ class TenantGateTest {
         UUID provisioned = UUID.randomUUID();
         tenantRegistry.register(provisioned, "a real bank", "TenantGateTest");
 
-        assertThat(get("/v1/products", provisioned, "products:read")).isEqualTo(200);
+        assertThat(get("/v1/org-units", provisioned, "org:read")).isEqualTo(200);
         // The gate is not authorization. Once the tenant is real, the permission still decides.
-        assertThat(get("/v1/products", provisioned, "wrong:permission")).isEqualTo(403);
+        assertThat(get("/v1/org-units", provisioned, "wrong:permission")).isEqualTo(403);
     }
 
     @Test
@@ -79,14 +87,14 @@ class TenantGateTest {
     void suspending_a_tenant_closes_it() {
         UUID provisioned = UUID.randomUUID();
         tenantRegistry.register(provisioned, "a bank in arrears", "TenantGateTest");
-        assertThat(get("/v1/products", provisioned, "products:read")).isEqualTo(200);
+        assertThat(get("/v1/org-units", provisioned, "org:read")).isEqualTo(200);
 
         new JdbcTemplate(owner)
                 .update("UPDATE platform.tenants SET status = 'SUSPENDED' WHERE id = ?", provisioned);
 
         // Entitlements are a control plane concern and this is the seam they will act through:
         // suspension has to stop traffic, not merely record an intention.
-        assertThat(get("/v1/products", provisioned, "products:read")).isEqualTo(404);
+        assertThat(get("/v1/org-units", provisioned, "org:read")).isEqualTo(404);
     }
 
     @Test

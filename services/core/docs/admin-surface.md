@@ -1,6 +1,6 @@
 # Core — The Administration Surface
 
-**Status:** AGREED v1.24 (2026-08-10) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
+**Status:** AGREED v2.3 (2026-08-11) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
 
 What a tenant's own administrator needs in order to turn a provisioned tenant
 into an institution that can transact. Three capabilities, designed as one batch
@@ -37,7 +37,7 @@ institution able to take a single deposit. Three gaps stand in the way, and each
 is a capability the schema already models and no endpoint reaches:
 
 1. **Nothing prices.** `POST /v1/products` accepts a code, a name and a type.
-   `product.fee_rules`, `product.limit_rules` and `product.loan_rules` are fully
+   `product.fee_rules` and `product.limit_rules` are fully
    modelled, constrained, and written by nothing outside the test suite. A
    published product version carries no pricing, so every money path resolves a
    version that cannot answer what a fee is.
@@ -48,7 +48,7 @@ is a capability the schema already models and no endpoint reaches:
    configured product refers to, and the account a till *is*, are all
    unreachable.
 3. **No second user exists.** No endpoint creates a member of staff or composes
-   a role, and the eight `job:*` composites are identical for every institution.
+   a role, and the seven `job:*` composites are identical for every institution.
 
 ## 2. Scope
 
@@ -94,7 +94,6 @@ review it, and a portal cannot render an edit form without it.
 | `GET` | `/v1/products/{id}/versions/{version}` | `products:read` | The version with its full rule set. |
 | `PUT` | `/v1/products/{id}/versions/{version}/fee-rules` | `products:create` | Replace the fee schedule. Draft only. |
 | `PUT` | `/v1/products/{id}/versions/{version}/limit-rules` | `products:create` | Replace limits, per KYC tier × channel. Draft only. |
-| `PUT` | `/v1/products/{id}/versions/{version}/loan-rules` | `products:create` | Replace loan terms, including penalty and income accounts. Draft only, LOAN products only. |
 | `PATCH` | `/v1/products/{id}/versions/{version}` | `products:create` | Set `effectiveFrom`. Draft only. |
 
 `POST /v1/products/{id}/versions/{version}/publish` already exists and is
@@ -104,9 +103,9 @@ unchanged — including its database-enforced refusal of publisher == author.
 
 `PRODUCT_NOT_FOUND` · `VERSION_NOT_FOUND` · `VERSION_NOT_DRAFT` (any write to a
 published version) · `RULES_INVALID` with reasons `UNKNOWN_KYC_TIER`,
-`UNKNOWN_CHANNEL`, `UNKNOWN_FEE_BASIS`, `UNKNOWN_SCHEDULE_KIND`,
+`UNKNOWN_CHANNEL`, `UNKNOWN_FEE_BASIS`,
 `BOUNDS_INVERTED`, `RATE_OUT_OF_RANGE`, `ACCOUNT_NOT_FOUND`,
-`ACCOUNT_WRONG_TYPE` · `LOAN_RULES_ON_NON_LOAN_PRODUCT` ·
+`ACCOUNT_WRONG_TYPE` ·
 `EFFECTIVE_FROM_IN_THE_PAST`.
 
 > **Superseded by v1.24.** `VERSION_NOT_FOUND` duplicated the existing
@@ -287,7 +286,7 @@ merges.
 - **`keycloak/realm-template.json`** — four new permissions (`accounts:read`,
   `accounts:manage`, `users:read`, `users:manage`) added to the catalog and to
   `job:admin`; the tenant's service client granted administration of its own
-  realm. The eight `job:*` composites are reframed as templates a tenant may
+  realm. The seven `job:*` composites are reframed as templates a tenant may
   copy, rename or delete, which is a documentation change and not a behavioural
   one.
 - **`libs/auth`** — unchanged. ADR 0017 turns on a resolution the platform

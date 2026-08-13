@@ -4,7 +4,8 @@ import java.util.UUID;
 import org.elyonar.fincore.core.orchestration.api.TransferCommand;
 import org.elyonar.fincore.core.orchestration.api.TransactionDetail;
 import org.elyonar.fincore.core.orchestration.api.TransferResult;
-import org.elyonar.fincore.core.product.api.ProductDecision;
+import org.elyonar.fincore.core.orchestration.api.ProductDecision;
+import org.elyonar.fincore.core.orchestration.internal.TenantZones;
 import org.elyonar.fincore.core.orchestration.internal.outbox.OutboxWriter;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -25,14 +26,17 @@ public class SagaRecords {
     private final JdbcTemplate jdbc;
     private final JdbcTemplate workerJdbc;
     private final OutboxWriter outbox;
+    private final TenantZones zones;
 
     public SagaRecords(
             @Qualifier(CoreProperties.Beans.ORCHESTRATION_JDBC) JdbcTemplate orchestrationJdbcTemplate,
             @Qualifier(CoreProperties.Beans.WORKER_JDBC) JdbcTemplate workerJdbcTemplate,
-            OutboxWriter outbox) {
+            OutboxWriter outbox,
+            TenantZones zones) {
         this.jdbc = orchestrationJdbcTemplate;
         this.workerJdbc = workerJdbcTemplate;
         this.outbox = outbox;
+        this.zones = zones;
     }
 
     /**
@@ -66,8 +70,30 @@ public class SagaRecords {
                         kycTier);
     }
 
+    /**
+     * Tenant context, and the calendar the transaction is stamped against.
+     *
+     * <p>The timezone is the second half and it is not cosmetic. {@code sagas.reference} defaults to
+     * {@code orchestration.transaction_reference()}, which renders {@code to_char(now(),
+     * 'YYYYMMDD')} — in the <em>session's</em> zone, which in a container is UTC. Every other
+     * statement of what day it is here uses the tenant's business zone: the DAILY limit window
+     * rolls at the tenant's midnight, and the till's day-book counts a day the same way. So a
+     * Lagos institution taking a deposit at 00:26 local handed the customer a receipt numbered
+     * TXN-20260811-… while its own till page called the day the 12th — an hour of every day whose
+     * references do not reconcile against the book they belong to, and nothing to notice it by
+     * except the two numbers disagreeing.
+     *
+     * <p>Set here rather than threaded through each call because every insert that takes a
+     * reference already passes through this method — the transfer path, the cash path and the
+     * reversal path alike — and a fix that has to be remembered at each new one is a fix with an
+     * expiry date. {@code SET LOCAL} scopes it to the transaction. Nothing else in this module
+     * reads the session zone: {@code TillRecords} states its zone explicitly with {@code AT TIME
+     * ZONE}, which is why the day-book was right in the first place.
+     */
     private void scopeTo(UUID tenantId) {
         jdbc.queryForObject("SELECT set_config(\'app.tenant_id\', ?, true)", String.class, tenantId.toString());
+        jdbc.queryForObject(
+                "SELECT set_config('TimeZone', ?, true)", String.class, zones.businessZone(tenantId).getId());
     }
 
     /**
@@ -256,47 +282,6 @@ public class SagaRecords {
                 sagaId,
                 payload(sagaId, command.amountMinor(), decision.feeMinor(), command.currency()));
 
-        return sagaId;
-    }
-
-    /**
-     * Phase A for funding movements (lending.md): the saga and the event, no reservation.
-     *
-     * <p>No product decision and no limit reservation, deliberately — the exposure was approved
-     * by Lending's amount-tiered chain, and channel limits protect customer-initiated movement.
-     * Everything that makes recovery possible is still here: accounts on the row, fee zero, the
-     * idempotency key arbitrated by the unique index.
-     */
-    @Transactional
-    public UUID openFunding(org.elyonar.fincore.core.orchestration.api.FundingCommand command) {
-        scopeTo(command.tenantId());
-        UUID sagaId =
-                jdbc.queryForObject(
-                        """
-                        INSERT INTO orchestration.sagas
-                            (tenant_id, type, state, channel_idempotency_key, request_fingerprint,
-                             subject_customer_id, amount_minor, fee_minor, currency,
-                             initiated_by, executed_by, from_account_id, to_account_id)
-                        VALUES (?, ?, 'POSTING', ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)
-                        RETURNING id
-                        """,
-                        UUID.class,
-                        command.tenantId(),
-                        command.kind().name(),
-                        command.idempotencyKey(),
-                        command.fingerprint(),
-                        command.customerId(),
-                        command.amountMinor(),
-                        command.currency(),
-                        command.initiatedBy(),
-                        command.executedBy(),
-                        command.sourceAccountId(),
-                        command.destinationAccountId());
-        outbox.append(
-                command.tenantId(),
-                "transfer.initiated",
-                sagaId,
-                payload(sagaId, command.amountMinor(), 0, command.currency()));
         return sagaId;
     }
 
@@ -645,13 +630,19 @@ public class SagaRecords {
      */
     @Transactional(transactionManager = CoreProperties.Beans.WORKER_TX, readOnly = true)
     public Pending loadPending(UUID sagaId) {
+        // The self-join resolves what a REVERSAL saga needs and its own row deliberately does not
+        // carry: the ledger transaction its target posted. A reversal names no accounts — it names
+        // a transaction — so the worker re-drives it via `ledger.reverse`, and this is where the
+        // target comes from.
         return workerJdbc.query(
                 """
-                SELECT tenant_id, type, from_account_id, to_account_id, fee_account_id, amount_minor,
-                       fee_minor, currency, initiated_by, attempts,
-                       EXTRACT(EPOCH FROM (now() - created_at))::bigint AS age_seconds
-                  FROM orchestration.sagas
-                 WHERE id = ? AND state IN ('RECEIVED', 'POSTING')
+                SELECT s.tenant_id, s.type, s.from_account_id, s.to_account_id, s.fee_account_id,
+                       s.amount_minor, s.fee_minor, s.currency, s.initiated_by, s.attempts,
+                       EXTRACT(EPOCH FROM (now() - s.created_at))::bigint AS age_seconds,
+                       original.ledger_transaction_id AS reverses_ledger_transaction_id
+                  FROM orchestration.sagas s
+                  LEFT JOIN orchestration.sagas original ON original.id = s.reverses_saga_id
+                 WHERE s.id = ? AND s.state IN ('RECEIVED', 'POSTING')
                 """,
                 rs ->
                         rs.next()
@@ -666,7 +657,8 @@ public class SagaRecords {
                                         rs.getString("currency"),
                                         rs.getString("initiated_by"),
                                         rs.getInt("attempts"),
-                                        java.time.Duration.ofSeconds(rs.getLong("age_seconds")))
+                                        java.time.Duration.ofSeconds(rs.getLong("age_seconds")),
+                                        rs.getObject("reverses_ledger_transaction_id", UUID.class))
                                 : null,
                 sagaId);
     }
@@ -786,7 +778,13 @@ public class SagaRecords {
     public record Reversible(
             UUID id, long amountMinor, long feeMinor, String currency, UUID ledgerTransactionId) {}
 
-    /** Everything needed to re-send a saga's posting exactly as it was first sent. */
+    /**
+     * Everything needed to re-drive a saga's outbound step exactly as it was first sent.
+     *
+     * @param reversesLedgerTransactionId for a REVERSAL saga, the ledger transaction its target
+     *     posted — what {@code ledger.reverse} is aimed at. Null for every other type, and null for
+     *     a reversal whose target never recorded one, which is unresolvable and escalates.
+     */
     public record Pending(
             UUID tenantId,
             String type,
@@ -798,7 +796,15 @@ public class SagaRecords {
             String currency,
             String initiatedBy,
             int attempts,
-            java.time.Duration age) {
+            java.time.Duration age,
+            UUID reversesLedgerTransactionId) {
+
+        /** The saga type that is re-driven via {@code ledger.reverse}, never rebuilt as a posting. */
+        private static final String REVERSAL = "REVERSAL";
+
+        public boolean reversal() {
+            return REVERSAL.equals(type);
+        }
 
         /**
          * The identical posting, under the given key.
@@ -808,6 +814,14 @@ public class SagaRecords {
          * permanent one.
          */
         public org.elyonar.fincore.core.orchestration.api.LedgerPosting postingUnder(String key) {
+            if (reversal()) {
+                // A reversal targets a transaction, not a pair of accounts — its saga row
+                // deliberately names none, so "rebuilding" it fabricates entries with no accounts.
+                // The zero-fee case used to slip past every guard and NPE inside the client,
+                // outside every catch that could have scheduled a retry: the saga looped on lease
+                // expiry forever. Unretryable, because no retry of this construction can ever work.
+                throw new Unretryable("a REVERSAL saga is re-driven via ledger.reverse, never rebuilt as a posting");
+            }
             var entries =
                     Postings.entriesFor(
                             type, fromAccountId, toAccountId, feeAccountId, amountMinor, feeMinor, currency);

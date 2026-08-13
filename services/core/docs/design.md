@@ -1,6 +1,6 @@
 # Core — Design Index & Decision Log
 
-**Status:** AGREED v1.24 (2026-08-10) — implemented from here; amendments via
+**Status:** AGREED v2.3 (2026-08-11) — implemented from here; amendments via
 [`CHANGELOG.md`](CHANGELOG.md) and the [design-change convention](../../../docs/conventions/design-changes.md).
 **Source:** platform PRD §4.2 (Customer), §4.3 (Product), §4.4 (Orchestration),
 §3 (constitution), §5 (communication map), §6 (security), §7 (NFRs), §8
@@ -27,9 +27,12 @@ silent edits. Code that contradicts it is a bug even if it works.
 
 ## One paragraph
 
-Core is one deployable holding four domain modules — `customer`, `product`, `organization`,
-`orchestration` — each owning a schema in one PostgreSQL database and a
-database role granted only on that schema. Orchestration turns a business
+Core is one deployable holding five domain modules — `customer`, `product`, `organization`,
+`orchestration`, `admin` — the first four each owning a schema in one PostgreSQL
+database and a database role granted only on that schema. `admin` owns neither,
+deliberately: it holds no state, proxying the staff/role administration surface
+to the identity service (ADR 0018), and its boundary is that service's client
+rather than a schema (v2.3). Orchestration turns a business
 intent into a balanced, attributed, idempotent posting against the Ledger, and
 guarantees that a request interrupted at any point ends either completely done
 or completely undone. It is the **only** caller of the Ledger's write API and

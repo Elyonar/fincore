@@ -22,6 +22,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -37,18 +38,15 @@ import tools.jackson.databind.json.JsonMapper;
  * stable, and the two ledger proxies preserving the ledger's answers rather than reshaping them.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@Import(FakeServices.class)
 class UiReadsApiTest {
 
     private static final String ALL =
-            "customers:read,transfers:read,tills:read,approvals:check,approvals:make,cash:transact,"
-                    + "loans:apply,loans:read,loans:approve,loans:offer,loans:disburse,loans:repay,loans:tiers";
+            "customers:read,transfers:read,tills:read,approvals:check,approvals:make,cash:transact";
 
     @Autowired private TenantRegistry tenantRegistry;
+    @Autowired private FakeServices.FakeCustomers customers;
     @LocalServerPort private int port;
-    @Autowired @Qualifier("customerJdbcTemplate") private JdbcTemplate customerDb;
-    @Autowired @Qualifier("productJdbcTemplate") private JdbcTemplate productDb;
-    @Autowired @Qualifier("customerTransactionManager") private PlatformTransactionManager customerTx;
-    @Autowired @Qualifier("productTransactionManager") private PlatformTransactionManager productTx;
     @Autowired @Qualifier("workerJdbcTemplate") private JdbcTemplate workerDb;
     @Autowired private org.elyonar.fincore.core.orchestration.internal.saga.TillRecords tills;
     @Autowired private org.elyonar.fincore.core.orchestration.internal.approval.ApprovalRecords approvals;
@@ -130,79 +128,17 @@ class UiReadsApiTest {
         accountStatus.set(200);
         entriesStatus.set(200);
 
-        new TransactionTemplate(customerTx)
-                .executeWithoutResult(
-                        s -> {
-                            customerDb.queryForObject(
-                                    "SELECT set_config('app.tenant_id', ?, true)", String.class, tenantId.toString());
-                            customerDb.update(
-                                    "INSERT INTO customer.customers (id, tenant_id, external_ref, full_name, kyc_tier)"
-                                            + " VALUES (?,?,?,?, 'TIER_2')",
-                                    customerId, tenantId, "C-0001", "Ada Lovelace");
-                            customerDb.update(
-                                    "INSERT INTO customer.customer_accounts (tenant_id, customer_id,"
-                                            + " ledger_account_id, currency, product_code) VALUES (?,?,?, 'NGN', 'P')",
-                                    tenantId, customerId, customerAccount);
-                        });
+        // Customer is a deployable now (ADR 0020). The 360 view below is still Core's — it
+        // joins what Customer knows a person holds with what the Ledger says is in it — so the
+        // premise is stated here and the composition is what gets asserted.
+        customers.clear();
+        // Scoped to *this* tenant explicitly, because one of the tests below exists to prove
+        // another tenant sees nothing. A holding that matched any tenant would let that test
+        // pass by leaking.
+        customers.eligible(customerId, "TIER_2").holds(tenantId, customerId, customerAccount, "P", "NGN");
 
-        new TransactionTemplate(productTx)
-                .executeWithoutResult(
-                        s -> {
-                            productDb.queryForObject(
-                                    "SELECT set_config('app.tenant_id', ?, true)", String.class, tenantId.toString());
-                            UUID productId =
-                                    productDb.queryForObject(
-                                            "INSERT INTO product.products (tenant_id, code, name, type)"
-                                                    + " VALUES (?, 'P', 'P', 'SAVINGS') RETURNING id",
-                                            UUID.class, tenantId);
-                            UUID versionId =
-                                    productDb.queryForObject(
-                                            "INSERT INTO product.product_versions (tenant_id, product_id, version,"
-                                                    + " status, created_by, published_by)"
-                                                    + " VALUES (?,?,1,'DRAFT','user:author',NULL)"
-                                                    + " RETURNING id",
-                                            UUID.class, tenantId, productId);
-                            for (String channel : new String[] {"TELLER", "API"}) {
-                                productDb.update(
-                                        "INSERT INTO product.limit_rules (tenant_id, product_version_id, kyc_tier,"
-                                                + " channel, limit_type, max_amount_minor, currency)"
-                                                + " VALUES (?,?, 'TIER_2', ?, 'PER_TXN', 5000000, 'NGN')",
-                                        tenantId, versionId, channel);
-                            }
-                            UUID loanProductId =
-                                    productDb.queryForObject(
-                                            "INSERT INTO product.products (tenant_id, code, name, type)"
-                                                    + " VALUES (?, 'AJO_LOAN', 'Ajo Loan', 'LOAN') RETURNING id",
-                                            UUID.class, tenantId);
-                            UUID loanVersionId =
-                                    productDb.queryForObject(
-                                            "INSERT INTO product.product_versions (tenant_id, product_id, version,"
-                                                    + " status, created_by, published_by)"
-                                                    + " VALUES (?,?,1,'DRAFT','user:author',NULL)"
-                                                    + " RETURNING id",
-                                            UUID.class, tenantId, loanProductId);
-                            productDb.update(
-                                    """
-                                    INSERT INTO product.loan_rules
-                                        (tenant_id, product_version_id, interest_rate_bp, schedule_kind,
-                                         min_amount_minor, max_amount_minor, min_term_months, max_term_months,
-                                         currency)
-                                    VALUES (?,?, 2400, 'FLAT', 10000, 100000000, 1, 36, 'NGN')
-                                    """,
-                                    tenantId, loanVersionId);
-                            // Published last, because pricing for a live version is immutable (V7):
-                            // a rule added after publish would change what an already-decided transaction
-                            // was priced under, and the database refuses it.
-                            productDb.update(
-                                    "UPDATE product.product_versions SET status = 'PUBLISHED',"
-                                            + " published_by = 'user:publisher' WHERE tenant_id = ? AND id = ?",
-                                    tenantId, versionId);
-                            productDb.update(
-                                    "UPDATE product.product_versions SET status = 'PUBLISHED',"
-                                            + " published_by = 'user:publisher' WHERE tenant_id = ? AND id = ?",
-                                    tenantId, loanVersionId);
-                        });
-
+        // Still Core's, and still real: a till is orchestration's own table, and the reads below
+        // are about what went through it.
         tillId = tills.open(tenantId, "BR-01", null, tillAccount, "NGN", "user:teller-1");
     }
 
@@ -234,41 +170,9 @@ class UiReadsApiTest {
         return send(as(path, permissions, principal).POST(HttpRequest.BodyPublishers.ofString(body)).build());
     }
 
-    // ------------------------------------------------------------------ customer search
-
-    @Test
-    void customer_search_finds_by_name_and_reference_and_pages_by_keyset() {
-        new TransactionTemplate(customerTx)
-                .executeWithoutResult(
-                        s -> {
-                            customerDb.queryForObject(
-                                    "SELECT set_config('app.tenant_id', ?, true)", String.class, tenantId.toString());
-                            for (int i = 0; i < 55; i++) {
-                                customerDb.update(
-                                        "INSERT INTO customer.customers (tenant_id, external_ref, full_name)"
-                                                + " VALUES (?,?,?)",
-                                        tenantId, "PAGE-" + String.format("%03d", i), "Pager " + i);
-                            }
-                        });
-
-        // By name and by reference, the same box.
-        assertThat(getJson("/v1/customers?q=Lovelace", ALL, "user:teller").get("customers")).hasSize(1);
-        assertThat(getJson("/v1/customers?q=C-0001", ALL, "user:teller").get("customers")).hasSize(1);
-
-        // Keyset pages: 50 + the rest, disjoint, in order, cursor opaque.
-        JsonNode first = getJson("/v1/customers?q=Pager", ALL, "user:teller");
-        assertThat(first.get("customers")).hasSize(50);
-        String cursor = first.get("nextPage").asString();
-        assertThat(cursor).isNotBlank();
-        JsonNode second = getJson("/v1/customers?q=Pager&page=" + cursor, ALL, "user:teller");
-        assertThat(second.get("customers")).hasSize(5);
-        assertThat(second.get("nextPage").isNull()).isTrue();
-        var seen = new java.util.HashSet<String>();
-        first.get("customers").forEach(c -> seen.add(c.get("customerId").asString()));
-        second.get("customers").forEach(c -> assertThat(seen.add(c.get("customerId").asString())).isTrue());
-    }
-
-    // ------------------------------------------------------------------ accounts + balances
+    // Customer search left Core with ADR 0020: `/v1/customers?q=` is the Customer service's
+    // surface and is tested there. Core keeps the 360 view below, which is a composition of
+    // Customer's answer and the Ledger's, and therefore genuinely Core's to prove.
 
     @Test
     void the_customer_360_joins_held_accounts_with_the_ledgers_balances() {
@@ -422,8 +326,7 @@ class UiReadsApiTest {
     @Test
     void every_new_read_denies_by_default() {
         String[][] probes = {
-            {"/v1/customers?q=x", "loans:read"},
-            {"/v1/customers/" + customerId + "/accounts", "loans:read"},
+            {"/v1/customers/" + customerId + "/accounts", "tills:read"},
             {"/v1/accounts/" + customerAccount + "/statement?from=2026-08-01&to=2026-08-31", "customers:read"},
             {"/v1/tills/" + tillId + "/activity?date=2026-08-08", "customers:read"},
             {"/v1/approvals/pending", "approvals:make"},
@@ -451,14 +354,7 @@ class UiReadsApiTest {
         assertThat(foreign.statusCode()).isEqualTo(200);
         assertThat(mapper.readTree(foreign.body()).get("accounts")).isEmpty();
 
-        var foreignSearch =
-                send(
-                        HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/v1/customers?q=Lovelace"))
-                                .header("X-Dev-Tenant-Id", otherTenant.toString())
-                                .header("X-Dev-Principal", "user:intruder")
-                                .header("X-Dev-Permissions", ALL)
-                                .GET()
-                                .build());
-        assertThat(mapper.readTree(foreignSearch.body()).get("customers")).isEmpty();
+        // The foreign *search* probe went with `/v1/customers?q=` to the Customer service, which
+        // enforces the same isolation over its own database and is tested there.
     }
 }

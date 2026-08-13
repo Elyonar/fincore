@@ -417,30 +417,71 @@ public class InvariantService {
                 });
     }
 
-    /** Latest completed report. The GET endpoint fetches; it never triggers a scan. */
+    /**
+     * Latest report, findings included. The GET endpoint fetches; it never triggers a scan.
+     *
+     * <p>The findings are read back, never substituted with an empty list: this is the one place an
+     * operator asks "did the ledger find anything", and a report that always answered no — while
+     * the run had persisted its counterexamples — would make the zero-violations target
+     * unfalsifiable rather than met.
+     */
     public InvariantReport latest(UUID tenantId) {
         return tenantScope.inTenant(
                 tenantId,
-                () ->
-                        jdbc.query(
-                                """
-                                SELECT id, started_at, completed_at, scope, violations, exposures
-                                  FROM invariant_runs WHERE tenant_id = ?
-                                 ORDER BY started_at DESC LIMIT 1
-                                """,
-                                rs ->
-                                        rs.next()
-                                                ? new InvariantReport(
+                () -> {
+                    Object[] run =
+                            jdbc.query(
+                                    """
+                                    SELECT id, started_at, completed_at, scope
+                                      FROM invariant_runs WHERE tenant_id = ?
+                                     ORDER BY started_at DESC LIMIT 1
+                                    """,
+                                    rs ->
+                                            rs.next()
+                                                    ? new Object[] {
                                                         rs.getLong(1),
-                                                        tenantId,
-                                                        rs.getTimestamp(2).toInstant(),
-                                                        rs.getTimestamp(3) == null
-                                                                ? null
-                                                                : rs.getTimestamp(3).toInstant(),
-                                                        rs.getString(4),
-                                                        List.of())
-                                                : null,
-                                tenantId));
+                                                        rs.getTimestamp(2),
+                                                        rs.getTimestamp(3),
+                                                        rs.getString(4)
+                                                    }
+                                                    : null,
+                                    tenantId);
+                    if (run == null) {
+                        return null;
+                    }
+                    long runId = (Long) run[0];
+                    return new InvariantReport(
+                            runId,
+                            tenantId,
+                            ((java.sql.Timestamp) run[1]).toInstant(),
+                            run[2] == null ? null : ((java.sql.Timestamp) run[2]).toInstant(),
+                            (String) run[3],
+                            findingsOf(tenantId, runId));
+                });
+    }
+
+    /**
+     * One run's persisted findings, exploded by PostgreSQL rather than parsed here.
+     *
+     * <p>{@code jsonb_array_elements} returns one row per finding, so the read path stays plain
+     * SQL like every other query in this service and never grows a hand-written JSON parser that
+     * could disagree with the hand-written writer in {@link #toJson}.
+     */
+    private List<Finding> findingsOf(UUID tenantId, long runId) {
+        return jdbc.query(
+                """
+                SELECT f->>'kind', f->>'invariant', f->>'subject', f->>'detail'
+                  FROM invariant_runs, jsonb_array_elements(findings) AS f
+                 WHERE tenant_id = ? AND id = ?
+                """,
+                (rs, i) ->
+                        new Finding(
+                                Finding.Kind.valueOf(rs.getString(1)),
+                                rs.getString(2),
+                                rs.getString(3),
+                                rs.getString(4)),
+                tenantId,
+                runId);
     }
 
     private static String toJson(List<Finding> findings) {

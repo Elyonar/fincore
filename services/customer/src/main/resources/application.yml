@@ -1,0 +1,55 @@
+spring:
+  application:
+    name: customer
+
+  # Migrations run as the owner; traffic connects as the restricted role. The owner connection
+  # never serves a request, so it holds one connection rather than a pool's worth for the life of
+  # the process.
+  datasource:
+    hikari:
+      maximum-pool-size: 1
+      minimum-idle: 0
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:55432/customer}
+    username: ${SPRING_DATASOURCE_USERNAME:fincore}
+    password: ${SPRING_DATASOURCE_PASSWORD:fincore}
+
+  # Off, and wired in Migrations instead — two datasources exist and only the owner may run DDL,
+  # which autoconfiguration cannot know.
+  flyway:
+    enabled: false
+
+fincore:
+  auth:
+    mode: ${FINCORE_AUTH_MODE:jwt}
+    issuer-uri: ${FINCORE_AUTH_ISSUER_URI:}
+
+  customer:
+    datasource:
+      app:
+        # Every transaction on the platform asks this service two read-only questions, and
+        # neither may be cached: a frozen customer must be refused now, and the account-to-product
+        # link is a security control rather than a lookup. So the pool is sized for the money path,
+        # not for customer administration.
+        maximum-pool-size: ${FINCORE_CUSTOMER_POOL:10}
+        minimum-idle: 2
+        connection-timeout: 3000
+        jdbc-url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:55432/customer}
+        username: ${FINCORE_CUSTOMER_DB_USER:customer_app}
+        password: ${FINCORE_CUSTOMER_DB_PASSWORD:customer_app}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+springdoc:
+  swagger-ui:
+    path: /docs
+
+server:
+  port: ${SERVER_PORT:8085}

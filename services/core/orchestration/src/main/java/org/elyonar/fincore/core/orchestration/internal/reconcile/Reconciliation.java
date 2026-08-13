@@ -11,7 +11,8 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Invariant 6, as running code: Core and the Ledger agree about every completed saga.
@@ -44,14 +45,17 @@ public class Reconciliation {
     private static final Logger log = LoggerFactory.getLogger(Reconciliation.class);
 
     private final JdbcTemplate workerJdbc;
+    private final TransactionTemplate workerTx;
     private final LedgerClient ledger;
     private final int lookbackHours;
 
     public Reconciliation(
             @Qualifier(CoreProperties.Beans.WORKER_JDBC) JdbcTemplate workerJdbcTemplate,
+            @Qualifier(CoreProperties.Beans.WORKER_TX) PlatformTransactionManager workerTransactionManager,
             LedgerClient ledger,
             @Value("${" + CoreProperties.RECONCILIATION_LOOKBACK_HOURS + ":24}") int lookbackHours) {
         this.workerJdbc = workerJdbcTemplate;
+        this.workerTx = new TransactionTemplate(workerTransactionManager);
         this.ledger = ledger;
         this.lookbackHours = lookbackHours;
     }
@@ -112,35 +116,46 @@ public class Reconciliation {
     }
 
     /**
-     * Records a finding and its ops case, idempotently — the unique index per (saga, kind) and
-     * the one-open-case-per-saga index arbitrate, so an unfixed mismatch stays one finding and
-     * one case however many runs re-observe it.
+     * Records a finding and its ops case, idempotently and <strong>atomically</strong> — the unique
+     * index per (saga, kind) and the one-open-case-per-saga index arbitrate, so an unfixed mismatch
+     * stays one finding and one case however many runs re-observe it.
+     *
+     * <p>An explicit {@link TransactionTemplate} rather than {@code @Transactional}, for the reason
+     * Notification's intake spells out: an annotation only applies through the proxy, and this
+     * method is called from {@link #run} on {@code this}. When it carried the annotation the two
+     * inserts committed separately, so a crash between them left a finding the duplicate guard
+     * would suppress on every later run — a mismatch recorded forever in a table no operator queue
+     * ever surfaced. One transaction makes the pair a pair: both rows, or neither.
      */
-    @Transactional(transactionManager = "workerTransactionManager")
-    protected int record(CompletedSaga saga, String kind, String detail) {
-        int inserted =
-                workerJdbc.update(
-                        """
-                        INSERT INTO orchestration.reconciliation_findings (tenant_id, saga_id, kind, detail)
-                        VALUES (?,?,?,?)
-                        ON CONFLICT ON CONSTRAINT one_finding_per_saga_per_kind DO NOTHING
-                        """,
-                        saga.tenantId(),
-                        saga.id(),
-                        kind,
-                        detail);
-        if (inserted == 0) {
-            return 0;
-        }
-        workerJdbc.update(
-                """
-                INSERT INTO orchestration.ops_cases (tenant_id, saga_id, kind)
-                VALUES (?, ?, 'RECONCILIATION_MISMATCH')
-                ON CONFLICT DO NOTHING
-                """,
-                saga.tenantId(),
-                saga.id());
-        return 1;
+    private int record(CompletedSaga saga, String kind, String detail) {
+        Integer recorded =
+                workerTx.execute(
+                        status -> {
+                            int inserted =
+                                    workerJdbc.update(
+                                            """
+                                            INSERT INTO orchestration.reconciliation_findings (tenant_id, saga_id, kind, detail)
+                                            VALUES (?,?,?,?)
+                                            ON CONFLICT ON CONSTRAINT one_finding_per_saga_per_kind DO NOTHING
+                                            """,
+                                            saga.tenantId(),
+                                            saga.id(),
+                                            kind,
+                                            detail);
+                            if (inserted == 0) {
+                                return 0;
+                            }
+                            workerJdbc.update(
+                                    """
+                                    INSERT INTO orchestration.ops_cases (tenant_id, saga_id, kind)
+                                    VALUES (?, ?, 'RECONCILIATION_MISMATCH')
+                                    ON CONFLICT DO NOTHING
+                                    """,
+                                    saga.tenantId(),
+                                    saga.id());
+                            return 1;
+                        });
+        return recorded == null ? 0 : recorded;
     }
 
     /**

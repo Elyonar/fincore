@@ -194,6 +194,22 @@ public class UnitRecords {
                 unitId);
     }
 
+    /** The live unit codes a principal holds — the rows a {@code units} claim is derived from. */
+    @Transactional(readOnly = true, transactionManager = OrganizationBeans.TRANSACTION_MANAGER)
+    public List<String> assignmentsOf(UUID tenantId, String principal) {
+        scopeTo(tenantId);
+        return jdbc.queryForList(
+                """
+                SELECT u.code
+                  FROM organization.unit_assignments a
+                  JOIN organization.organizational_units u ON u.id = a.unit_id
+                 WHERE a.principal = ? AND a.revoked_at IS NULL
+                 ORDER BY u.code
+                """,
+                String.class,
+                principal);
+    }
+
     private static Unit unit(UUID id, java.sql.ResultSet rs) throws java.sql.SQLException {
         return new Unit(
                 id,

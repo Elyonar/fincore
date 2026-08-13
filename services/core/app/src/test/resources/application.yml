@@ -26,20 +26,6 @@ springdoc:
 fincore:
   core:
     datasource:
-      customer:
-        maximum-pool-size: 1
-        minimum-idle: 0
-        idle-timeout: 10000
-        jdbc-url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:55432/core_test}
-        username: core_customer
-        password: core_customer
-      product:
-        maximum-pool-size: 1
-        minimum-idle: 0
-        idle-timeout: 10000
-        jdbc-url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:55432/core_test}
-        username: core_product
-        password: core_product
       relay:
         maximum-pool-size: 1
         minimum-idle: 0

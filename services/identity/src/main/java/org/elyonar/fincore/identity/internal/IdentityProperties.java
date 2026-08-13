@@ -27,6 +27,15 @@ public class IdentityProperties {
     /** Comma-separated {@code clientId=ENV_NAME} pairs; the env var holds the plaintext secret. */
     private String serviceClients = "";
 
+    /**
+     * What each service client may do inside a tenant (ADR 0019) — comma-separated
+     * {@code clientId=permission|permission} pairs, the permissions separated by {@code |} because
+     * a permission already contains a colon and the list already uses commas. A client named here
+     * and not in {@code serviceClients} is a grant to nobody and is refused at startup; a client
+     * with no entry keeps the tenantless token it has always had.
+     */
+    private String serviceClientGrants = "";
+
     public static class Refresh {
         private int absoluteHours = 12;
 
@@ -196,5 +205,13 @@ public class IdentityProperties {
 
     public void setServiceClients(String serviceClients) {
         this.serviceClients = serviceClients;
+    }
+
+    public String getServiceClientGrants() {
+        return serviceClientGrants;
+    }
+
+    public void setServiceClientGrants(String serviceClientGrants) {
+        this.serviceClientGrants = serviceClientGrants;
     }
 }

@@ -40,7 +40,7 @@ public class InternalAccounts implements InstitutionAccounts {
      *
      * <p>The mapping is made once, here, rather than asked of whoever fills in the form: an
      * administrator knows they are opening a fee income account and should not have to know that
-     * the ledger calls it {@code FEE}, or which of six types a loan funding account takes.
+     * the ledger calls it {@code FEE}, or which of six types a suspense account takes.
      */
     public enum Purpose {
         TILL("INTERNAL"),
@@ -48,7 +48,6 @@ public class InternalAccounts implements InstitutionAccounts {
         FEE_INCOME("FEE"),
         INTEREST_INCOME("INTERNAL"),
         PENALTY_INCOME("INTERNAL"),
-        LOAN_FUNDING("INTERNAL"),
         SUSPENSE("SUSPENSE"),
         SETTLEMENT("SETTLEMENT_MIRROR"),
         OTHER("INTERNAL");
@@ -140,7 +139,7 @@ public class InternalAccounts implements InstitutionAccounts {
      * <p>Every account opened here permits a negative balance, which is worth explaining because it
      * looks like a missing guard. The ledger is credit-positive: a till being handed cash is
      * <em>debited</em> ({@code CashService}), so a working till's balance is negative by
-     * construction, as is a loan funding account that has disbursed. Refusing negative balances on
+     * construction. Refusing negative balances on
      * the institution's own accounts would not prevent an error — it would strand a saga mid-flight
      * on an account that was always going to go that way. The guard belongs on customer money,
      * where a negative balance means the customer spent what they did not have, and that is where
@@ -184,18 +183,27 @@ public class InternalAccounts implements InstitutionAccounts {
             throw new LedgerRefused(opened.failure());
         }
 
-        UUID id = jdbc.queryForObject(
-                "INSERT INTO orchestration.internal_accounts"
-                        + " (tenant_id, ledger_account_id, code, name, purpose, currency, opened_by)"
-                        + " VALUES (?,?,?,?,?,?,?) RETURNING id",
-                UUID.class,
-                tenantId,
-                opened.accountId(),
-                cleanCode,
-                cleanName,
-                purpose.name(),
-                cleanCurrency,
-                openedBy);
+        UUID id;
+        try {
+            id = jdbc.queryForObject(
+                    "INSERT INTO orchestration.internal_accounts"
+                            + " (tenant_id, ledger_account_id, code, name, purpose, currency, opened_by)"
+                            + " VALUES (?,?,?,?,?,?,?) RETURNING id",
+                    UUID.class,
+                    tenantId,
+                    opened.accountId(),
+                    cleanCode,
+                    cleanName,
+                    purpose.name(),
+                    cleanCurrency,
+                    openedBy);
+        } catch (org.springframework.dao.DuplicateKeyException raced) {
+            // Two opens raced past the byCode check above; internal_accounts_code_per_tenant picked
+            // the winner. The loser gets the same 409 the check would have given a moment later —
+            // not a 500 for a race they could not see. The ledger open above was idempotent on the
+            // derived key, so both racers were handed the same ledger account and nothing leaks.
+            throw new CodeTaken(cleanCode);
+        }
 
         return new InternalAccount(
                 id,

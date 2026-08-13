@@ -8,6 +8,242 @@ entry first.
 
 ---
 
+## [2.3.2] — 2026-08-12 · PATCH
+
+**Assigning somebody to a unit now moves the claim as well as the row, which is what the surface
+has always said it does.** ADR 0017 named this gap in as many words and asked for it to be closed
+in the same pass that built Core's realm administration: *"`POST /v1/org-units/{id}/assignments`
+writes Core's `unit_assignments` and stops … assigning a teller to a branch through the API has no
+effect on authorization, and the two stores drift from the first assignment onward."* Half of it
+was built. `PUT /v1/users/{id}/units` wrote both stores; the unit-scoped assign and revoke wrote
+one, and `OrgUnitController`'s own javadoc described a derivation that nothing performed.
+
+- **`UnitClaims`**, a port on `core.organization.api`, implemented by `DirectoryUnitClaims` in
+  Admin. The dependency has to point that way round: Admin already depends on Organization and
+  holds the directory client, so Organization declaring the port is the only arrangement that does
+  not make the two mutually dependent (ADR 0006). Absent implementation falls back to a no-op, so
+  Organization still runs standalone and an assignment is still a record where nothing mints
+  claims.
+- **Assign and revoke re-derive the whole claim from the rows they just wrote**, rather than
+  applying the delta they were handed. Provisioning follows the system of record instead of running
+  alongside it, and the row — the store that can refuse — is written first, so the two cannot
+  disagree because half the operation succeeded.
+- **`machine:` principals are left alone.** A service authenticates by client credentials and has
+  no staff record, which is why revoking one closes the row and stops. A `user:` principal the
+  directory has never heard of is recorded and logged at WARN, not refused: nothing validates the
+  string on the way in, and rejecting it now would refuse principals the surface accepted
+  yesterday.
+- PATCH: no contract moves. Both endpoints keep their request, response and status codes. What
+  changes is that a documented effect starts happening.
+- **What it was worth.** `approvals.made_in_unit` snapshots the maker's scope from the token claim.
+  On a clean install, assigning the administrator to head office through the Assignments screen and
+  raising an approval recorded `made_in_unit = head-office`; before this it recorded null. On a
+  bank where the administrator is also the second signature, that is the audit trail for the
+  approvals that matter most.
+
+---
+
+## [2.3.1] — 2026-08-11 · PATCH
+
+**The rule tables' uniqueness learns what the evaluator already knew: a price is a price in a
+currency.** 2.2.0 made pricing currency-aware — limits are read `AND currency = ?`, and fee rules
+for an operation with none in the transaction's currency refuse as `CURRENCY_MISMATCH` instead of
+pricing free. Both rule tables have carried `currency NOT NULL` since the baseline. Neither unique
+constraint mentioned it, so the schema forbade the very rows the evaluator was written to read.
+
+- **`product.limit_rules`** — `one_limit_per_tier_channel_type` becomes
+  `UNIQUE (tenant_id, product_version_id, kyc_tier, channel, limit_type, currency)`. It gains
+  `currency`, and also `tenant_id`, which the fee side already carried; `product_version_id` is
+  tenant-unique, so that half adds no restriction and only makes the two tables state their scope
+  the same way.
+- **`product.fee_rules`** — `one_fee_rule_per_operation` becomes
+  `UNIQUE (tenant_id, product_version_id, operation, currency)`.
+- **What was broken, and it was worse on the limit side than the fee side.** A version could hold a
+  `PER_TXN` limit in NGN *or* in USD, never both — while a missing limit in the transaction's
+  currency is `OPERATION_NOT_PERMITTED`, deny by default. So a multi-currency product did not merely
+  go unpriced in its second currency: **every transaction in that currency was refused, and no
+  authoring call could fix it**, because storing the second rule violated the constraint. The fee
+  side was the same shape one step on — `CURRENCY_MISMATCH` was detectable and unfixable, the
+  version being allowed only one `TRANSFER` rule.
+- PATCH: the contract does not move. Nothing that was legal becomes illegal, no refusal changes for
+  a caller who was already being served, and a single-currency institution — every deployment today
+  — sees no difference. This only admits rows the design already described.
+- Migration `V2__rules_are_per_currency.sql`, the product schema's first since the squash. Widening
+  a unique key needs no backfill and no rewrite.
+- Caught by `./mvnw verify` on first compile after the MVP bundle: `DailyLimitAndFeeConfigTest`,
+  named in 2.2.0 as the proof of the currency-aware fee reading, could not seed its own fixture —
+  its NGN and USD `PER_TXN` rows collided. The evidence for a fix and the fix's own blocker were the
+  same test.
+
+---
+
+## [2.3.0] — 2026-08-11 · MINOR
+
+**The administration surface becomes the `admin` module.** A move, not a rewrite: `AdminController`
+(eighteen endpoints), `IdentityDirectory` and `AdminApiErrors` leave `services/core/app` — the
+composition shell, which held an entire domain — for a Maven module of their own,
+`services/core/admin`, package `org.elyonar.fincore.core.admin`. Nothing on the wire changes: same
+routes, same permissions, same refusals; `api.md`'s Module column now says `admin` where it said
+`app (directory)`. MINOR because the platform gains a stated module boundary and loses none.
+
+- **One deliberate deviation from ADR 0006's module shape, stated in the module's `package-info`
+  rather than discovered by an auditor: `admin` owns no schema and no database role.** It holds no
+  state — every read and write is a proxied HTTP call to the identity service (ADR 0018). A module
+  exists to own a boundary, and this one's boundary is the identity service's *client*, not a
+  schema; an empty schema and an unused grant would dress the deviation up as conformance. The one
+  durable record the surface touches — unit assignments — belongs to Organization and is written
+  through `OrganizationUnits`, its published api, which is the boundary working, not an exception.
+- **The classes are byte-identical apart from packages and imports, with one forced exception:**
+  `IdentityDirectory.DirectoryRefused`'s constructor was package-private and is now public,
+  because the controller that throws it (`internal.api`) no longer shares a package with the
+  client that defines it (`internal`). No behaviour changed.
+- **`ModuleBoundaryTest` learns the module:** `admin`'s internals are private, `admin` consults
+  only Organization's api, nothing — the app included — depends on `admin`, Organization stays a
+  leaf against it, and the one-HTTP-client exemption now names
+  `org.elyonar.fincore.core.admin.internal.IdentityDirectory` at its new address.
+- **Build wiring, all of it mechanical:** the `services/core` reactor and its
+  `dependencyManagement`, `app`'s dependency, the four Dockerfiles that copy every core module POM
+  (`DockerfileModuleCatalogTest` would have failed each one), and CI's core `-pl` list.
+- No new endpoints, no error-catalog change — the surface's codes were never enum-published and
+  stay as documented in `admin-surface.md` §5. Coverage stays where the suite pattern puts it:
+  `app`'s integration tests exercise every module through the assembled application.
+
+---
+
+## [2.2.0] — 2026-08-11 · MINOR
+
+**The worker learns what a reversal is, and five smaller ways to lose money quietly close.** All
+from the verified-defect register of 2026-08-10. Tightenings and one recovery-path correction, so
+MINOR — the contract gains two refusals and a permission change on an admin route, and nothing a
+correct caller does changes.
+
+- **A stuck reversal now terminates.** The saga worker re-drives a claimed `REVERSAL` saga through
+  `ledger.reverse`, against the original's ledger transaction, under the same `:reverse` key the
+  synchronous path used — never rebuilt as a fresh posting under `:post`, which the Ledger's
+  registry would not recognise as a replay. Before this, a zero-fee reversal rebuilt as a posting
+  NPE'd inside the client, outside every catch that could schedule a retry, and looped on lease
+  expiry forever: money a customer was owed, retried silently, with no ops case. A reversal whose
+  target has no ledger transaction id escalates as `Unretryable` rather than retrying.
+- **A worker-side failure is an unknown, and is treated as one.** The per-saga catch in
+  `resolveOutstanding` used to log and move on — no backoff, no attempt count, no escalation. It
+  now records the attempt, schedules the retry with the same backoff an unknown outcome gets, and
+  past the attempt ceiling raises the `UNRESOLVED_OUTCOME` ops case. Nothing undetermined is ever
+  compensated or reported as success, exactly as `outcome-protocol.md` requires.
+- **A reconciliation finding and its ops case are one transaction.** `record` was
+  `protected @Transactional` and self-invoked, so the annotation never applied and the two inserts
+  committed separately: a crash between them left a finding the duplicate guard then suppressed on
+  every later run — a mismatch on the books that no operator queue would ever surface. The pair now
+  commits through an explicit `TransactionTemplate` (the same shape Notification's intake uses, for
+  the same reason): both rows or neither. The rest of core, identity and notification was audited
+  for the self-invoked-annotation shape; this was the only live instance.
+- **The first account number is handed out once.** On a series' first use, two concurrent claimants
+  both ran `INSERT … ON CONFLICT DO NOTHING` and both were told number 1; the second link then
+  collided. The conflict loser now re-runs the claiming `UPDATE` against the winner's row and takes
+  the next value.
+- **An account opens only under a product the catalogue has.** A typo'd `productCode` was accepted
+  verbatim — and since nothing can edit `product_code` on a live link, the account was bricked:
+  every transaction refused `PRODUCT_NOT_FOUND`, forever. `app`'s opening surface now asks the new
+  `ProductCatalogue` port and refuses an unknown code with the same `PRODUCT_NOT_FOUND`, 422,
+  `details.field` — before the ledger account exists. Any version state counts, deliberately: an
+  unpublished product is configuration in progress, which publishing fixes without touching the
+  link. Customer's bare link route keeps its non-blank check only — it may not ask Product
+  (ADR 0006), and it is the migration surface for books arriving with links already real.
+- **An operation priced in another currency refuses rather than pricing free.** Fee rules filtered
+  by currency and read absence as free, so a version charging ₦50 per transfer priced a dollar
+  transfer at zero. Fee rules for the operation but none in the transaction's currency now refuse
+  with `CURRENCY_MISMATCH` (new `ProductDecision.Refusal`, mapped onto the existing error code).
+  An operation with no fee rules at all stays free, in every currency — absence of a price is
+  still free; absence of a *translation* is not.
+- **Customer numbering is institution configuration, and only moves forward.**
+  `PUT /v1/customer-numbering/{series}` now requires `org:manage` (it was `customers:create` —
+  teller-grade), and a `nextValue` below the series' current value is refused
+  `COMMAND_INVALID` 422 with `details.current`, because a rewound counter re-issues live numbers
+  as serial `ACCOUNT_NUMBER_TAKEN` collisions at the counter.
+- **Recorded here though it lives next door:** Notification's `AddressCipher` now refuses to start
+  outside a sanctioned dev/test/local profile when `fincore.notification.address-key` is unset,
+  instead of warning and substituting the committed development key — the same double lock as
+  Identity's `KeyRing`. Register #8, fixed in the same pass.
+- Register #6 (malformed value date → 500 `retryableWithSameKey: true`) verified **ledger-side**
+  (`TransactionController` / `ApiExceptionHandler` are the ledger's); Core's own date parsing
+  already answers 422. Left to the ledger's own changelog.
+- Under test: `SagaWorkerTest` (reversal re-drive, key and route asserted; termination at the
+  bound; worker-side failure backoff and escalation), `ReconciliationTest` (failure injected
+  between the two inserts leaves neither row), `AccountOpeningApiTest` (unknown product, first-use
+  race under real concurrency, permission and rewind), `DailyLimitAndFeeConfigTest` (both
+  cross-currency cases), and notification's `AddressCipherTest` (refusal by profile, direct
+  construction).
+
+## [2.1.0] — 2026-08-11 · MINOR
+
+**Authoring stops trusting the author.** Four holes in the pricing surface, all found by audit on
+the day the surface shipped, all closed while the code is hot. Tightenings, so MINOR — a caller
+doing the right thing sees no difference; several wrong things stop being possible.
+
+- **A draft records its caller as author.** It used to inherit the *previous* version's author,
+  which inverted maker-checker from version 2 on: whoever drafted next could publish their own
+  pricing, and the person the record blamed was refused. `draftNextVersion` now takes the
+  initiator, and refuses a blank one.
+- **Shape validation is live again** — rescued from the stack that died with lending, into
+  `ProductAuthoringRecords`, where the tables live. Basis points above 10,000 (a fee above 100%),
+  unknown operations/kinds/tiers/channels/limit types, malformed currencies and negative amounts
+  are refused as 422 `RULES_INVALID` with a `reason`. The database backs each with a CHECK
+  (`basis_points <= 10000`; closed vocabularies on `kyc_tier`, `channel`), because a limit rule
+  that never matches under deny-by-default evaluation silently refuses the tier its author meant
+  to serve.
+- **The backdating guard is the authority now.** It used to wave through any spelling Java could
+  not parse, on the theory the `timestamptz` cast would judge it — but the cast accepts spellings
+  Java refuses (`2020-01-01`, a space for the `T`), so writing the date the way Postgres likes it
+  backdated freely. Unparseable is now refused (`RULES_INVALID`/`EFFECTIVE_FROM_INVALID`), and
+  what goes downstream is the guard's own normalised instant.
+- **Publish signs what it reads.** The version row is locked (`FOR UPDATE`) across the publish
+  check, and every rule write takes the same lock — so a rule write racing a publish waits, then
+  meets the trigger, rather than landing unsigned in a live version. Publish also refuses a
+  version whose fee rules name no fee account (`PRICING_ACCOUNT_INVALID`): the API can no longer
+  author such a row, and rows from before it couldn't must not reach the money path.
+- **Races answer in the contract, not in stack traces.** Concurrent drafts of the same next
+  version: the loser gets 409 `DRAFT_CONFLICT` (new code; retry drafts the version after the
+  winner's). Concurrent internal-account opens on one code: the loser gets the same 409
+  `ACCOUNT_CODE_TAKEN` the sequential path gives.
+- All of it under `PricingAuthoringApiTest` — attribution, both backdating spellings, the 500%
+  fee, the typo'd tier, publish-vs-edit under real concurrency, and the draft race.
+
+## [2.0.0] — 2026-08-11 · MAJOR
+
+**Lending is withdrawn, and the money path tells the customer what happened.** The largest entry
+this changelog has carried, because it records a removal, a reset, and four corrections at once.
+
+- **Lending is out of the build** ([ADR 0013](../../../docs/adr/0013-lending-module-first.md),
+  Withdrawn). The `lending` module, its schema, its migrations, its tests and every `/v1/loans*`
+  endpoint are gone. Callers must act — which is why this is MAJOR. If lending returns, it returns
+  as its ADR describes, not by reverting this commit.
+- **Migrations are squashed** to one `V1__baseline.sql` per module schema (customer, product,
+  organization, orchestration, platform). Deliberately destructive: no upgrade path from the old
+  V1..V9 chains — an existing database fails validation and must be rebuilt (README "Running it").
+  Verified equivalent to the old chains by schema diff before the old files were deleted.
+- **Transactions carry a customer-facing reference.** `orchestration.sagas.reference`
+  (`TXN-YYYYMMDD-NNNNN`, unique per tenant) is generated by
+  `orchestration.transaction_reference()` — zero-padded to five digits, growing past 99,999 rather
+  than overflowing (`to_char`'s `FM00000` renders 100000 as `#####`, which would have refused every
+  posting from the 100,000th on). Surfaced on `GET /v1/transactions/{id}` (new) and annotated onto
+  statement lines.
+- **Transfers price by the account, not the caller** — closes the "still owed" from 1.24.0.
+  `POST /v1/transfers` now resolves the paying account's product via `productOfHeldAccount`;
+  `productCode` in the body is accepted and ignored, exactly as the cash path since 1.24.0.
+- **Posting construction is centralised** in `Postings`, fixing a first-attempt/retry drift on
+  withdrawals; the transfer/withdrawal posting shape now debits the fee separately. In-flight
+  sagas across this deploy would have retried under a changed shape — moot here, because the
+  baseline reset already requires a rebuilt database.
+- **`FEE_ACCOUNT_NOT_CONFIGURED` is thrown again.** The caller-fallback removal (1.23.x) left the
+  code documented but dead: a priced fee with no account surfaced as an unhandled 500.
+  `SagaRecords.Unretryable` now maps to the 422 `api.md` has promised all along.
+- **Maker-checker names itself.** A checker approving their own request is refused
+  `CHECKER_IS_MAKER`, 403.
+- **One controller per route.** The pricing authoring surface was registered by two controllers
+  whose patterns differed only in a variable name; every request to the six shared routes died
+  ambiguous. `PricingController` is the sole owner, and
+  `ApiSurfaceCatalogTest.no_two_controllers_serve_the_same_route` now fails the build on any
+  recurrence.
+
 ## [1.24.0] — 2026-08-10 · MINOR
 
 **An account knows what it is.** `customer.customer_accounts` records the product an account is

@@ -10,7 +10,9 @@ import java.util.Map;
 import java.util.UUID;
 import org.elyonar.fincore.auth.Authorization;
 import org.elyonar.fincore.core.orchestration.api.InstitutionAccounts;
-import org.elyonar.fincore.core.product.api.ProductAuthoring;
+import org.elyonar.fincore.core.orchestration.api.CustomerEligibility;
+import org.elyonar.fincore.core.orchestration.api.ProductAuthoring;
+import org.elyonar.fincore.core.orchestration.api.ProductErrorReason;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -23,9 +25,9 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Product pricing (admin-surface §3) — fees, limits and loan terms.
+ * Product pricing (admin-surface §3) — fees and limits.
  *
- * <p>The gap this closes was the widest one on the platform. All three rule tables have been fully
+ * <p>The gap this closes was the widest one on the platform. Both rule tables have been fully
  * modelled and constrained since V2 and V5, and written by nothing outside the test suite. That is
  * worse than an unpriced product, because the limit evaluator denies by default: with no PER_TXN
  * rule a published product refuses every transaction. An institution could create a product,
@@ -46,17 +48,20 @@ import org.springframework.web.bind.annotation.RestController;
  * can be charged under: a draft prices nobody. The second signature belongs where it already is —
  * on {@code publish}, enforced by the database, which refuses a publisher who is the author.
  */
-@Tag(name = "Pricing", description = "Fee, limit and loan rules per product version")
+@Tag(name = "Pricing", description = "Fee and limit rules per product version")
 @RestController
 @RequestMapping("/v1/products/{productId}/versions")
 public class PricingController {
 
     private final ProductAuthoring authoring;
     private final InstitutionAccounts accounts;
+    private final CustomerEligibility customers;
 
-    public PricingController(ProductAuthoring authoring, InstitutionAccounts accounts) {
+    public PricingController(
+            ProductAuthoring authoring, InstitutionAccounts accounts, CustomerEligibility customers) {
         this.authoring = authoring;
         this.accounts = accounts;
+        this.customers = customers;
     }
 
     /**
@@ -70,7 +75,11 @@ public class PricingController {
     public Map<String, Object> draft(@PathVariable UUID productId, @RequestBody(required = false) Draft request) {
         var identity = Authorization.require("products:create");
         Integer copyFrom = request == null ? null : request.copyFrom();
-        int version = authoring.draftNextVersion(identity.tenantId(), productId, copyFrom);
+        // The caller is the author — never inferred, never copied from the previous version.
+        // Maker-checker at publish compares against exactly this value; recording anyone else
+        // here decides who may publish, which is a money control, not bookkeeping.
+        int version = authoring.draftNextVersion(
+                identity.tenantId(), productId, copyFrom, Authorization.initiatedBy());
         return Map.of("version", version, "status", "DRAFT");
     }
 
@@ -104,42 +113,39 @@ public class PricingController {
     public ProductAuthoring.VersionDetail setLimitRules(
             @PathVariable UUID productId, @PathVariable int version, @RequestBody LimitRules request) {
         var identity = Authorization.require("products:create");
-        authoring.setLimitRules(
-                identity.tenantId(), productId, version, request.rules() == null ? List.of() : request.rules());
-        return authoring.read(identity.tenantId(), productId, version);
-    }
+        List<ProductAuthoring.LimitRule> rules = request.rules() == null ? List.of() : request.rules();
 
-    /** Replaces the draft's loan terms. */
-    @PutMapping("/{version}/loan-rules")
-    public ProductAuthoring.VersionDetail setLoanRules(
-            @PathVariable UUID productId, @PathVariable int version, @RequestBody ProductAuthoring.LoanRule rule) {
-        var identity = Authorization.require("products:create");
-
-        if (rule != null) {
-            requireAccount(
-                    identity.tenantId(),
-                    rule.interestIncomeAccountId(),
-                    "INTEREST_INCOME",
-                    rule.currency(),
-                    "interestIncomeAccountId");
-            requireAccount(
-                    identity.tenantId(),
-                    rule.fundingAccountId(),
-                    "LOAN_FUNDING",
-                    rule.currency(),
-                    "fundingAccountId");
-            // Optional: null means penalties are recognised where interest is, which the lending
-            // module already does. Only checked when the institution named a separate account.
-            if (rule.penaltyIncomeAccountId() != null) {
-                requireAccount(
-                        identity.tenantId(),
-                        rule.penaltyIncomeAccountId(),
-                        "PENALTY_INCOME",
-                        rule.currency(),
-                        "penaltyIncomeAccountId");
+        /*
+         * The tier has to be one this institution recognises.
+         *
+         * A rule naming a tier nobody can hold does not fail — it stores cleanly and then never
+         * matches, and because the evaluator denies by default it reads on screen as a configured
+         * ceiling while behaving as a blanket refusal. That is the worst kind of misconfiguration:
+         * silent, and indistinguishable from a working one until a customer is turned away.
+         *
+         * Checked here rather than in the product service because the vocabulary belongs to the
+         * customer service, and Product calling it would be the edge ADR 0020 exists to prevent.
+         * This controller can see both — the same reason it, and not Product, checks that a fee
+         * rule names one of the institution's own accounts.
+         */
+        if (!rules.isEmpty()) {
+            var recognised = customers.recognisedTiers(identity.tenantId());
+            // An empty answer means the institution has defined none, not that none are valid;
+            // refusing everything on that basis would block pricing over a provisioning gap.
+            if (!recognised.isEmpty()) {
+                for (ProductAuthoring.LimitRule rule : rules) {
+                    if (!recognised.contains(rule.kycTier())) {
+                        throw new ProductAuthoring.RulesInvalid(
+                                ProductErrorReason.UNKNOWN_KYC_TIER,
+                                Map.of(
+                                        "kycTier", String.valueOf(rule.kycTier()),
+                                        "permitted", recognised.toString()));
+                    }
+                }
             }
         }
-        authoring.setLoanRule(identity.tenantId(), productId, version, rule);
+
+        authoring.setLimitRules(identity.tenantId(), productId, version, rules);
         return authoring.read(identity.tenantId(), productId, version);
     }
 
@@ -157,22 +163,28 @@ public class PricingController {
     public ProductAuthoring.VersionDetail schedule(
             @PathVariable UUID productId, @PathVariable int version, @RequestBody Schedule request) {
         var identity = Authorization.require("products:create");
-        requireNotBackdated(request.effectiveFrom());
-        authoring.setEffectiveFrom(identity.tenantId(), productId, version, request.effectiveFrom());
+        String normalised = parseAndRequireNotBackdated(request.effectiveFrom());
+        authoring.setEffectiveFrom(identity.tenantId(), productId, version, normalised);
         return authoring.read(identity.tenantId(), productId, version);
     }
 
     /**
-     * Refuses a moment already past.
+     * Refuses a moment already past — and refuses a moment it cannot read.
      *
-     * <p>A string this cannot parse is left alone rather than guessed at: the column is a
-     * {@code timestamptz} and the cast is the authority on what is a date, so inventing a second
-     * opinion here would refuse values the database accepts. Only a moment that parses <em>and</em>
-     * is behind us is refused.
+     * <p>This guard used to wave through any string Java's ISO parsers refused, on the theory that
+     * the {@code timestamptz} cast downstream was the authority on what is a date. But the cast
+     * accepts formats these parsers do not — {@code "2020-01-01"}, a space where the {@code T}
+     * belongs — so "unparseable here" did not mean "unparseable there", and a caller who wrote the
+     * date the way Postgres likes it backdated freely through the exact gap this method exists to
+     * close. Now the guard is the authority: what it cannot read, it refuses, and what it passes
+     * downstream is its own normalised UTC instant, so the database never sees a spelling this
+     * method has not judged.
+     *
+     * @return the normalised ISO instant, or null for "as soon as somebody publishes it"
      */
-    private static void requireNotBackdated(String effectiveFrom) {
+    private static String parseAndRequireNotBackdated(String effectiveFrom) {
         if (effectiveFrom == null || effectiveFrom.isBlank()) {
-            return;
+            return null;
         }
         Instant moment;
         try {
@@ -181,12 +193,15 @@ public class PricingController {
             try {
                 moment = Instant.parse(effectiveFrom);
             } catch (DateTimeParseException notAnInstant) {
-                return;
+                throw new ProductAuthoring.RulesInvalid(
+                        ProductErrorReason.EFFECTIVE_FROM_INVALID,
+                        Map.of("effectiveFrom", effectiveFrom, "expects", "an ISO-8601 instant, e.g. 2026-09-01T00:00:00Z"));
             }
         }
         if (moment.isBefore(Instant.now())) {
             throw new EffectiveFromInThePast();
         }
+        return moment.toString();
     }
 
     /**

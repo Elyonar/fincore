@@ -32,21 +32,6 @@ fincore:
     # One datasource per module, each as that module's own role. The boundary is enforced by
     # GRANT, not by convention (ADR 0006, ADR 0007).
     datasource:
-      customer:
-        # Read-only inside Phase A and cheap; it does not need the request path's headroom.
-        maximum-pool-size: ${FINCORE_CUSTOMER_POOL:5}
-        minimum-idle: 1
-        connection-timeout: 3000
-        jdbc-url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:55432/core}
-        username: ${FINCORE_CUSTOMER_DB_USER:core_customer}
-        password: ${FINCORE_CUSTOMER_DB_PASSWORD:core_customer}
-      product:
-        maximum-pool-size: ${FINCORE_PRODUCT_POOL:5}
-        minimum-idle: 1
-        connection-timeout: 3000
-        jdbc-url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:55432/core}
-        username: ${FINCORE_PRODUCT_DB_USER:core_product}
-        password: ${FINCORE_PRODUCT_DB_PASSWORD:core_product}
       relay:
         # Background batch work. One connection is enough; several instances relay concurrently
         # through FOR UPDATE SKIP LOCKED rather than through a bigger pool.

@@ -58,6 +58,49 @@ class AccountHttpTest extends LedgerHttpTest {
                 .andExpect(jsonPath("$.availableMinor").isString());
     }
 
+    /**
+     * A currency the registry does not carry is a refusal, not an outage.
+     *
+     * <p>It used to be a 500: the foreign key on {@code accounts.currency} rejected the insert and
+     * a Postgres constraint name reached the log. That is worse than untidy — under the retry rule
+     * a 5xx means "outcome unknown, retry the same key", so a caller retried forever a request that
+     * could never succeed, while whoever was watching went looking for a database fault instead of
+     * a settings mistake.
+     */
+    @Test
+    @DisplayName("a currency outside the registry is a terminal 422, not a constraint violation")
+    void an_unregistered_currency_is_refused_by_name() throws Exception {
+        mvc.perform(as(post("/v1/accounts"))
+                        .content(
+                                """
+                                {"idempotencyKey":"%s","type":"CUSTOMER","currency":"ZWL","allowNegative":false}
+                                """
+                                        .formatted(UUID.randomUUID())))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("CURRENCY_UNKNOWN"))
+                .andExpect(jsonPath("$.reason").value("UNKNOWN_CURRENCY"))
+                .andExpect(jsonPath("$.details.currency").value("ZWL"));
+    }
+
+    /**
+     * The registry is readable, so an institution can be told what it may offer before it offers it.
+     *
+     * <p>USD is the case that matters: a domiciliary account is an ordinary product across the
+     * markets this platform serves, and until the registry carried more than one country nobody
+     * could open one. The yen is here because it is the currency that proves the exponent is
+     * carried rather than assumed.
+     */
+    @Test
+    @DisplayName("the currency registry reads back with ISO decimal places")
+    void the_registry_is_readable() throws Exception {
+        mvc.perform(get("/v1/currencies"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[?(@.code == 'NGN')].exponent").value(2))
+                .andExpect(jsonPath("$[?(@.code == 'USD')].exponent").value(2))
+                .andExpect(jsonPath("$[?(@.code == 'JPY')].exponent").value(0))
+                .andExpect(jsonPath("$[?(@.code == 'KWD')].exponent").value(3));
+    }
+
     @Test
     @DisplayName("another tenant's account is 404, indistinguishable from unknown")
     void cross_tenant_reads_are_404() throws Exception {
