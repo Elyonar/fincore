@@ -20,10 +20,13 @@ import tools.jackson.databind.json.JsonMapper;
 /**
  * What this service owns, now that it owns it alone (ADR 0020).
  *
- * <p>The suites that moved out of Core went back there, because they exercise the half of product
- * authoring Core kept: a fee rule names one of the institution's own accounts, and only Core can
- * see that registry. What is left here is the part that is genuinely this service's, and the two
- * assertions below are the ones the whole extraction rests on.
+ * <p>{@code PricingAuthoringApiTest} moved here with the authoring surface it covers. What this
+ * suite adds is the part that only became testable once Product was a service of its own — the
+ * catalogue, the decision endpoint, and the tenant gate in front of both. The two assertions
+ * below are the ones the whole extraction rests on.
+ *
+ * <p>Core's {@code ProductApiTest} was deleted rather than moved, and its thirteen cases have not
+ * been replaced. That gap is recorded in {@code docs/testing.md} rather than left to be noticed.
  *
  * <p><strong>Immutability is the load-bearing one.</strong> ADR 0020's argument for extracting
  * Product first is that a published version cannot change, so a decision is a pure function of

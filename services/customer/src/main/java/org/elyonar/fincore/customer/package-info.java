@@ -1,22 +1,27 @@
 /**
  * Customer — who the tenant's customers are.
  *
- * <h2>How this module is packaged</h2>
+ * <h2>How this deployable is packaged</h2>
  *
- * Two packages, and the split is the module boundary itself (ADR 0006):
+ * Two packages:
  *
  * <ul>
- *   <li>{@code api} — the published surface. What Orchestration is allowed to know, and nothing
- *       else. Deliberately narrow
+ *   <li>{@code api} — the shapes this service answers with. What the money path is allowed to
+ *       know, and nothing else. Deliberately narrow
  *   <li>{@code internal} — everything else: the records, the administrative HTTP surface, the
- *       schema. No other module may reference it, enforced by {@code ModuleBoundaryTest} and by a
- *       database role granted only on this schema
+ *       schema
  * </ul>
  *
- * <p>The narrowness of {@code api} is load-bearing rather than tidy. It is what keeps the money
- * path free of a dependency on PII, and what lets this module become its own deployable by turning
- * two methods into a client — which ADR 0006 names as the first extraction likely to be needed,
- * because this is the only module holding personal data.
+ * <p>The narrowness of {@code api} is load-bearing rather than tidy: it is what keeps the money
+ * path free of a dependency on PII. It is also what made the extraction cheap — ADR 0006 named
+ * this the first module likely to need extracting, because it holds the only personal data on the
+ * platform, and [ADR 0020] carried it out by turning two methods into a client.
+ *
+ * <p>The split was once enforced by {@code ModuleBoundaryTest}, when another module could have
+ * imported these internals from the same JVM. This is now its own process, so that is enforced by
+ * construction. What {@code BoundaryTest} enforces here instead is ADR 0020's obligation: no
+ * client onto the money path, no ledger client at all, no money type, no sibling deployable on the
+ * classpath. Core calls Customer; Customer does not call Core.
  *
  * <h2>Rules that hold here</h2>
  *

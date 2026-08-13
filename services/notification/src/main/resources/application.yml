@@ -53,9 +53,16 @@ fincore:
         password: notification_worker
 
     core:
-      # The only outbound dependency on the send path. There is no ledger client here and no
-      # gateway SDK — the POM is where a reviewer checks that.
+      # Which accounts a transaction moved between — GET /v1/transactions/{id}, still Core's.
       base-url: ${FINCORE_CORE_URL:http://localhost:8081}
+      timeout-ms: 2000
+
+    customer:
+      # Who holds an account and what they consented to — GET /v1/customers/by-account/{id}.
+      # This left Core with ADR 0020. Pointing it back at Core does not fail loudly: Core answers
+      # 404 for a path it no longer routes, and 404 is indistinguishable from "no such customer",
+      # so every transfer suppresses as UNKNOWN_ACCOUNT and nothing reports it.
+      base-url: ${FINCORE_CUSTOMER_URL:http://localhost:8085}
       timeout-ms: 2000
 
     # An event older than this is suppressed rather than sent, whatever the consumer offset says.

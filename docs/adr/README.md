@@ -26,3 +26,4 @@ Numbered, never deleted; superseded ADRs are marked as such.
 | 0018 | Identity is a first-party service; Keycloak is retired | Accepted — implemented, supersedes 0010 |
 | 0019 | A service that reads tenant data holds a tenant-scoped service principal | Accepted — implemented |
 | 0020 | Customer and Product become deployables of their own | Accepted — implemented, amends 0006 |
+| 0021 | One deployed instance serves one institution | Accepted — amends PRD §3.1 rule 7 |

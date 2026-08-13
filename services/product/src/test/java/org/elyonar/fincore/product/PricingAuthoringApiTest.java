@@ -29,10 +29,10 @@ import org.springframework.transaction.support.TransactionTemplate;
  * The pricing authoring surface, over real HTTP — the tests the surface shipped without.
  *
  * <p>Every case here is a defect that survived its first audit precisely because nothing exercised
- * these routes. The centre of gravity is the same as {@link ProductApiTest}'s: maker-checker on
- * publish is a money control, and everything that can quietly hollow it out — a draft attributed to
- * somebody who did not write it, a rule slid in after the checker read the version, a 500% fee that
- * parses — gets a test that has to be deleted, visibly, before the control can regress.
+ * these routes. Maker-checker on publish is a money control, and everything that can quietly
+ * hollow it out — a draft attributed to somebody who did not write it, a rule slid in after the
+ * checker read the version, a 500% fee that parses — gets a test that has to be deleted, visibly,
+ * before the control can regress.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class PricingAuthoringApiTest {

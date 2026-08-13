@@ -309,7 +309,10 @@ services:
       FINCORE_PRODUCT_DB_USER: product_app
       FINCORE_PRODUCT_DB_PASSWORD: product_app
 
-      FINCORE_AUTH_MODE: jwt
+      # Overridable like every other service, so the documented escape hatch above
+      # (FINCORE_AUTH_MODE=dev docker compose up) moves the whole stack rather than most of it.
+      # Pinned here, it left a stack half in each mode — the configuration hardest to reason about.
+      FINCORE_AUTH_MODE: ${FINCORE_AUTH_MODE:-jwt}
       FINCORE_AUTH_ISSUER_URI: ${FINCORE_AUTH_ISSUER_URI:-http://localhost:58183}
       FINCORE_AUTH_JWKS_URI: ${FINCORE_AUTH_JWKS_URI:-http://identity:8083/.well-known/jwks.json}
 
@@ -345,7 +348,8 @@ services:
       FINCORE_CUSTOMER_DB_USER: customer_app
       FINCORE_CUSTOMER_DB_PASSWORD: customer_app
 
-      FINCORE_AUTH_MODE: jwt
+      # Overridable like every other service — see the note on the product service above.
+      FINCORE_AUTH_MODE: ${FINCORE_AUTH_MODE:-jwt}
       FINCORE_AUTH_ISSUER_URI: ${FINCORE_AUTH_ISSUER_URI:-http://localhost:58183}
       FINCORE_AUTH_JWKS_URI: ${FINCORE_AUTH_JWKS_URI:-http://identity:8083/.well-known/jwks.json}
     healthcheck:
@@ -440,12 +444,14 @@ services:
       # naming one here would start it even when the other was chosen. A broker outage only delays
       # consumption; the consumer reconnects, and Kafka's retention (or the publisher's redelivery)
       # means events waiting during startup are not missed.
-      # Every send asks Core two questions — which accounts a transaction moved
-      # between, and who holds them. Waiting for readiness rather than start
-      # means the first alert does not race Core's migrations. An unreachable
-      # Core is not "no such customer": the consumer leaves the event
-      # unconsumed and redelivery retries it.
+      # Every send asks two questions at two services — Core for which accounts a
+      # transaction moved between, Customer for who holds them (ADR 0020). Waiting
+      # for readiness rather than start means the first alert does not race their
+      # migrations. An unreachable dependency is not "no such customer": the
+      # consumer leaves the event unconsumed and redelivery retries it.
       core:
+        condition: service_healthy
+      customer:
         condition: service_healthy
       # Named explicitly rather than inherited through Core: this service now mints its own
       # credential before it can ask Core anything (ADR 0019), so identity is on its send path.
@@ -477,9 +483,12 @@ services:
       FINCORE_NOTIFICATION_TOPICS: fincore.core.transfer.completed
       FINCORE_NOTIFICATION_MAX_EVENT_AGE_MS: ${FINCORE_NOTIFICATION_MAX_EVENT_AGE_MS:-900000}
 
-      # The only outbound dependency on the send path. There is no ledger client
-      # here and no gateway SDK.
+      # Two outbound reads on the send path, at two services. There is no ledger
+      # client here and no gateway SDK.
+      #   Core     — which accounts a transaction moved between
+      #   Customer — who holds them, and what they consented to (moved by ADR 0020)
       FINCORE_NOTIFICATION_CORE_BASE_URL: http://core:8081
+      FINCORE_NOTIFICATION_CUSTOMER_BASE_URL: http://customer:8085
 
       # Where this service mints its own credential for those reads (ADR 0019). It authenticates
       # as itself and asks for a token scoped to the tenant the event named — never asserting that
