@@ -47,6 +47,7 @@ public class ApiExceptionHandler {
                     Map.entry(ErrorCode.WASH_TRANSACTION, HttpStatus.UNPROCESSABLE_ENTITY),
                     Map.entry(ErrorCode.LIMIT_EXCEEDED, HttpStatus.UNPROCESSABLE_ENTITY),
                     Map.entry(ErrorCode.CURRENCY_MISMATCH, HttpStatus.UNPROCESSABLE_ENTITY),
+                    Map.entry(ErrorCode.CURRENCY_UNKNOWN, HttpStatus.UNPROCESSABLE_ENTITY),
                     Map.entry(ErrorCode.VALUE_DATE_INVALID, HttpStatus.UNPROCESSABLE_ENTITY),
                     Map.entry(ErrorCode.ACCOUNT_NOT_FOUND, HttpStatus.NOT_FOUND),
                     Map.entry(ErrorCode.ACCOUNT_CLOSED, HttpStatus.CONFLICT),

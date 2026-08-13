@@ -41,6 +41,9 @@ public final class ErrorReason {
     public static final String STATEMENT_PERIOD_INVALID = "STATEMENT_PERIOD_INVALID";
     public static final String CURSOR_MALFORMED = "CURSOR_MALFORMED";
 
+    // CURRENCY_UNKNOWN — the code this institution configured is not in the ledger's registry.
+    public static final String UNKNOWN_CURRENCY = "UNKNOWN_CURRENCY";
+
     // UNBALANCED
     public static final String TOO_FEW_ENTRIES = "TOO_FEW_ENTRIES";
     public static final String CURRENCY_NOT_BALANCED = "CURRENCY_NOT_BALANCED";

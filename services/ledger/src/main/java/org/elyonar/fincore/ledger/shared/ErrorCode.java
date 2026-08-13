@@ -27,6 +27,20 @@ public enum ErrorCode {
     /** Entry or hold currency differs from the account's. */
     CURRENCY_MISMATCH,
 
+    /**
+     * The currency is not in the ledger's registry.
+     *
+     * <p>A different fact from {@code CURRENCY_MISMATCH}, which is about two things that disagree.
+     * This one is about a currency the ledger has never been told the decimal places of, and every
+     * amount it carries would be an integer whose meaning nobody has established.
+     *
+     * <p>It had no code and therefore no answer: the foreign key on {@code accounts.currency}
+     * refused, and a caller received a 500 with a Postgres constraint name in the log. A configured
+     * currency that the ledger does not recognise is a settings mistake, and a settings mistake read
+     * as an outage sends somebody looking in the wrong place.
+     */
+    CURRENCY_UNKNOWN,
+
     /** A guarded account would fall below zero available. */
     INSUFFICIENT_FUNDS,
 

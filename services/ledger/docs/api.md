@@ -27,6 +27,7 @@ operate on.
 | `POST /v1/holds/{id}/release` | release hold (outcome-precise) | **Orchestration only** |
 | `GET  /v1/periods` | list accounting periods and their close state | ops, Reporting |
 | `POST /v1/periods/{end}/close` | close an accounting period (attributed; maker-checker upstream; no reopen) | ops/admin |
+| `GET  /v1/currencies` | the currency registry: every code this ledger accepts, with its ISO 4217 decimal places | Orchestration, admin |
 | `GET  /v1/invariants` | fetch latest completed invariant report | ops, monitoring |
 | `POST /v1/invariants/run` | request a run (202; queued; rate-limited) | ops |
 
@@ -182,6 +183,7 @@ forward `message`.
 | `ACCOUNT_CLOSED` | posting touches a closed account (non-reversal, non-sweep) | no |
 | `SWEEP_INVALID` | closedAccountSweep that doesn't zero the account or lacks a suspense counterparty | no |
 | `CURRENCY_MISMATCH` | entry/hold currency ≠ account currency | no |
+| `CURRENCY_UNKNOWN` | the currency is not in the ledger's registry, so its decimal places are unestablished | no — register it first |
 | `INSUFFICIENT_FUNDS` | protected account would go available < 0 | no — new key after funding |
 | `IDEMPOTENCY_KEY_REUSED` | same key, different payload fingerprint | no — caller bug |
 | `VALUE_DATE_INVALID` | the value date or period is not postable — see reasons | no |
@@ -213,6 +215,7 @@ text branches on the reason, not on the message.
 | `UNBALANCED` | `TOO_FEW_ENTRIES` | fewer than two entries | `minimum`, `supplied` |
 | `UNBALANCED` | `CURRENCY_NOT_BALANCED` | debits ≠ credits in one currency | `currency`, `differenceMinor` |
 | `UNBALANCED` | `ENTRIES_REQUIRED` | no entries supplied | — |
+| `CURRENCY_UNKNOWN` | `UNKNOWN_CURRENCY` | the code is not in the registry | `currency` |
 | `VALUE_DATE_INVALID` | `VALUE_DATE_MALFORMED` | a supplied date is not an ISO-8601 calendar date (`yyyy-MM-dd`) | `supplied` |
 | `VALUE_DATE_INVALID` | `VALUE_DATE_IN_FUTURE` | value date after the business date | `valueDate`, `businessDate` |
 | `VALUE_DATE_INVALID` | `BACKDATE_WINDOW_EXCEEDED` | older than the tenant's backdate window | `valueDate`, `earliestAllowed`, `windowDays` |
