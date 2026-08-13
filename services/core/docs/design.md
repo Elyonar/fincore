@@ -1,6 +1,6 @@
 # Core — Design Index & Decision Log
 
-**Status:** AGREED v2.3 (2026-08-11) — implemented from here; amendments via
+**Status:** AGREED v2.4 (2026-08-11) — implemented from here; amendments via
 [`CHANGELOG.md`](CHANGELOG.md) and the [design-change convention](../../../docs/conventions/design-changes.md).
 **Source:** platform PRD §4.2 (Customer), §4.3 (Product), §4.4 (Orchestration),
 §3 (constitution), §5 (communication map), §6 (security), §7 (NFRs), §8
@@ -27,12 +27,17 @@ silent edits. Code that contradicts it is a bug even if it works.
 
 ## One paragraph
 
-Core is one deployable holding five domain modules — `customer`, `product`, `organization`,
-`orchestration`, `admin` — the first four each owning a schema in one PostgreSQL
-database and a database role granted only on that schema. `admin` owns neither,
+Core is one deployable holding four modules — `organization`, `orchestration`,
+`admin` and `app` — the first two each owning a schema in one PostgreSQL database
+and a database role granted only on that schema. `admin` owns neither,
 deliberately: it holds no state, proxying the staff/role administration surface
 to the identity service (ADR 0018), and its boundary is that service's client
-rather than a schema (v2.3). Orchestration turns a business
+rather than a schema (v2.3). `customer` and `product` were modules here until
+v2.4; they are deployables of their own
+([ADR 0020](../../../docs/adr/0020-customer-and-product-become-deployables.md)),
+and Core reaches them over HTTP through the same ports it always declared. **The
+sections below still describe both domains and are still the agreed design for
+them** — only where the code runs has changed. Orchestration turns a business
 intent into a balanced, attributed, idempotent posting against the Ledger, and
 guarantees that a request interrupted at any point ends either completely done
 or completely undone. It is the **only** caller of the Ledger's write API and
@@ -50,6 +55,17 @@ Recorded in [ADR 0006](../../../docs/adr/0006-modular-core.md). The decisive
 argument is not operational cost but correctness: the limit reservation and the
 saga row must commit in one local transaction, which separate databases would
 turn into a distributed protocol on the money path.
+
+> **Amended v2.4 — two of those modules left.** Customer and Product are
+> deployables of their own
+> ([ADR 0020](../../../docs/adr/0020-customer-and-product-become-deployables.md));
+> Core keeps `organization`, `orchestration`, `admin` and `app`. The argument
+> above still holds and is the reason Orchestration did **not** move: the limit
+> reservation and the saga row are still one local transaction. Customer and
+> Product were never on that path — one is asked a question before the money
+> moves, the other holds facts about a person — which is precisely what made them
+> extractable. The domain sections below still describe both, and are still the
+> agreed design for them; only where the code runs has changed.
 
 **Saga engine → in-house, persisted in PostgreSQL. Temporal and Camunda
 rejected for v1.** The v1 flow set is small, closed, and request-scoped. A

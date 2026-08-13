@@ -48,7 +48,7 @@ Read the [ADRs](docs/adr/), then try to break the ledger —
 |---|---|
 | Understand what fincore is and why it exists | [`docs/prd.md`](docs/prd.md) — the product requirements doc |
 | See why the big technical choices were made | [`docs/adr/`](docs/adr/) — Architecture Decision Records |
-| Read a service's design | its own `README.md` and `docs/` — [ledger](services/ledger/README.md), [core](services/core/README.md), [notification](services/notification/README.md) |
+| Read a service's design | its own `README.md` and `docs/` — [ledger](services/ledger/README.md), [core](services/core/README.md), [customer](services/customer/README.md), [product](services/product/README.md), [identity](services/identity/README.md), [notification](services/notification/README.md) |
 | Run the platform locally | [Running it](#running-it), below |
 | Contribute code or docs | [`.github/CONTRIBUTING.md`](.github/CONTRIBUTING.md) + [`.github/CLA.md`](.github/CLA.md) |
 | Report a security issue | [`.github/SECURITY.md`](.github/SECURITY.md) |
@@ -58,10 +58,12 @@ Read the [ADRs](docs/adr/), then try to break the ledger —
 
 | Service | What it does | Status | Docs |
 |---|---|---|---|
-| **Ledger** | Double-entry posting engine — the single source of monetary truth. Accounts, entries, balances, holds. | ✅ Design AGREED v1.10 · implemented (pre-1.0) | [README](services/ledger/README.md) · [design](services/ledger/docs/design.md) · [data model](services/ledger/docs/data-model.md) · [architecture](services/ledger/docs/architecture.md) · [API](services/ledger/docs/api.md) · [posting algorithm](services/ledger/docs/posting-algorithm.md) · [testing](services/ledger/docs/testing.md) |
-| **Core** | One deployable, five domain modules — `core/customer`, `core/product`, `core/organization`, `core/orchestration`, `core/admin` (stateless; proxies the identity service). Owns sagas, fee application, limits and the organizational tree (ADR 0012); the only caller of the Ledger's write API. | ✅ Design AGREED v1.20 · implemented (pre-1.0) | [README](services/core/README.md) · [design](services/core/docs/design.md) · [outcome protocol](services/core/docs/outcome-protocol.md) · [saga protocol](services/core/docs/saga-protocol.md) · [data model](services/core/docs/data-model.md) · [API](services/core/docs/api.md) · [testing](services/core/docs/testing.md) |
-| Identity | Keycloak, self-hosted: auth, tenants, roles, maker-checker. **Configured, never built** — it is commodity software, and the platform's side of it is [`libs/auth`](libs/auth/README.md), which every service imports. Keycloak runs in compose behind the `identity` profile, persisting to its own `keycloak` database (`auth` schema), with one realm per tenant rendered from [`bootstrap/tenants.json`](bootstrap/tenants.json); without it, services default to a development identity that announces itself at startup | Partial | [ADR 0010](docs/adr/0010-keycloak-realm-per-tenant.md) |
-| **Notification** | The platform's first event consumer. Turns Core's business events into messages over a registry of channels; writes no money and holds no gateway credentials. | ✅ Design AGREED v1.5 · implemented (pre-1.0) | [README](services/notification/README.md) · [design](services/notification/docs/design.md) · [architecture](services/notification/docs/architecture.md) · [data model](services/notification/docs/data-model.md) · [API](services/notification/docs/api.md) · [testing](services/notification/docs/testing.md) |
+| **Ledger** | Double-entry posting engine — the single source of monetary truth. Accounts, entries, balances, holds. | ✅ Design AGREED v1.11 · implemented (pre-1.0) | [README](services/ledger/README.md) · [design](services/ledger/docs/design.md) · [data model](services/ledger/docs/data-model.md) · [architecture](services/ledger/docs/architecture.md) · [API](services/ledger/docs/api.md) · [posting algorithm](services/ledger/docs/posting-algorithm.md) · [testing](services/ledger/docs/testing.md) |
+| **Core** | One deployable, four modules — `organization`, `orchestration`, `admin` (stateless; proxies the identity service) and `app`. Owns the money path: sagas, fee application, limits, tills and the organizational tree (ADR 0012). The only caller of the Ledger's write API, and the composition point for anything needing more than one service at once. | ✅ Design AGREED v2.4 · implemented (pre-1.0) | [README](services/core/README.md) · [design](services/core/docs/design.md) · [outcome protocol](services/core/docs/outcome-protocol.md) · [saga protocol](services/core/docs/saga-protocol.md) · [data model](services/core/docs/data-model.md) · [API](services/core/docs/api.md) · [testing](services/core/docs/testing.md) |
+| **Customer** | The people this institution banks: identity, KYC tier, contact and consent, numbering, and the link from a customer to an account they hold. Holds the platform's only PII. Was a Core module until ADR 0020. | ✅ Implemented (pre-1.0) | [README](services/customer/README.md) · [ADR 0020](docs/adr/0020-customer-and-product-become-deployables.md) |
+| **Product** | The catalogue, its versions, and the pricing decision the money path asks for: what does this cost, and is it allowed. Published versions are immutable, enforced by trigger. Was a Core module until ADR 0020. | ✅ Implemented (pre-1.0) | [README](services/product/README.md) · [ADR 0020](docs/adr/0020-customer-and-product-become-deployables.md) |
+| **Identity** | First-party identity (ADR 0018), which retired Keycloak (ADR 0010). Issues the tokens every other service verifies through [`libs/auth`](libs/auth/README.md), holds the staff directory, and mints the tenant-scoped service principals a service needs to read another's data (ADR 0019). | Design DRAFT v0.1 · implemented and running | [README](services/identity/README.md) · [ADR 0018](docs/adr/0018-first-party-identity-service.md) |
+| **Notification** | The platform's first event consumer. Turns Core's business events into messages over a registry of channels; writes no money and holds no gateway credentials. | ✅ Design AGREED v1.7 · implemented (pre-1.0) | [README](services/notification/README.md) · [design](services/notification/docs/design.md) · [architecture](services/notification/docs/architecture.md) · [data model](services/notification/docs/data-model.md) · [API](services/notification/docs/api.md) · [testing](services/notification/docs/testing.md) |
 | Lending · Compliance · Connectors | Further domains around the ledger. | Planned | — |
 
 A **deployable** owns its own process and database; a **module** inside one owns
@@ -96,6 +98,9 @@ them libraries rather than deployables (PRD §3.4).
 | [0015](docs/adr/0015-control-plane-and-tenant-provisioning.md) | The control plane is a deployable of its own, and provisioning is a saga — **Deferred** |
 | [0016](docs/adr/0016-tenant-bootstrap-manifest.md) | Tenants are declared in a manifest and seeded at startup |
 | [0017](docs/adr/0017-tenant-defined-roles.md) | Permissions are platform vocabulary; roles are tenant-composed |
+| [0018](docs/adr/0018-first-party-identity-service.md) | Identity is a first-party service; Keycloak is retired |
+| [0019](docs/adr/0019-tenant-scoped-service-principals.md) | A service that reads tenant data holds a tenant-scoped service principal |
+| [0020](docs/adr/0020-customer-and-product-become-deployables.md) | Customer and Product become deployables of their own — **supersedes 0006** |
 
 ## Repository layout
 
@@ -105,8 +110,11 @@ fincore/
 │   ├── ledger/        # the first deployable — double-entry posting engine
 │   │   ├── README.md  # the service's own map: purpose, boundaries, doc index
 │   │   └── docs/      # the service's design & deep-dive docs
-│   ├── core/          # one deployable, five domain modules + assembly:
-│   │                  #   customer · product · organization · orchestration · admin · app
+│   ├── core/          # one deployable, four modules + assembly:
+│   │                  #   organization · orchestration · admin · app
+│   ├── customer/      # the people this institution banks — the only PII
+│   ├── product/       # the catalogue and the pricing decision
+│   ├── identity/      # tokens, the staff directory, service principals
 │   └── notification/  # the first event consumer — messages, not money
 ├── libs/              # shared internal libraries (auth, events) — arrive when needed
 ├── docs/
@@ -114,72 +122,59 @@ fincore/
 │   ├── adr/           # Architecture Decision Records (cross-cutting only)
 │   ├── conventions/   # commits, design amendments, the service scaffold
 │   └── README.md      # documentation conventions
-├── keycloak/          # the seeded development realm — fake credentials, on purpose
+├── db/init/           # local-only: one database and role per deployable
+├── bootstrap/         # the tenant manifest and its seeding (ADR 0016)
+├── edge/              # nginx: the one origin a browser talks to (ADR 0014)
+├── scripts/           # provisioning and restore drills
 ├── .github/           # CONTRIBUTING, CLA, SECURITY, CI workflows
 ├── AGENTS.md          # memory map for AI agents & new contributors
 ├── pom.xml            # Maven multi-module root (Java 25 LTS)
-└── compose.yaml       # local dev stack: PostgreSQL, Kafka, RabbitMQ, Keycloak,
-                       #   and all three deployables
+└── compose.yaml       # local dev stack: PostgreSQL, Kafka, RabbitMQ, the edge,
+                       #   and all five deployables
 ```
 
 A monorepo is not a monolith: each directory under `services/` builds its own
 container and owns its own database. Where a deployable holds several modules,
 each module owns a schema and its own database role and reaches the others only
 through their published interfaces — never their tables (PRD §3.4,
-[ADR 0006](docs/adr/0006-modular-core.md)). Every service documents itself (`README.md` + `docs/`
+[ADR 0006](docs/adr/0006-modular-core.md), amended by
+[ADR 0020](docs/adr/0020-customer-and-product-become-deployables.md)). Every service documents itself (`README.md` + `docs/`
 inside the module); the root `docs/` holds only cross-cutting material. The
 service README is the navigator for its own docs — this README links to the
 service, not past it.
 
 ### The databases
 
-Four, on one PostgreSQL instance locally. Each is owned end to end by one thing,
-and `db/init/` creates them all on an empty volume.
+Six, on one PostgreSQL instance locally. Each is owned end to end by one
+deployable — which also owns its migrations — and `db/init/` creates them all on
+an empty volume, alongside a `*_test` database per service so `docker compose up`
+and `./mvnw verify` never contend for the same rows.
 
-| Database | Owned by | Migrations | Holds |
-|---|---|---|---|
-| `ledger` | Ledger service | Flyway (ours) | Accounts, entries, holds, periods, invariants |
-| `core` | Core service | Flyway (ours) | Customer, product, organization, orchestration — one schema and one role per module |
-| `notification` | Notification service | Flyway (ours) | Templates, policy, delivery queue, suppressions |
-| `keycloak` | **Keycloak** | **Liquibase (the vendor's)** | Realms, clients, users, credentials, roles, role assignments, user attributes |
+| Database | Owned by | Holds |
+|---|---|---|
+| `ledger` | Ledger | Accounts, entries, holds, periods, invariants, and the currency registry every amount is denominated in |
+| `core` | Core | Sagas, tills, internal accounts, organizational units, approvals — one schema and one role per module |
+| `customer` | Customer | People, KYC tiers, contact and consent, numbering, the accounts they hold. **The platform's only PII** |
+| `product` | Product | The catalogue, its versions, and the fee and limit rules that price the money path |
+| `notification` | Notification | Templates, policy, delivery queue, suppressions |
+| `identity` | Identity | Staff, credentials, roles, service clients, the signing key's metadata |
 
-`keycloak` is the odd one and is named for the vendor deliberately. Everything
-else here is named for the deployable that owns it *and owns its migrations*;
-this schema is created and upgraded by Keycloak itself, and **FinCore's Flyway
-must never touch it**. Naming it `identity` or `auth` would read as ours, invite
-a FinCore table alongside, and collide with `libs/auth`, which is a different
-thing entirely. ADR 0010 says it plainly: Keycloak is infrastructure, not a
-product surface.
+Never share one across deployables and never read another's tables — that is the
+rule a monorepo makes easy to break and this layout makes obvious
+(PRD §3.4, [ADR 0007](docs/adr/0007-tenant-isolation-pattern.md)).
 
-It became a real database rather than an in-memory one because
-[ADR 0017](docs/adr/0017-tenant-defined-roles.md) lets a tenant administrator
-author roles and create users — state that exists in no file and in no FinCore
-table.
+Within a database, **traffic connects as a restricted role, migrations as the
+owner.** A deployable holding several modules gets one role per module, granted
+on its own schema and nothing else, so a cross-module query fails at runtime and
+in the suite rather than surviving until somebody tries to extract a module.
+None of these roles may be `SUPERUSER` or `BYPASSRLS`: PostgreSQL skips
+row-level security entirely for either, which would leave every tenant policy
+inert while the catalog still reported it enabled.
 
-**Looking inside it is fine. Extending it is not.**
-
-```bash
-# from inside the stack
-docker compose exec postgres psql -U keycloak -d keycloak -c '\dt auth.*'
-
-# or from your machine, on the published port
-psql -h localhost -p 55432 -U keycloak -d keycloak -c '\dt auth.*'
-```
-
-Its tables live in an `auth` schema rather than `public` — namespaced so the
-vendor's ~90 tables read as one set, and so `public` stays empty and nothing
-drifts into it. The vendor is named once, by the database; the purpose is named
-once, by the schema. The `keycloak` role's `search_path` points at it, so an
-interactive session as that role lands there without qualifying anything —
-connect as `fincore` instead and you will need the `auth.` prefix.
-
-Read it freely when debugging — that is what having a real database buys you. But
-its schema is not a contract: Keycloak's own upgrades add, alter and drop tables
-between versions, so anything built on a direct query is something a version bump
-can break silently. For anything programmatic, use the admin API. And if you need
-to hold your own facts about a user, put them in a FinCore-owned table keyed by
-the user's subject — in `core`, where our migrations govern — never in a table
-sitting next to Keycloak's.
+There is no `keycloak` database any more. Identity is first-party
+([ADR 0018](docs/adr/0018-first-party-identity-service.md)), so the tables that
+used to be a vendor's are ours, migrated by our Flyway, in a database named for
+the deployable that owns it like every other.
 
 ## Development approach
 
@@ -195,7 +190,7 @@ trust-first philosophy.
 ## Running it
 
 ```bash
-docker compose up --build          # PostgreSQL, Kafka, and all three deployables
+docker compose up --build          # PostgreSQL, Kafka, the edge, and all five deployables
 ```
 
 > **Migration baseline reset (2026-08-11).** Core's per-module migrations were
@@ -209,70 +204,63 @@ docker compose up --build          # PostgreSQL, Kafka, and all three deployable
 
 | | Health | Interactive API |
 |---|---|---|
+| Edge | http://localhost:8088/ | — (it routes; it serves nothing of its own) |
 | Ledger | http://localhost:58080/actuator/health/readiness | http://localhost:58080/docs |
 | Core | http://localhost:58081/actuator/health/readiness | http://localhost:58081/docs |
 | Notification | http://localhost:58082/actuator/health/readiness | http://localhost:58082/docs |
+| Identity | http://localhost:58183/actuator/health/readiness | http://localhost:58183/docs |
+| Customer · Product | not published — reached through the edge at `/api/customer/`, `/api/product/` | |
 
-Host ports are deliberately not 8080–8082: each service's own test suite binds
-its real port, and a container holding it would mean `docker compose up` and
-`./mvnw verify` could not run at the same time. A stack should never be able to
-break the build, or the other way round. Inside the compose network the ports
-are unchanged.
+Host ports are deliberately not the service's own: each service's test suite
+binds its real port, and a container holding it would mean `docker compose up`
+and `./mvnw verify` could not run at the same time. A stack should never be able
+to break the build, or the other way round. Inside the compose network the ports
+are unchanged — ledger 8080, core 8081, notification 8082, identity 8083,
+product 8084, customer 8085.
+
+Customer and Product publish no host port on purpose. Nothing outside the
+platform calls them directly: a browser reaches every service through the one
+origin the edge serves (ADR 0014), and a published port would be a second way in
+that no configuration describes.
 
 RabbitMQ is available as an alternative backbone
 (`FINCORE_EVENTS_BROKER=rabbit`).
 
 ### Logging in
 
-Tenants come from [`bootstrap/tenants.json`](bootstrap/tenants.json) — one realm
-each, one super-administrator each, rendered by `bootstrap/render-realms.sh`
-([`tenant-bootstrap.md`](docs/conventions/tenant-bootstrap.md)). Pick a realm and
-use its administrator; the temporary password is in
-`bootstrap/.rendered-secrets.txt` and must be changed at first sign-in.
+Tenants come from [`bootstrap/tenants.json`](bootstrap/tenants.json) — one
+super-administrator each, registered with every deployable by
+`bootstrap/seed-registries.sh`
+([`tenant-bootstrap.md`](docs/conventions/tenant-bootstrap.md), ADR 0016).
 
 ```bash
-REALM=acme-mfb                                            # or harambee-mfb, kobo-fintech
+bootstrap/seed-registries.sh              # once the services are up
 
-bootstrap/render-realms.sh                                # once, before the stack starts
-docker compose --profile identity up -d keycloak          # admin console: localhost:8180 (admin/admin)
+TOKEN=$(curl -s -X POST http://localhost:8088/api/identity/v1/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"ada.admin","password":"<the temporary password>"}' | jq -r .accessToken)
 
-FINCORE_AUTH_MODE=jwt \
-FINCORE_AUTH_ISSUER_URI=http://localhost:8180/realms/$REALM \
-FINCORE_AUTH_JWKS_URI=http://keycloak:8080/realms/$REALM/protocol/openid-connect/certs \
-docker compose --profile identity up -d --force-recreate core notification
-
-bootstrap/seed-registries.sh                              # once the services are up
-
-TOKEN=$(curl -s -X POST \
-  http://localhost:8180/realms/$REALM/protocol/openid-connect/token \
-  -d grant_type=password -d client_id=fincore-cli \
-  -d username=ada.admin -d password='<from .rendered-secrets.txt>' | jq -r .access_token)
-
-curl -H "Authorization: Bearer $TOKEN" http://localhost:58081/v1/products
+curl -H "Authorization: Bearer $TOKEN" http://localhost:8088/api/product/v1/products
 ```
 
-`seed-registries.sh` is not optional: a tenant absent from the three registries
+`seed-registries.sh` is not optional: a tenant absent from the five registries
 authenticates perfectly and then gets a bodiless 404 from every endpoint.
 
-The seeded administrator holds `job:admin` and nothing else exists yet — there is
-no teller, supervisor or ops user, because no endpoint creates one
-([`admin-surface.md`](services/core/docs/admin-surface.md) §5 designs it). Until
-that lands, extra users are made by hand in the admin console.
+The seeded administrator must change the temporary password and give a contact
+number before they can work. From there the portal's setup flow walks the
+institution through branches, staff, internal accounts, a product, its pricing,
+publishing it, and a till — everything else is created by the institution
+itself, which is the whole point of seeding one administrator and stopping.
 
-Or press **Authorize** in Swagger UI and paste the token. The sign-in page
-itself — the one a client app opens in a browser tab — is at
-`http://localhost:8180/realms/$REALM/account`.
-
-Realm files under `keycloak/import/` are generated from the manifest and carry
-no real credential — the administrator passwords are written to the gitignored
-`bootstrap/.rendered-secrets.txt` instead. What this deliberately does not cover
-is in [`keycloak/README.md`](keycloak/README.md).
+Or press **Authorize** in Swagger UI and paste the token.
 
 **Two things announce themselves loudly at startup, and both are meant to.**
-Services run with a development identity — headers, not tokens — until a
-Keycloak realm is provisioned (ADR 0010); and Notification's senders deliver
-nowhere, because the messaging connector that would make them real is not built.
-A component that silently does its job badly is worse than one that fails.
+Identity mints an ephemeral signing key unless
+`fincore.identity.signing.private-key-pem` is set — fine on a laptop, fatal in a
+deployment, where every token it ever issued becomes invalid on restart. And
+Notification's senders deliver nowhere, because the messaging connector that
+would make them real is not built. A component that silently does its job badly
+is worse than one that fails.
 
 ## Building
 

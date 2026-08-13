@@ -1,6 +1,8 @@
 # ADR 0017 — Permissions are the platform's vocabulary; roles are the tenant's sentence
 
-**Status:** Proposed · 2026-08-08
+**Status:** Accepted · 2026-08-08 · **implemented** — the permission catalog is
+platform code in the identity service, roles are tenant-composed through
+`/v1/roles`, and a grant beyond the granter's own access is refused
 **Implements:** PRD §4.9's split — *"Centralized definitions: the master
 permission vocabulary, role templates per segment … and role assignments live
 here. Enforcement is decentralized to owning services"* — and PRD §4.10's

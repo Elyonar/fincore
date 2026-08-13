@@ -16,7 +16,7 @@ the API still changes the contract a reader is holding. Every design doc in the
 service carries the same version in its status header:
 
 ```
-**Status:** AGREED vX.Y (date) — amendments in [`CHANGELOG.md`](CHANGELOG.md)
+**Status:** AGREED vX.Y (date) — amendments in `CHANGELOG.md`
 ```
 
 ## Versioning

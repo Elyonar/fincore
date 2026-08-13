@@ -8,6 +8,46 @@ entry first.
 
 ---
 
+## [2.4.0] — 2026-08-13 · MINOR
+
+**The documents say what the service does.** Three amendments, each closing a place where an
+AGREED doc described a decision the platform had already replaced — which is the failure mode this
+changelog exists to prevent, arriving from the other direction.
+
+- **Docs:** `design.md` (the packaging decision, annotated); `ui-runway.md` §2, §3, §4, §5
+  (identity); `admin-surface.md` (preamble, §1, §5 decisions, §8)
+- **Why:** an AGREED design that has quietly stopped being true is worse than an absent one. A
+  reader plans against it, and the more carefully they read the further they are led. Three had
+  gone stale in ways a test cannot catch, because none of them names a route or an error code:
+
+  - **`design.md` said Core was four domain modules.** Two of them left with
+    [ADR 0020](../../../docs/adr/0020-customer-and-product-become-deployables.md). The decision is
+    annotated rather than rewritten, because the *argument* it records is still the reason
+    Orchestration did not move with them: the limit reservation and the saga row must commit in one
+    local transaction. Customer and Product were never on that path — one is asked a question
+    before money moves, the other holds facts about a person — which is exactly what made them
+    extractable. The domain sections remain the agreed design for both services.
+
+  - **`ui-runway.md` said login was Keycloak's.** [ADR 0018](../../../docs/adr/0018-first-party-identity-service.md)
+    retired Keycloak. What is striking is how little else moved: one origin, bearer-only, no
+    server-side session, every request judged on its token. The runway never depended on who issued
+    the token, so swapping the issuer changed one paragraph and a table row.
+
+  - **`admin-surface.md` said "realm" throughout,** and §8 listed a realm template that no longer
+    exists. Every decision in §4 and §5 survived the swap unchanged — names namespaced
+    server-side, a grant beyond the granter's own access refused, the permissions claim a flat set.
+    The document is annotated to read *realm* as *tenant* rather than reworded line by line, so the
+    record of what was decided, and when, stays legible.
+
+- **Also corrected, outside the AGREED set:** `README.md`'s known-limitations table listed product
+  authoring, account opening, user and role administration, and the units-claim derivation as
+  designed-but-not-built. All four are built. A limitations table that under-reports is the more
+  dangerous direction — it invites somebody to rebuild finished work, and this one had already
+  been wrong about that twice.
+- **Compatibility:** documentation only. No endpoint, error code, schema or behaviour changes.
+
+---
+
 ## [2.3.2] — 2026-08-12 · PATCH
 
 **Assigning somebody to a unit now moves the claim as well as the row, which is what the surface
@@ -329,7 +369,7 @@ describe an institution's own staff rather than storing whatever was typed on th
   what somebody may do and is checked on every request; a title is what they are called and is
   checked nowhere. Institutions that conflate them encode place and seniority into permission sets
   — `job:teller-lagos` — which is the multiplication
-  [ADR 0012](../../../docs/adr/0012-organizational-units.md) exists to prevent.
+  [ADR 0012](../../../docs/adr/0012-organizational-model.md) exists to prevent.
 - **`PUT /v1/users/{id}/employment` closes a real gap.** Staff number, job title and start date
   could only be set at creation, so everybody hired before an institution settled on its titles —
   including the seeded administrator — was permanently blank with no endpoint able to fix it.

@@ -19,12 +19,13 @@ The rules most likely to trip up generated code:
    `SET LOCAL` inside the request transaction — never a session-level `SET`,
    because connections are pooled across tenants.
 4. **Modules never read each other's tables.** A deployable may hold several
-   modules (`core/customer`, `core/product`, `core/orchestration`); each owns a
-   schema and is reached only through its published interface. No joins across
-   schemas, no shared repositories. Only `core/orchestration` may hold the
-   ledger client.
-4. **No cross-service imports.** Services integrate over APIs and events only.
-5. **The ledger makes no synchronous outbound calls and consumes no events.**
-6. **Changing an AGREED design** requires a `CHANGELOG.md` entry and a version
+   modules (`core/organization`, `core/orchestration`); each owns a schema and is
+   reached only through its published interface. No joins across schemas, no
+   shared repositories. Only `core/orchestration` may hold the ledger client.
+5. **No cross-service imports.** Services integrate over APIs and events only.
+   `customer`, `product`, `identity` and `notification` are deployables of their
+   own (ADR 0018, ADR 0020) — reach them over HTTP, never by importing.
+6. **The ledger makes no synchronous outbound calls and consumes no events.**
+7. **Changing an AGREED design** requires a `CHANGELOG.md` entry and a version
    bump — see [`docs/conventions/design-changes.md`](../docs/conventions/design-changes.md).
    Design changes land in their own PR, before the code.

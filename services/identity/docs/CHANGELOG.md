@@ -59,7 +59,7 @@ allocated rather than typed, and the administered half of a record can be set af
   on every request; a title is what they are called and is checked nowhere. They are separate
   tables, separate endpoints and separate screens, because institutions that conflate them end up
   encoding place and seniority into permission sets — `job:teller-lagos` — which is exactly the
-  multiplication [ADR 0012](../../../docs/adr/0012-organizational-units.md) exists to prevent.
+  multiplication [ADR 0012](../../../docs/adr/0012-organizational-model.md) exists to prevent.
 - **Schema `V5__job_titles.sql`:** `auth.job_titles` (case-preserving, case-insensitively unique —
   "Teller" and "teller" are one job) and `auth.staff_numbering` (prefix, zero-pad width, next
   value). Both RLS-enabled and forced. No seeding in the migration, for the reason `V3` and `V4`

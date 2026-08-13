@@ -1,6 +1,10 @@
 # ADR 0006 — Customer, Product and Orchestration ship as one Core deployable
 
-**Status:** Accepted · 2026-08-05
+**Status:** Accepted · 2026-08-05 — **amended by**
+[ADR 0020](0020-customer-and-product-become-deployables.md) (2026-08-12), which
+fires the extraction triggers this ADR names: Customer and Product are deployables
+of their own. The reasoning below is why they shipped inside Core first, and why
+Orchestration did not leave with them — both still stand.
 **Supersedes:** nothing. Clarifies PRD §4 vs §9 rather than overriding either.
 
 ## Context

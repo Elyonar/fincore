@@ -1,8 +1,8 @@
 # Core Banking Platform — Product Requirements Document (PRD)
 
-**Version:** 1.8
+**Version:** 1.10
 **Status:** Foundational ("Sacred Guide")
-**Date:** August 2026 — v1.1: Onboarding & Migration; v1.2: Security & Identity, Keycloak; v1.3: Licensing; v1.4: roadmap audit (Phase 0, country packs, currency schema, BSL+dual licensing, content, revenue stack, GTM risks); v1.5: AI architecture designed-in (constitution #12, §3.3, AI Service §4.12); **v1.6:** licensing strategy replaced — open source (AGPL-3.0 + CLA) from day one per [ADR 0003](adr/0003-agpl-cla-open-from-day-one.md); §11 rewritten; **v1.7:** commercial model (§12) and risk register (§14) moved to an internal strategy document — this public edition covers vision, architecture, and product; **v1.8:** domain/deployable vocabulary made explicit (new §3.4, constitution #4 refined, §4 and §5 framed as domain decomposition rather than deployment topology) so that [ADR 0006](adr/0006-modular-core.md) and this document say the same thing; **v1.9:** Lending (§4.5) extended for the full tenant spectrum — zero-approval decisioning tiers and solo-lender operation, early settlement with rebate, top-up/refinance, guarantors & collateral (savings lien via Ledger holds, NCR hook), credit life insurance, collections rails (e-mandate/GSI/payroll), and the disclosure pack as country-pack material — alongside [ADR 0013](adr/0013-lending-module-first.md)
+**Date:** August 2026 — v1.1: Onboarding & Migration; v1.2: Security & Identity, Keycloak; v1.3: Licensing; v1.4: roadmap audit (Phase 0, country packs, currency schema, BSL+dual licensing, content, revenue stack, GTM risks); v1.5: AI architecture designed-in (constitution #12, §3.3, AI Service §4.12); **v1.6:** licensing strategy replaced — open source (AGPL-3.0 + CLA) from day one per [ADR 0003](adr/0003-agpl-cla-open-from-day-one.md); §11 rewritten; **v1.7:** commercial model (§12) and risk register (§14) moved to an internal strategy document — this public edition covers vision, architecture, and product; **v1.8:** domain/deployable vocabulary made explicit (new §3.4, constitution #4 refined, §4 and §5 framed as domain decomposition rather than deployment topology) so that [ADR 0006](adr/0006-modular-core.md) and this document say the same thing; **v1.9:** Lending (§4.5) extended for the full tenant spectrum — zero-approval decisioning tiers and solo-lender operation, early settlement with rebate, top-up/refinance, guarantors & collateral (savings lien via Ledger holds, NCR hook), credit life insurance, collections rails (e-mandate/GSI/payroll), and the disclosure pack as country-pack material — alongside [ADR 0013](adr/0013-lending-module-first.md); **v1.10 (2026-08-13):** §4.10 marked superseded by [ADR 0018](adr/0018-first-party-identity-service.md) (identity is first-party; Keycloak retired) and §3.4/§4 annotated for [ADR 0020](adr/0020-customer-and-product-become-deployables.md) (Customer and Product are deployables). No requirement changed — only the record of which decisions now override this document.
 **Audience:** Founding team, senior backend & infrastructure engineers, collaborators
 
 > **How to propose changes:** this document is the platform's source of truth,
@@ -102,7 +102,7 @@ The platform is country-agnostic at the core; each market is a **country pack**:
   - *Rust* — no identified fit; complexity cost unjustified by any current bottleneck. Revisit only if we ever build extreme-throughput protocol processing in-house (not planned).
 - Every additional language carries a standing tax (toolchains, duplicated shared libraries incl. auth/event/observability glue, review coverage, hiring) — exceptions must buy more than they cost.
 - **Database:** PostgreSQL (per service); analytical read models for reporting.
-- **Identity:** Keycloak, self-hosted (§4.10). **Event bus:** Kafka or equivalent. **Mesh/mTLS:** Istio/Linkerd when service count warrants (§6.2).
+- **Identity:** first-party, self-hosted (§4.10, [ADR 0018](adr/0018-first-party-identity-service.md)). **Event bus:** Kafka or equivalent. **Mesh/mTLS:** Istio/Linkerd when service count warrants (§6.2).
 - **Stack principle:** adopt commodity (identity, broker, observability), build differentiation (ledger, product engine, channels, compliance).
 
 ### 3.3 AI Architecture (designed in from day one)
@@ -158,7 +158,10 @@ The rules that follow:
 Domains are permanent; packaging is a decision that is expected to change.
 Moving a module into its own deployable is normal evolution, governed by
 recorded extraction triggers rather than by architectural taste — see
-[ADR 0006](adr/0006-modular-core.md).
+[ADR 0006](adr/0006-modular-core.md), amended by
+[ADR 0020](adr/0020-customer-and-product-become-deployables.md) — Customer and
+Product are deployables of their own now, which is ADR 0006's extraction triggers
+firing exactly as it said they would.
 
 ---
 
@@ -316,16 +319,25 @@ name describes the boundary of responsibility, not the boundary of deployment.
 
 ### 4.10 Identity & Access Service
 
-**Build decision: implemented on Keycloak (open-source, self-hosted), not built from scratch.** Rationale: authentication is commodity software where correctness is proven by a decade of hostile exposure and continuous CVE patching, not by review; self-hosting satisfies Nigerian data residency; zero per-user license cost preserves naira pricing economics; realms map naturally to multi-tenancy; Java base matches our stack; Red Hat-backed pedigree passes bank due diligence. Everything downstream speaks standard OIDC, so the provider remains swappable (low lock-in).
+> **Superseded by [ADR 0018](adr/0018-first-party-identity-service.md) (2026-08-09).**
+> Identity is a **first-party service** — `services/identity` — and Keycloak is
+> retired; none runs anywhere in the platform. The build decision below is kept
+> because its *rationale* is the honest record of why the platform tried to buy
+> this rather than build it, and ADR 0018 answers it point by point. Everything
+> else in this section — the token contract, the centralized permission
+> vocabulary with decentralized enforcement, maker-checker, tenant management —
+> is unchanged and is what the first-party service implements.
+
+**Build decision (superseded): implemented on Keycloak (open-source, self-hosted), not built from scratch.** Rationale: authentication is commodity software where correctness is proven by a decade of hostile exposure and continuous CVE patching, not by review; self-hosting satisfies Nigerian data residency; zero per-user license cost preserves naira pricing economics; realms map naturally to multi-tenancy; Java base matches our stack; Red Hat-backed pedigree passes bank due diligence. Everything downstream speaks standard OIDC, so the provider remains swappable (low lock-in).
 
 **Scope of the service:**
 - Staff, agents, and API consumers; OAuth2/OIDC provider issuing short-lived JWTs (5–15 min) + refresh tokens; JWTs carry user ID, tenant ID, roles/permissions, branch/agent scope, approval tier.
 - **Centralized definitions:** the master permission vocabulary, role templates per segment (Teller, Agent, Compliance Officer, MFB Admin, etc.), and role assignments live here. Enforcement is decentralized to owning services (see §6).
 - RBAC with fine-grained permissions; **maker-checker** required on: product changes, limit overrides, reversals, agent suspension, report submission, user/role changes. Thresholds configurable. Identity defines who can make/check; owning services enforce the workflow.
-- Tenant management: onboarding, feature flags, plan/entitlements, branding. Our tenant admin dashboard drives Keycloak via its admin API — tenants never see Keycloak directly.
+- Tenant management: onboarding, feature flags, plan/entitlements, branding. Our tenant admin dashboard drives the identity service's own API; a tenant never sees an identity provider directly.
 - Session policies, MFA (TOTP/SMS), IP allowlists for admin, full auth audit trail; per-tenant password/MFA/session policies.
 
-**Customization levels (in order of preference — never patch Keycloak source; forking forfeits the patch stream):**
+**Customization levels (superseded with the build decision above; the ordering is kept because it is the reasoning ADR 0018 had to answer):**
 1. *Configuration:* realms/tenancy model, policies, vocabulary and roles via admin API.
 2. *Token shaping:* custom claim mappers (tenant ID, branch scope, approval tier).
 3. *Wrapping:* our tenant admin dashboard + the shared authorization library (ours regardless of provider).
@@ -387,7 +399,7 @@ Three layers: edge authentication, service-to-service authentication, and domain
 
 ### 6.1 Layer 1 — Edge authentication (who is this human/app?)
 
-- All external traffic enters via the API Gateway. Identity Service (Keycloak) is the OAuth2/OIDC provider.
+- All external traffic enters via the API Gateway. The Identity Service is the OAuth2/OIDC provider (first-party, ADR 0018).
 - **Staff/tellers/agents:** password + MFA login → short-lived JWT access token (5–15 min) + refresh token. JWT claims: user ID, tenant ID, roles/permissions, branch/agent scope, approval tier.
 - **Tenant end-customer apps:** same flow; tokens scoped to that customer's own accounts only.
 - **API partners:** OAuth2 client-credentials; API key + secret → token with explicit scopes (e.g., `accounts:read`, `transfers:create`) granted and revocable by the tenant from their dashboard.
@@ -421,7 +433,7 @@ Internal services must not blindly trust each other; a compromised peripheral se
 1. **Short-lived tokens everywhere.** A stolen 10-minute token is an incident; a month-long one is a breach.
 2. **The Ledger trusts almost no one.** One writer (Orchestration); read-only for Reporting.
 3. **Deny by default.** New endpoint/role/service = no access until explicitly granted; every grant is itself an audited maker-checker event.
-4. **Never fork commodity security software.** Extend Keycloak via config, admin API, and SPIs only (§4.10).
+4. **Never fork commodity security software.** Superseded for identity by [ADR 0018](adr/0018-first-party-identity-service.md), which is the one place this rule was consciously overturned and argues why. It stands everywhere else.
 5. **Adopt commodity, build differentiation.** Identity, broker, observability are configured scaffolding; engineering effort concentrates on ledger, product engine, channels, compliance.
 
 ---

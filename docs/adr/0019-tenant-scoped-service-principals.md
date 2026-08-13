@@ -1,6 +1,8 @@
 # ADR 0019 — A service that reads tenant data holds a tenant-scoped service principal
 
-**Status:** Proposed · 2026-08-12
+**Status:** Accepted · 2026-08-12 · **implemented** — Core mints a tenant-scoped
+principal before reading customer or product data, and Notification before
+reading contact and consent
 **Relates to:** [ADR 0009](0009-service-to-service-identity.md) (service identity
 is mTLS and distinct from the principal — unchanged, and the reason this ADR is
 about the principal only), [ADR 0011](0011-first-consumer-before-phase-three.md)

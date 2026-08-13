@@ -1,6 +1,6 @@
 # Core — The UI Runway
 
-**Status:** AGREED v2.3 (2026-08-11) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
+**Status:** AGREED v2.4 (2026-08-11) — amendments via [`CHANGELOG.md`](CHANGELOG.md)
 
 The bridge between the APIs that exist and the client apps that will consume
 them ([ADR 0014](../../../docs/adr/0014-ui-runway.md)): identity made real,
@@ -15,9 +15,9 @@ feature this document must not fight.
 ## 1. Scope
 
 **In:** end-to-end jwt identity (login → token → Core → ledger) with the dev
-path locked out of deployed profiles; the realm template + provisioning
-script; the reverse proxy in compose; Core's ledger-read proxy endpoints; the
-Phase 0 list/search endpoints named in §3.
+path locked out of deployed profiles; tenant provisioning; the reverse proxy in
+compose; Core's ledger-read proxy endpoints; the Phase 0 list/search endpoints
+named in §3.
 
 **Out, deliberately:** partner APIs, API keys, per-consumer rate limits,
 webhooks, open-banking surfaces (Phase 4+, per ADR 0014's revisit clause);
@@ -27,17 +27,25 @@ runway adds *shapes over existing facts*, never new business rules.
 
 ## 2. Decisions
 
-**Login is Keycloak's, screens are ours, tokens are the only bridge.** The SPA
-authenticates against the tenant's realm (authorization code + PKCE — the
-public-client flow; no client secret in a browser), holds the short-lived
-access token, and sends it as a bearer to one origin. Nothing about the
-authenticated session lives server-side in Core: every request is judged on
+**Login is the identity service's, screens are ours, tokens are the only
+bridge.** The client posts credentials to the identity service, holds the
+short-lived access token, and sends it as a bearer to one origin. Nothing about
+the authenticated session lives server-side in Core: every request is judged on
 its token, exactly as `libs/auth` already judges it.
+
+> **Amended v2.4.** This decision originally read "login is Keycloak's" and
+> described an authorization-code + PKCE flow against a realm per tenant.
+> [ADR 0018](../../../docs/adr/0018-first-party-identity-service.md) retired
+> Keycloak and made identity first-party, which changes *who issues the token*
+> and nothing else about this runway: one origin, bearer-only, no server-side
+> session, every request judged on its token. The shape survived the swap
+> because it never depended on the issuer.
 
 **One origin, path-routed.** The reverse proxy serves the SPA's origin and
 routes `/api/core/*` → Core and `/api/ledger/*` → nothing, because that route
 must not exist: ledger reads clients need arrive as Core endpoints (ADR 0014).
-Keycloak is reachable on its own origin for the OIDC flow only.
+`/api/identity/*`, `/api/customer/*`, `/api/product/*` and
+`/api/notification/*` route to their own deployables through the same origin.
 
 **The ledger-read proxy is thin and shape-preserving.** Core's statement and
 balance endpoints forward to the ledger's read API through the existing
@@ -48,10 +56,10 @@ envelope conventions: the ledger's statement contract — period-bounded,
 `opening + Σ movements = closing`, final vs interim — is the product feature,
 and Core must not blur it.
 
-**Jwt-mode is CI-tested with a real realm.** A compose-profile integration
-lane starts Keycloak with the template realm, mints real tokens, and drives
-one money path end-to-end — so "works with real tokens"
-is a claim with a test, and the dev-mode lockout keeps its existing suite.
+**Jwt-mode is CI-tested with real tokens.** `JwtEndToEndTest` mints tokens the
+way the identity service does, drives one money path end-to-end, and proves the
+dev-mode lockout — so "works with real tokens" is a claim with a test rather than
+a hope.
 
 ## 3. The read audit — Phase 0 screens against today's surface
 
@@ -61,7 +69,7 @@ today. **Planned** rows are this design's implementation checklist and enter
 
 | Screen | Needs | State |
 |---|---|---|
-| Login | realm per tenant, PKCE flow | **Built** (`keycloak/realm-template.json` + `scripts/provision-tenant.sh`) |
+| Login | credentials → token, per tenant | **Built** (`POST /api/identity/v1/auth/login`; tenants seeded from the manifest by `bootstrap/seed-registries.sh`, ADR 0016) |
 | Teller till | open/close till, till list | **Built** (`/v1/tills…`) |
 | Teller till | the till's day: movements + running position | **Built** (`GET /v1/tills/{id}/activity?date=`) |
 | Customer search | find by name/external ref | **Built** (`GET /v1/customers?q=&page=`) |
@@ -88,15 +96,17 @@ pagination (`page` is an opaque cursor, never an offset).
 - **libs/auth**: outbound propagation (the recorded "not built yet" item) —
   forward-the-bearer plus service identity, consumed by Core's ledger client.
 - **Compose/CI**: reverse proxy service; jwt-mode profile where dev identity
-  refuses to start; the jwt integration lane with the template realm.
-- **keycloak/**: `fincore-dev` generalized into a versioned template;
-  provisioning script (realm + tenant-registry row, one loud failure).
+  refuses to start; the jwt integration lane.
+- **Tenant provisioning**: the manifest in `bootstrap/tenants.json` and the one
+  script that registers every tenant with every deployable that gates on a
+  registry (ADR 0016). A tenant missing from any one of them authenticates
+  perfectly and then meets a bodiless 404 everywhere.
 - **`api.md` / `testing.md`**: planned rows and suites move in as they become
   true, never before.
 
 ## 5. Testing
 
-The jwt lane (real realm, real tokens, one money path);
+The jwt lane (real tokens, one money path);
 propagation (ledger receives and attributes the originating principal;
 worker-context postings attribute the system principal); the proxy preserves
 the statement contract byte-for-byte including the interim label; every
