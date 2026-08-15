@@ -1,5 +1,6 @@
 package org.elyonar.fincore.core.app;
 
+import java.util.List;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -61,6 +62,30 @@ public class TenantRegistry {
                         + " ON CONFLICT (id) DO NOTHING",
                 tenantId, name, createdBy);
         offerTheStartingCurrencies(tenantId);
+    }
+
+    /**
+     * Every registered tenant has its starting currencies, whatever path registered it.
+     *
+     * <p>{@link #register} seeding them was the right fix for the defect described below and did
+     * not reach far enough, which only a real deployment revealed. {@code V2}'s seeding runs at
+     * startup while {@code platform.tenants} is still empty, so it seeds nobody; and
+     * {@code bootstrap/seed-registries.sh} registers tenants with {@code psql} INSERTs that never
+     * enter this class, so {@link #register} does not run either. The exact symptom the currency
+     * seeding exists to prevent — an empty dropdown, no internal account, no till, no customer
+     * account, and nothing reporting a fault — was therefore still reachable, and was in fact what
+     * a fresh deployment did.
+     *
+     * <p>Idempotent and additive, on every boot. It restores what is missing and never puts back a
+     * currency an institution deliberately withdrew on the Currencies screen — that is what the
+     * {@code ON CONFLICT DO NOTHING} in the statement below is protecting.
+     *
+     * @return how many tenants were converged, for the startup line that reports it
+     */
+    public int convergeStarterData() {
+        List<UUID> tenants = provision.queryForList("SELECT id FROM platform.tenants", UUID.class);
+        tenants.forEach(this::offerTheStartingCurrencies);
+        return tenants.size();
     }
 
     /**
