@@ -77,13 +77,13 @@ class LoginFlowTest {
     @Test
     @DisplayName("a temporary credential yields an action grant, not tokens; the change unlocks login")
     void forcedChangeThenLogin() {
-        LoginService.LoginOutcome first = login.login(username, TEMP, source, "fincore-web");
+        LoginService.LoginOutcome first = login.login(null, username, TEMP, source, "fincore-web");
         assertThat(first).isInstanceOf(Obliged.class);
         assertThat(((Obliged) first).action().reason()).isEqualTo("PASSWORD_CHANGE_REQUIRED");
 
-        login.changePassword(((Obliged) first).action().actionToken(), null, null, "brand-New-Password-9", source);
+        login.changePassword(null, ((Obliged) first).action().actionToken(), null, null, "brand-New-Password-9", source);
 
-        LoginService.LoginOutcome second = login.login(username, "brand-New-Password-9", source, "fincore-web");
+        LoginService.LoginOutcome second = login.login(null, username, "brand-New-Password-9", source, "fincore-web");
         assertThat(second).isInstanceOf(Granted.class);
         LoginService.TokenPair pair = ((Granted) second).tokens();
         assertThat(pair.accessToken()).isNotBlank();
@@ -93,43 +93,43 @@ class LoginFlowTest {
     @Test
     @DisplayName("the old temporary credential no longer works once changed")
     void temporaryCredentialDiesOnChange() {
-        String action = ((Obliged) login.login(username, TEMP, source, "web")).action().actionToken();
-        login.changePassword(action, null, null, "brand-New-Password-9", source);
-        assertThatThrownBy(() -> login.login(username, TEMP, source, "web")).isInstanceOf(AuthFailed.class);
+        String action = ((Obliged) login.login(null, username, TEMP, source, "web")).action().actionToken();
+        login.changePassword(null, action, null, null, "brand-New-Password-9", source);
+        assertThatThrownBy(() -> login.login(null, username, TEMP, source, "web")).isInstanceOf(AuthFailed.class);
     }
 
     @Test
     @DisplayName("unknown user and wrong password refuse identically — one code, no reason")
     void oneVoiceForEveryFailure() {
-        assertThatThrownBy(() -> login.login("nobody-" + username, "whatever", source, "web"))
+        assertThatThrownBy(() -> login.login(null, "nobody-" + username, "whatever", source, "web"))
                 .isInstanceOf(AuthFailed.class);
-        assertThatThrownBy(() -> login.login(username, "wrong-password", source, "web"))
+        assertThatThrownBy(() -> login.login(null, username, "wrong-password", source, "web"))
                 .isInstanceOf(AuthFailed.class);
     }
 
     @Test
     @DisplayName("a policy-violating new password is refused")
     void passwordPolicyEnforced() {
-        String action = ((Obliged) login.login(username, TEMP, source, "web")).action().actionToken();
-        assertThatThrownBy(() -> login.changePassword(action, null, null, "short", source))
+        String action = ((Obliged) login.login(null, username, TEMP, source, "web")).action().actionToken();
+        assertThatThrownBy(() -> login.changePassword(null, action, null, null, "short", source))
                 .isInstanceOf(PasswordPolicy.class);
     }
 
     @Test
     @DisplayName("refresh rotates; reusing a rotated token kills the whole family")
     void refreshRotationDetectsTheft() {
-        String action = ((Obliged) login.login(username, TEMP, source, "web")).action().actionToken();
-        login.changePassword(action, null, null, "brand-New-Password-9", source);
-        LoginService.TokenPair pair = ((Granted) login.login(username, "brand-New-Password-9", source, "web")).tokens();
+        String action = ((Obliged) login.login(null, username, TEMP, source, "web")).action().actionToken();
+        login.changePassword(null, action, null, null, "brand-New-Password-9", source);
+        LoginService.TokenPair pair = ((Granted) login.login(null, username, "brand-New-Password-9", source, "web")).tokens();
 
-        LoginService.TokenPair rotated = login.refresh(pair.refreshToken(), source, "web");
+        LoginService.TokenPair rotated = login.refresh(null, pair.refreshToken(), source, "web");
         assertThat(rotated.refreshToken()).isNotEqualTo(pair.refreshToken());
 
         // Replaying the rotated original is the theft signal: it revokes the family, so even the
         // legitimately rotated token stops working afterwards.
-        assertThatThrownBy(() -> login.refresh(pair.refreshToken(), source, "web"))
+        assertThatThrownBy(() -> login.refresh(null, pair.refreshToken(), source, "web"))
                 .isInstanceOf(org.elyonar.fincore.identity.api.IdentityErrors.TokenInvalid.class);
-        assertThatThrownBy(() -> login.refresh(rotated.refreshToken(), source, "web"))
+        assertThatThrownBy(() -> login.refresh(null, rotated.refreshToken(), source, "web"))
                 .isInstanceOf(org.elyonar.fincore.identity.api.IdentityErrors.TokenInvalid.class);
     }
 
@@ -138,11 +138,11 @@ class LoginFlowTest {
     void lockoutIsSilentAndNotAnOracle() {
         for (int i = 0; i < 6; i++) {
             try {
-                login.login(username, "wrong-" + i, source, "web");
+                login.login(null, username, "wrong-" + i, source, "web");
             } catch (AuthFailed ignored) {
                 // expected
             }
         }
-        assertThatThrownBy(() -> login.login(username, TEMP, source, "web")).isInstanceOf(AuthFailed.class);
+        assertThatThrownBy(() -> login.login(null, username, TEMP, source, "web")).isInstanceOf(AuthFailed.class);
     }
 }

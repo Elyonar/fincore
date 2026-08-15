@@ -84,11 +84,15 @@ public class DirectoryAuth {
             throw new IdentityErrors.TokenInvalid();
         }
 
-        // One deployed instance serves one institution (ADR 0018). A token minted for another
-        // instance cannot verify against these keys at all; this catches the remaining case of a
-        // registry that has drifted from the instance's configured tenant.
-        UUID instance = tenants.instanceTenant();
-        if (instance != null && !instance.equals(tenantId)) {
+        // A token minted for another instance cannot verify against these keys at all; what is left
+        // to catch is a token naming a tenant this instance does not serve.
+        //
+        // Asked as "is this tenant one of ours?" rather than "is this THE tenant?". The two are the
+        // same question on the instance-per-institution deployment ADR 0021 makes the default, and
+        // only the first one still answers on the multi-tenant sandbox ADR 0023 allows — where
+        // instanceTenant() is legitimately null and an identity check that reads it would have
+        // degraded to no check at all, silently, which is the failure mode worth spelling out.
+        if (!tenants.activeTenants().contains(tenantId)) {
             throw new IdentityErrors.TokenInvalid();
         }
 

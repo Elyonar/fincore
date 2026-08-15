@@ -22,14 +22,26 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/v1/auth")
 public class AuthController {
 
-    public record LoginRequest(String username, String password, String clientId) {}
+    /**
+     * {@code realm} names which institution is being authenticated (ADR 0023).
+     *
+     * <p>Optional, and on an instance serving one institution it stays unset forever — which is why
+     * it is a field on the request rather than a path segment or a subdomain. An instance holding
+     * several tenants has no single answer without it, and a login that omits it there is refused
+     * like any other login this service cannot complete.
+     */
+    public record LoginRequest(String realm, String username, String password, String clientId) {}
 
     public record PasswordRequest(
-            String actionToken, String username, String currentPassword, String newPassword) {}
+            String realm,
+            String actionToken,
+            String username,
+            String currentPassword,
+            String newPassword) {}
 
-    public record RefreshRequest(String refreshToken, String clientId) {}
+    public record RefreshRequest(String realm, String refreshToken, String clientId) {}
 
-    public record LogoutRequest(String refreshToken) {}
+    public record LogoutRequest(String realm, String refreshToken) {}
 
     /**
      * {@code tenantId} is optional (ADR 0019): omitted mints the tenantless token the ledger's
@@ -54,7 +66,11 @@ public class AuthController {
     @PostMapping("/login")
     public ResponseEntity<?> login(@RequestBody LoginRequest request, HttpServletRequest http) {
         LoginService.LoginOutcome outcome = login.login(
-                request.username(), request.password(), source(http), client(request.clientId()));
+                request.realm(),
+                request.username(),
+                request.password(),
+                source(http),
+                client(request.clientId()));
         return switch (outcome) {
             case LoginService.Granted granted -> ResponseEntity.ok(granted.tokens());
             case LoginService.Obliged obliged -> ResponseEntity.status(HttpStatus.ACCEPTED)
@@ -68,6 +84,7 @@ public class AuthController {
     @PostMapping("/password")
     public ResponseEntity<Void> password(@RequestBody PasswordRequest request, HttpServletRequest http) {
         login.changePassword(
+                request.realm(),
                 request.actionToken(),
                 request.username(),
                 request.currentPassword(),
@@ -79,13 +96,13 @@ public class AuthController {
     @PostMapping("/refresh")
     public ResponseEntity<LoginService.TokenPair> refresh(
             @RequestBody RefreshRequest request, HttpServletRequest http) {
-        return ResponseEntity.ok(
-                login.refresh(request.refreshToken(), source(http), client(request.clientId())));
+        return ResponseEntity.ok(login.refresh(
+                request.realm(), request.refreshToken(), source(http), client(request.clientId())));
     }
 
     @PostMapping("/logout")
     public ResponseEntity<Void> logout(@RequestBody LogoutRequest request, HttpServletRequest http) {
-        login.logout(request.refreshToken(), source(http));
+        login.logout(request.realm(), request.refreshToken(), source(http));
         return ResponseEntity.noContent().build();
     }
 
