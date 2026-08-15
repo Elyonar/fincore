@@ -172,7 +172,22 @@ public class ManifestSeeder implements ApplicationRunner {
 
     private void seed(JsonNode entry) throws IOException {
         UUID tenantId = UUID.fromString(entry.get("id").asText());
-        tenants.register(tenantId, entry.get("legalName").asText(), "bootstrap:manifest");
+        // The whole entry, not only the legal name. Every one of these fields has been validated
+        // here since ADR 0016 and discarded for want of a column; ADR 0023 gave them one, and a
+        // canvas that draws institutions needs to know what they are called and where they are.
+        tenants.register(
+                tenantId,
+                entry.get("legalName").asText(),
+                "bootstrap:manifest",
+                new Tenants.Profile(
+                        tenantId,
+                        entry.get("realm").asText(),
+                        entry.get("legalName").asText(),
+                        entry.get("displayName").asText(),
+                        entry.get("countryCode").asText(),
+                        entry.get("segment").asText(),
+                        entry.get("webOrigin").asText(),
+                        null));
 
         JsonNode admin = entry.get("superAdmin");
         String username = admin.get("username").asText();

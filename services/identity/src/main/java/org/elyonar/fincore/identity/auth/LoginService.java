@@ -75,8 +75,15 @@ public class LoginService {
         this.properties = properties;
     }
 
-    public LoginOutcome login(String username, String password, String source, String clientId) {
-        UUID tenantId = tenants.instanceTenant();
+    /**
+     * @param realm which institution is being authenticated, or null on an instance serving one
+     *     (ADR 0023). An unknown realm refuses in the one voice rather than saying so: telling an
+     *     unauthenticated caller that the institution does not exist is an enumeration oracle, and
+     *     a wrong realm is a wrong credential as far as this endpoint is concerned.
+     */
+    public LoginOutcome login(
+            String realm, String username, String password, String source, String clientId) {
+        UUID tenantId = tenants.tenantFor(realm);
         if (tenantId == null || username == null || username.isBlank() || password == null) {
             passwords.verifyDecoy(password == null ? "" : password);
             throw new AuthFailed();
@@ -170,7 +177,12 @@ public class LoginService {
      * password change is the user's own theft response, and stolen refresh tokens die with it.
      */
     public void changePassword(
-            String actionToken, String username, String currentPassword, String newPassword, String source) {
+            String realm,
+            String actionToken,
+            String username,
+            String currentPassword,
+            String newPassword,
+            String source) {
         if (actionToken != null && !actionToken.isBlank()) {
             JWTClaimsSet claims = verifier.verify(actionToken).orElseThrow(TokenInvalid::new);
             String act;
@@ -194,8 +206,10 @@ public class LoginService {
         }
 
         // Current-credential mode is a login in every respect that matters to an attacker, so it
-        // pays the same costs: throttle, decoy, one voice.
-        UUID tenantId = tenants.instanceTenant();
+        // pays the same costs: throttle, decoy, one voice — and it names its institution the same
+        // way. The action-token branch above does not, because the token already carries the
+        // tenant it was minted for and a realm beside it could only disagree with it.
+        UUID tenantId = tenants.tenantFor(realm);
         if (tenantId == null || username == null || username.isBlank() || currentPassword == null) {
             passwords.verifyDecoy(currentPassword == null ? "" : currentPassword);
             throw new AuthFailed();
@@ -223,8 +237,8 @@ public class LoginService {
         });
     }
 
-    public TokenPair refresh(String refreshToken, String source, String clientId) {
-        UUID tenantId = tenants.instanceTenant();
+    public TokenPair refresh(String realm, String refreshToken, String source, String clientId) {
+        UUID tenantId = tenants.tenantFor(realm);
         if (tenantId == null || refreshToken == null || refreshToken.isBlank()) {
             throw new TokenInvalid();
         }
@@ -259,8 +273,8 @@ public class LoginService {
         return granted;
     }
 
-    public void logout(String refreshToken, String source) {
-        UUID tenantId = tenants.instanceTenant();
+    public void logout(String realm, String refreshToken, String source) {
+        UUID tenantId = tenants.tenantFor(realm);
         if (tenantId == null || refreshToken == null || refreshToken.isBlank()) {
             return; // revoking nothing is not an error, and not an oracle either
         }
